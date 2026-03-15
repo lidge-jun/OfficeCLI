@@ -39,10 +39,59 @@ public static class FormulaParser
 
     public static OpenXmlElement Parse(string latex)
     {
+        // Preprocess: convert {a \over b} to \frac{a}{b}
+        latex = RewriteOver(latex);
         var tokens = Tokenize(latex);
         var pos = 0;
         var nodes = ParseGroup(tokens, ref pos, false);
         return WrapInOfficeMath(nodes);
+    }
+
+    /// <summary>
+    /// Rewrite LaTeX old-style {numerator \over denominator} to \frac{numerator}{denominator}.
+    /// Handles nested braces correctly.
+    /// </summary>
+    private static string RewriteOver(string latex)
+    {
+        while (true)
+        {
+            var idx = latex.IndexOf("\\over");
+            if (idx < 0) break;
+
+            // Find the opening brace that contains \over
+            int braceStart = -1;
+            int depth = 0;
+            for (int i = idx - 1; i >= 0; i--)
+            {
+                if (latex[i] == '}') depth++;
+                else if (latex[i] == '{')
+                {
+                    if (depth == 0) { braceStart = i; break; }
+                    depth--;
+                }
+            }
+
+            // Find the closing brace
+            int braceEnd = -1;
+            depth = 0;
+            for (int i = idx + 5; i < latex.Length; i++)
+            {
+                if (latex[i] == '{') depth++;
+                else if (latex[i] == '}')
+                {
+                    if (depth == 0) { braceEnd = i; break; }
+                    depth--;
+                }
+            }
+
+            if (braceStart < 0 || braceEnd < 0)
+                break; // malformed, skip
+
+            var num = latex.Substring(braceStart + 1, idx - braceStart - 1).Trim();
+            var den = latex.Substring(idx + 5, braceEnd - idx - 5).Trim();
+            latex = latex.Substring(0, braceStart) + $"\\frac{{{num}}}{{{den}}}" + latex.Substring(braceEnd + 1);
+        }
+        return latex;
     }
 
     public static OpenXmlElement ParseAsDisplayParagraph(string latex)
@@ -1036,6 +1085,17 @@ public static class FormulaParser
                     new M.Base(ExtractChildren(baseArg))
                 );
             }
+            case "cancel":
+            case "bcancel":
+            case "xcancel":
+            case "cancelto":
+            {
+                // Feynman slash notation: \cancel{D} → D followed by combining long solidus overlay (U+0338)
+                var cancelArg = ParseBracedArg(tokens, ref pos);
+                var cancelText = ExtractText(cancelArg);
+                return MakeMathRun(cancelText + "\u0338");
+            }
+
             default:
                 // Unknown command: render as text with backslash
                 return MakeMathRun($"\\{cmd}");
@@ -1276,6 +1336,10 @@ public static class FormulaParser
         "ast" => "∗",
         "star" => "⋆",
         "circ" => "∘",
+        "oplus" => "⊕",
+        "ominus" => "⊖",
+        "otimes" => "⊗",
+        "odot" => "⊙",
         "bullet" => "∙",
         // Relations
         "leq" or "le" => "≤",

@@ -1963,7 +1963,21 @@ public class PowerPointHandler : IDocumentHandler
                     new NonVisualShapeDrawingProperties(),
                     new ApplicationNonVisualDrawingProperties()
                 );
-                eqShape.ShapeProperties = new ShapeProperties();
+                var eqSpPr = new ShapeProperties();
+                {
+                    long eqX = 838200, eqY = 2743200;        // default: ~2.33cm, ~7.62cm
+                    long eqCx = 10515600, eqCy = 2743200;    // default: ~29.21cm, ~7.62cm
+                    if (properties.TryGetValue("x", out var exStr)) eqX = ParseEmu(exStr);
+                    if (properties.TryGetValue("y", out var eyStr)) eqY = ParseEmu(eyStr);
+                    if (properties.TryGetValue("width", out var ewStr)) eqCx = ParseEmu(ewStr);
+                    if (properties.TryGetValue("height", out var ehStr)) eqCy = ParseEmu(ehStr);
+                    eqSpPr.Transform2D = new Drawing.Transform2D
+                    {
+                        Offset = new Drawing.Offset { X = eqX, Y = eqY },
+                        Extents = new Drawing.Extents { Cx = eqCx, Cy = eqCy }
+                    };
+                }
+                eqShape.ShapeProperties = eqSpPr;
 
                 // Create text body with math paragraph
                 var bodyProps = new Drawing.BodyProperties();
@@ -1993,7 +2007,18 @@ public class PowerPointHandler : IDocumentHandler
 
                 eqShape.TextBody = new TextBody(bodyProps, listStyle, drawingPara);
                 eqShapeTree.AppendChild(eqShape);
-                GetSlide(eqSlidePart).Save();
+
+                // Ensure slide root has xmlns:a14 and mc:Ignorable="a14" so PowerPoint accepts the equation
+                var eqSlide = GetSlide(eqSlidePart);
+                eqSlide.AddNamespaceDeclaration("a14", "http://schemas.microsoft.com/office/drawing/2010/main");
+                eqSlide.AddNamespaceDeclaration("mc", "http://schemas.openxmlformats.org/markup-compatibility/2006");
+                var currentIgnorable = eqSlide.MCAttributes?.Ignorable?.Value ?? "";
+                if (!currentIgnorable.Contains("a14"))
+                {
+                    var newVal = string.IsNullOrEmpty(currentIgnorable) ? "a14" : $"{currentIgnorable} a14";
+                    eqSlide.MCAttributes = new MarkupCompatibilityAttributes { Ignorable = newVal };
+                }
+                eqSlide.Save();
 
                 var eqShapeCount = eqShapeTree.Elements<Shape>().Count();
                 return $"/slide[{eqSlideIdx}]/shape[{eqShapeCount}]";

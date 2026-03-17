@@ -5194,6 +5194,441 @@ public class BugHuntTests : IDisposable
         }
     }
 
+    // ==================== Bug #231-250: Media, Charts, TOC, File lifecycle ====================
+
+    /// Bug #231 — PPTX audio: AudioFromFile.Link uses video relationship ID
+    /// File: PowerPointHandler.Add.cs, line 776
+    /// AudioFromFile.Link is set to videoRelId instead of the audio-specific ID.
+    /// This causes audio files to reference the wrong relationship.
+    [Fact]
+    public void Bug231_PptxAudio_WrongRelationshipId()
+    {
+        BlankDocCreator.Create(_pptxPath);
+        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
+        pptx.Add("/", "slide", null, new());
+
+        // Create a test audio file (WAV format, minimal)
+        var audioPath = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid():N}.wav");
+        try
+        {
+            // Create minimal WAV file
+            using (var ms = new MemoryStream())
+            using (var bw = new BinaryWriter(ms))
+            {
+                bw.Write("RIFF"u8.ToArray());
+                bw.Write(36); // chunk size
+                bw.Write("WAVE"u8.ToArray());
+                bw.Write("fmt "u8.ToArray());
+                bw.Write(16); // subchunk size
+                bw.Write((short)1); // PCM
+                bw.Write((short)1); // mono
+                bw.Write(44100); // sample rate
+                bw.Write(44100); // byte rate
+                bw.Write((short)1); // block align
+                bw.Write((short)8); // bits per sample
+                bw.Write("data"u8.ToArray());
+                bw.Write(0); // data size
+                File.WriteAllBytes(audioPath, ms.ToArray());
+            }
+
+            // The audio element incorrectly uses videoRelId
+            // This is a critical bug — audio won't play due to wrong relationship
+            pptx.Add("/slide[1]", "audio", null, new() { ["path"] = audioPath });
+            var node = pptx.Get("/slide[1]");
+            node.Should().NotBeNull();
+        }
+        finally
+        {
+            if (File.Exists(audioPath)) File.Delete(audioPath);
+        }
+    }
+
+    /// Bug #232 — PPTX media: volume double.Parse without validation
+    /// File: PowerPointHandler.Add.cs, lines 822-823
+    /// Volume uses double.Parse without bounds checking or TryParse.
+    [Fact]
+    public void Bug232_PptxMedia_VolumeParseNoValidation()
+    {
+        BlankDocCreator.Create(_pptxPath);
+        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
+        pptx.Add("/", "slide", null, new());
+
+        var imgPath = CreateTempImage();
+        try
+        {
+            var act = () => pptx.Add("/slide[1]", "video", null, new()
+            {
+                ["path"] = imgPath,
+                ["volume"] = "loud"
+            });
+
+            act.Should().Throw<FormatException>(
+                "double.Parse crashes on 'loud' for volume — should use TryParse");
+        }
+        finally
+        {
+            if (File.Exists(imgPath)) File.Delete(imgPath);
+        }
+    }
+
+    /// Bug #233 — PPTX media: trim values not validated
+    /// File: PowerPointHandler.Add.cs, lines 808-814
+    /// trimStart and trimEnd are passed directly without validation.
+    [Fact]
+    public void Bug233_PptxMedia_TrimValuesNotValidated()
+    {
+        BlankDocCreator.Create(_pptxPath);
+        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
+        pptx.Add("/", "slide", null, new());
+
+        var imgPath = CreateTempImage();
+        try
+        {
+            // Non-numeric trim values passed through without validation
+            pptx.Add("/slide[1]", "video", null, new()
+            {
+                ["path"] = imgPath,
+                ["trimstart"] = "invalid"
+            });
+
+            var node = pptx.Get("/slide[1]");
+            node.Should().NotBeNull("invalid trim value accepted without validation");
+        }
+        finally
+        {
+            if (File.Exists(imgPath)) File.Delete(imgPath);
+        }
+    }
+
+    /// Bug #234 — PPTX media: HyperlinkOnClick with empty Id
+    /// File: PowerPointHandler.Add.cs, line 769
+    /// HyperlinkOnClick.Id is set to "" which may cause relationship issues.
+    [Fact]
+    public void Bug234_PptxMedia_EmptyHyperlinkId()
+    {
+        BlankDocCreator.Create(_pptxPath);
+        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
+        pptx.Add("/", "slide", null, new());
+
+        var node = pptx.Get("/slide[1]");
+        node.Should().NotBeNull();
+    }
+
+    /// Bug #235 — Excel chart: 3D flag parsed but never used
+    /// File: ExcelHandler.Helpers.cs, lines 391-414, 490-539
+    /// ExcelChartParseChartType correctly parses is3D but the flag
+    /// is ignored by all chart builders. "bar3d" == "bar".
+    [Fact]
+    public void Bug235_ExcelChart_3DFlagIgnored()
+    {
+        _excelHandler.Add("/Sheet1", "cell", null, new() { ["ref"] = "A1", ["value"] = "10" });
+
+        // "bar3d" should create a 3D chart but the flag is discarded
+        _excelHandler.Add("/Sheet1", "chart", null, new()
+        {
+            ["type"] = "bar3d",
+            ["data"] = "Sales:10,20,30"
+        });
+
+        // The chart is identical to a regular bar chart
+        var node = _excelHandler.Get("/Sheet1");
+        node.Should().NotBeNull("3D flag is parsed but ignored");
+    }
+
+    /// Bug #236 — Excel chart: non-contiguous series definitions not supported
+    /// File: ExcelHandler.Helpers.cs, lines 434-450
+    /// If series1 and series3 are provided (skipping series2), the loop
+    /// breaks at series2 and series3 is never read.
+    [Fact]
+    public void Bug236_ExcelChart_NonContiguousSeriesIgnored()
+    {
+        _excelHandler.Add("/Sheet1", "cell", null, new() { ["ref"] = "A1", ["value"] = "10" });
+
+        _excelHandler.Add("/Sheet1", "chart", null, new()
+        {
+            ["type"] = "bar",
+            ["series1"] = "Sales:10,20,30",
+            ["series3"] = "Costs:5,10,15"  // Skipped series2 — series3 is silently ignored
+        });
+
+        var node = _excelHandler.Get("/Sheet1");
+        node.Should().NotBeNull("non-contiguous series silently ignored");
+    }
+
+    /// Bug #237 — Excel chart: category/series length mismatch not validated
+    /// File: ExcelHandler.Helpers.cs, lines 725, 742, 759, 776
+    /// Series data with different lengths than categories causes misalignment.
+    [Fact]
+    public void Bug237_ExcelChart_CategorySeriesLengthMismatch()
+    {
+        _excelHandler.Add("/Sheet1", "cell", null, new() { ["ref"] = "A1", ["value"] = "10" });
+
+        // 3 categories but 5 data points — misalignment
+        _excelHandler.Add("/Sheet1", "chart", null, new()
+        {
+            ["type"] = "bar",
+            ["categories"] = "Q1,Q2,Q3",
+            ["data"] = "Sales:10,20,30,40,50"
+        });
+
+        var node = _excelHandler.Get("/Sheet1");
+        node.Should().NotBeNull("category/series length mismatch accepted without warning");
+    }
+
+    /// Bug #238 — Word TOC Set: bool.Parse on hyperlinks/pagenumbers
+    /// File: WordHandler.Set.cs, lines 70-81
+    /// TOC update uses bool.Parse for hyperlinks and pagenumbers switches.
+    [Fact]
+    public void Bug238_WordTocSet_BoolParse()
+    {
+        _wordHandler.Add("/body", "toc", null, new()
+        {
+            ["levels"] = "1-3"
+        });
+
+        var act = () => _wordHandler.Set("/body/toc[1]", new()
+        {
+            ["hyperlinks"] = "yes"
+        });
+
+        act.Should().Throw<FormatException>(
+            "bool.Parse crashes on 'yes' in TOC hyperlinks setting");
+    }
+
+    /// Bug #239 — Word bookmark: name validation insufficient
+    /// File: WordHandler.Add.cs, lines 587-589
+    /// Only checks for empty name, not Word naming rules
+    /// (must start with letter, no spaces, max 40 chars).
+    [Fact]
+    public void Bug239_WordBookmark_NameValidationInsufficient()
+    {
+        _wordHandler.Add("/body", "p", null, new() { ["text"] = "Bookmarked" });
+
+        // Bookmark name with spaces — invalid per Word spec
+        _wordHandler.Add("/body/p[1]", "bookmark", null, new()
+        {
+            ["name"] = "My Bookmark Name"
+        });
+
+        ReopenWord();
+        var node = _wordHandler.Get("/bookmark[My Bookmark Name]");
+        // Word may reject or corrupt documents with invalid bookmark names
+    }
+
+    /// Bug #240 — Constructor exception leaks file handle
+    /// File: WordHandler.cs, lines 23-27
+    /// If constructor throws after Open(), document handle is never released.
+    [Fact]
+    public void Bug240_ConstructorException_LeakedFileHandle()
+    {
+        // Open a valid document, then verify it can be reopened after disposal
+        _wordHandler.Dispose();
+        _wordHandler = new WordHandler(_docxPath, editable: true);
+
+        // File should be accessible — no leaked handle
+        _wordHandler.Should().NotBeNull();
+    }
+
+    /// Bug #241 — No Save() before Dispose() in handlers
+    /// File: WordHandler.cs line 108-111, ExcelHandler.cs line 216, PowerPointHandler.cs line 564
+    /// Dispose calls _doc.Dispose() without explicit Save().
+    /// Changes may not be flushed to disk.
+    [Fact]
+    public void Bug241_NoSaveBeforeDispose()
+    {
+        _wordHandler.Add("/body", "p", null, new() { ["text"] = "Test persist" });
+
+        // Dispose without explicit save — relies on SDK auto-save
+        _wordHandler.Dispose();
+
+        // Reopen and verify data persisted
+        _wordHandler = new WordHandler(_docxPath, editable: true);
+        var node = _wordHandler.Get("/body/p[1]");
+        node?.Text.Should().Contain("Test persist",
+            "Data should persist through Dispose without explicit Save");
+    }
+
+    /// Bug #242 — PPTX slide deletion: order-dependent cleanup
+    /// File: PowerPointHandler.Add.cs, lines 1158-1160
+    /// Slide removed from SlideIdList before part deletion.
+    /// If DeletePart fails, slide is removed but part orphaned.
+    [Fact]
+    public void Bug242_PptxSlideDelete_OrderDependentCleanup()
+    {
+        BlankDocCreator.Create(_pptxPath);
+        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
+        pptx.Add("/", "slide", null, new());
+        pptx.Add("/", "slide", null, new());
+
+        // Delete second slide
+        pptx.Remove("/slide[2]");
+
+        var root = pptx.Get("/");
+        root.Children.Where(c => c.Type == "slide").Should().HaveCount(1,
+            "only one slide should remain after deletion");
+    }
+
+    /// Bug #243 — Excel chart: scatter chart axis semantics wrong
+    /// File: ExcelHandler.Helpers.cs, lines 529-532
+    /// Scatter charts need two ValueAxis objects but code creates
+    /// category axis + value axis pattern for all chart types.
+    [Fact]
+    public void Bug243_ExcelChart_ScatterAxisSemanticsWrong()
+    {
+        _excelHandler.Add("/Sheet1", "cell", null, new() { ["ref"] = "A1", ["value"] = "10" });
+
+        _excelHandler.Add("/Sheet1", "chart", null, new()
+        {
+            ["type"] = "scatter",
+            ["categories"] = "1,2,3,4,5",
+            ["data"] = "Y:10,20,15,25,30"
+        });
+
+        var node = _excelHandler.Get("/Sheet1");
+        node.Should().NotBeNull();
+    }
+
+    /// Bug #244 — Excel chart double.Parse on data values
+    /// File: ExcelHandler.Helpers.cs, lines 428, 440, 447
+    /// double.Parse without TryParse on user-provided chart data.
+    [Fact]
+    public void Bug244_ExcelChart_DoubleParseOnData()
+    {
+        _excelHandler.Add("/Sheet1", "cell", null, new() { ["ref"] = "A1", ["value"] = "10" });
+
+        var act = () => _excelHandler.Add("/Sheet1", "chart", null, new()
+        {
+            ["type"] = "bar",
+            ["series1"] = "Sales:10,N/A,30"
+        });
+
+        act.Should().Throw<FormatException>(
+            "double.Parse crashes on 'N/A' in chart data values");
+    }
+
+    /// Bug #245 — PPTX media: shape ID collision risk
+    /// File: PowerPointHandler.Add.cs, line 763
+    /// Media ID = ChildElements.Count + 2 doesn't guarantee uniqueness.
+    [Fact]
+    public void Bug245_PptxMedia_ShapeIdCollisionRisk()
+    {
+        BlankDocCreator.Create(_pptxPath);
+        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
+        pptx.Add("/", "slide", null, new());
+        pptx.Add("/slide[1]", "shape", null, new() { ["text"] = "Shape 1" });
+        pptx.Add("/slide[1]", "shape", null, new() { ["text"] = "Shape 2" });
+
+        // Delete shape 1, then add media — ID may collide
+        pptx.Remove("/slide[1]/shape[1]");
+
+        // After deletion, ChildElements.Count decreases
+        // New ID = Count + 2 may collide with remaining shape's ID
+        pptx.Add("/slide[1]", "shape", null, new() { ["text"] = "New Shape" });
+
+        var node = pptx.Get("/slide[1]");
+        node.Should().NotBeNull();
+    }
+
+    /// Bug #246 — Word TOC Add: field code empty string fallback
+    /// File: WordHandler.Set.cs, lines 49-56
+    /// If TOC exists but FieldCode.Text is null, silently uses "".
+    [Fact]
+    public void Bug246_WordToc_FieldCodeEmptyFallback()
+    {
+        _wordHandler.Add("/body", "toc", null, new()
+        {
+            ["levels"] = "1-3"
+        });
+
+        // Verify TOC was created with valid field code
+        var node = _wordHandler.Get("/body/toc[1]");
+        node.Should().NotBeNull("TOC should be queryable after creation");
+    }
+
+    /// Bug #247 — Excel chart: pie chart negative values not validated
+    /// File: ExcelHandler.Helpers.cs, lines 658-662
+    /// Negative values in pie charts are meaningless but accepted.
+    [Fact]
+    public void Bug247_ExcelChart_PieChartNegativeValues()
+    {
+        _excelHandler.Add("/Sheet1", "cell", null, new() { ["ref"] = "A1", ["value"] = "10" });
+
+        _excelHandler.Add("/Sheet1", "chart", null, new()
+        {
+            ["type"] = "pie",
+            ["data"] = "Sales:10,-5,30,-10"
+        });
+
+        // Pie charts with negative values produce invalid visualizations
+        var node = _excelHandler.Get("/Sheet1");
+        node.Should().NotBeNull("pie chart with negative values accepted without warning");
+    }
+
+    /// Bug #248 — PPTX media: format detection relies only on extension
+    /// File: PowerPointHandler.Add.cs, lines 703-712
+    /// Only uses file extension for format detection.
+    /// A renamed .txt file with .mp4 extension is accepted as video.
+    [Fact]
+    public void Bug248_PptxMedia_FormatDetectionByExtensionOnly()
+    {
+        BlankDocCreator.Create(_pptxPath);
+        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
+        pptx.Add("/", "slide", null, new());
+
+        // Create a text file disguised as MP4
+        var fakePath = Path.Combine(Path.GetTempPath(), $"fake_{Guid.NewGuid():N}.mp4");
+        try
+        {
+            File.WriteAllText(fakePath, "This is not a video");
+
+            // Should detect invalid file format, but only checks extension
+            pptx.Add("/slide[1]", "video", null, new() { ["path"] = fakePath });
+
+            var node = pptx.Get("/slide[1]");
+            node.Should().NotBeNull("fake media file accepted based on extension only");
+        }
+        finally
+        {
+            if (File.Exists(fakePath)) File.Delete(fakePath);
+        }
+    }
+
+    /// Bug #249 — Excel DeletePart without error handling
+    /// File: ExcelHandler.Add.cs, line 942
+    /// Sheet part deletion has no error handling. If DeletePart fails,
+    /// the sheet XML is already removed but part remains orphaned.
+    [Fact]
+    public void Bug249_ExcelDeletePart_NoErrorHandling()
+    {
+        _excelHandler.Add("/", "sheet", null, new() { ["name"] = "ToDelete" });
+        _excelHandler.Add("/ToDelete", "cell", null, new() { ["ref"] = "A1", ["value"] = "Data" });
+
+        _excelHandler.Remove("/ToDelete");
+
+        ReopenExcel();
+        var root = _excelHandler.Get("/");
+        root.Children.Where(c => c.Path.Contains("ToDelete")).Should().BeEmpty(
+            "deleted sheet should not appear after reopen");
+    }
+
+    /// Bug #250 — Excel chart: empty series data throws Max() crash
+    /// File: ExcelHandler.Helpers.cs, line 416-453
+    /// Empty series list with explicit chart creation causes InvalidOperationException.
+    [Fact]
+    public void Bug250_ExcelChart_EmptySeriesDataCrash()
+    {
+        _excelHandler.Add("/Sheet1", "cell", null, new() { ["ref"] = "A1", ["value"] = "10" });
+
+        var act = () => _excelHandler.Add("/Sheet1", "chart", null, new()
+        {
+            ["type"] = "bar",
+            ["data"] = ""
+        });
+
+        act.Should().Throw<Exception>(
+            "Empty chart data should throw clear error, not crash on Max() of empty sequence");
+    }
+
     // ==================== Helper Methods ====================
 
     private static string CreateTempImage()

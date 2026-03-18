@@ -369,6 +369,7 @@ public partial class WordHandler
             case "table" or "tbl":
                 var table = new Table();
                 var tblProps = new TableProperties(
+                    new TableCellSpacing { Width = "0", Type = TableWidthUnitValues.Dxa },
                     new TableBorders(
                         new TopBorder { Val = BorderValues.Single, Size = 4 },
                         new LeftBorder { Val = BorderValues.Single, Size = 4 },
@@ -1312,6 +1313,115 @@ public partial class WordHandler
                 return $"/footer[{fIdx + 1}]";
             }
 
+            case "watermark":
+            {
+                var wmText = properties.GetValueOrDefault("text", "DRAFT");
+                var wmColor = properties.TryGetValue("color", out var wmcVal)
+                    ? wmcVal.TrimStart('#').ToLowerInvariant() : "silver";
+                var wmFont = properties.GetValueOrDefault("font", "Calibri");
+                var wmSize = properties.GetValueOrDefault("size", "1pt");
+                if (!wmSize.EndsWith("pt")) wmSize += "pt";
+                var wmRotation = properties.GetValueOrDefault("rotation", "315");
+                var wmOpacity = properties.TryGetValue("opacity", out var wmoVal) ? wmoVal : ".5";
+                var wmWidth = properties.GetValueOrDefault("width", "415pt");
+                var wmHeight = properties.GetValueOrDefault("height", "207.5pt");
+
+                var mainPartWM = _doc.MainDocumentPart!;
+
+                // Remove existing watermarks first
+                RemoveWatermarkHeaders();
+
+                // Create 3 headers (default, first, even) — same as POI's createWatermark()
+                var headerTypes = new[] {
+                    HeaderFooterValues.Default,
+                    HeaderFooterValues.First,
+                    HeaderFooterValues.Even
+                };
+
+                for (int wi = 0; wi < 3; wi++)
+                {
+                    var wmHeaderPart = mainPartWM.AddNewPart<HeaderPart>();
+                    var wmIdx = wi + 1;
+
+                    // Build VML watermark XML (follows POI's getWatermarkParagraph template)
+                    var vmlXml = $@"<v:shapetype id=""_x0000_t136"" coordsize=""1600,21600"" o:spt=""136"" adj=""10800"" path=""m@7,0l@8,0m@5,21600l@6,21600e"" xmlns:v=""urn:schemas-microsoft-com:vml"" xmlns:o=""urn:schemas-microsoft-com:office:office"">
+  <v:formulas>
+    <v:f eqn=""sum #0 0 10800""/><v:f eqn=""prod #0 2 1""/><v:f eqn=""sum 21600 0 @1""/>
+    <v:f eqn=""sum 0 0 @2""/><v:f eqn=""sum 21600 0 @3""/><v:f eqn=""if @0 @3 0""/>
+    <v:f eqn=""if @0 21600 @1""/><v:f eqn=""if @0 0 @2""/><v:f eqn=""if @0 @4 21600""/>
+    <v:f eqn=""mid @5 @6""/><v:f eqn=""mid @8 @5""/><v:f eqn=""mid @7 @8""/>
+    <v:f eqn=""mid @6 @7""/><v:f eqn=""sum @6 0 @5""/>
+  </v:formulas>
+  <v:path textpathok=""t"" o:connecttype=""custom"" o:connectlocs=""@9,0;@10,10800;@11,21600;@12,10800"" o:connectangles=""270,180,90,0""/>
+  <v:textpath on=""t"" fitshape=""t""/>
+  <v:handles><v:h position=""#0,bottomRight"" xrange=""6629,14971""/></v:handles>
+  <o:lock v:ext=""edit"" text=""t"" shapetype=""t""/>
+</v:shapetype>
+<v:shape id=""PowerPlusWaterMarkObject{wmIdx}"" o:spid=""_x0000_s102{4 + wmIdx}"" type=""#_x0000_t136"" style=""position:absolute;margin-left:0;margin-top:0;width:{wmWidth};height:{wmHeight};rotation:{wmRotation};z-index:-251654144;mso-wrap-edited:f;mso-position-horizontal:center;mso-position-horizontal-relative:margin;mso-position-vertical:center;mso-position-vertical-relative:margin"" o:allowincell=""f"" fillcolor=""{wmColor}"" stroked=""f"" xmlns:v=""urn:schemas-microsoft-com:vml"" xmlns:o=""urn:schemas-microsoft-com:office:office"">
+  <v:fill opacity=""{wmOpacity}""/>
+  <v:textpath style=""font-family:&quot;{System.Security.SecurityElement.Escape(wmFont)}&quot;;font-size:{wmSize}"" string=""{System.Security.SecurityElement.Escape(wmText)}""/>
+</v:shape>";
+
+                    // Build header XML with SDT wrapper (docPartGallery=Watermarks)
+                    var headerXml = $@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
+<w:hdr xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+       xmlns:r=""http://schemas.openxmlformats.org/officeDocument/2006/relationships""
+       xmlns:w10=""urn:schemas-microsoft-com:office:word"">
+  <w:sdt>
+    <w:sdtPr>
+      <w:id w:val=""{-1000 - wmIdx}""/>
+      <w:docPartObj>
+        <w:docPartGallery w:val=""Watermarks""/>
+        <w:docPartUnique/>
+      </w:docPartObj>
+    </w:sdtPr>
+    <w:sdtContent>
+      <w:p>
+        <w:pPr><w:pStyle w:val=""Header""/></w:pPr>
+        <w:r>
+          <w:rPr><w:noProof/></w:rPr>
+          <w:pict>{vmlXml}</w:pict>
+        </w:r>
+      </w:p>
+    </w:sdtContent>
+  </w:sdt>
+</w:hdr>";
+
+                    using (var stream = wmHeaderPart.GetStream(System.IO.FileMode.Create))
+                    using (var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8))
+                        writer.Write(headerXml);
+
+                    // Link header to section properties
+                    var wmBody = mainPartWM.Document!.Body!;
+                    var wmSectPr = wmBody.Elements<SectionProperties>().LastOrDefault()
+                        ?? wmBody.AppendChild(new SectionProperties());
+
+                    // Remove existing header reference of same type
+                    var existingRef = wmSectPr.Elements<HeaderReference>()
+                        .FirstOrDefault(r => r.Type?.Value == headerTypes[wi]);
+                    existingRef?.Remove();
+
+                    wmSectPr.PrependChild(new HeaderReference
+                    {
+                        Id = mainPartWM.GetIdOfPart(wmHeaderPart),
+                        Type = headerTypes[wi]
+                    });
+                }
+
+                // Enable even/odd page headers and title page
+                var wmSettingsPart = mainPartWM.DocumentSettingsPart
+                    ?? mainPartWM.AddNewPart<DocumentSettingsPart>();
+                wmSettingsPart.Settings ??= new Settings();
+                if (wmSettingsPart.Settings.GetFirstChild<EvenAndOddHeaders>() == null)
+                    wmSettingsPart.Settings.AppendChild(new EvenAndOddHeaders());
+                if (wmSettingsPart.Settings.GetFirstChild<TitlePage>() == null)
+                    wmSettingsPart.Settings.AppendChild(new TitlePage());
+                wmSettingsPart.Settings.Save();
+
+                mainPartWM.Document.Save();
+                return "/watermark";
+            }
+
             default:
             {
                 // Generic fallback: create typed element via SDK schema validation
@@ -1373,6 +1483,14 @@ public partial class WordHandler
 
     public void Remove(string path)
     {
+        // Handle /watermark removal
+        if (path.Equals("/watermark", StringComparison.OrdinalIgnoreCase))
+        {
+            RemoveWatermarkHeaders();
+            _doc.MainDocumentPart?.Document?.Save();
+            return;
+        }
+
         var parts = ParsePath(path);
         var element = NavigateToElement(parts)
             ?? throw new ArgumentException($"Path not found: {path}");

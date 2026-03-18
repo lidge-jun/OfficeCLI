@@ -278,6 +278,9 @@ Style (/styles/StyleId):
   name, basedon, next, font, size, bold, italic, color,
   alignment, spacebefore, spaceafter
 
+Watermark (/watermark):
+  text, color, font, opacity, rotation
+
 Any XML attribute is also settable via element path (use get --depth N to find paths).
 Composite props (pBdr, tabs, lang, bdr) -> use raw-set instead.
 
@@ -395,6 +398,12 @@ Types and properties:
     name (required), id, type (paragraph|character|table),
     basedon, next, font, size, bold, italic, color,
     alignment, spacebefore, spaceafter
+
+  watermark  -- parent: / (creates VML text watermark in headers)
+    text (default: DRAFT), color (default: silver), font (default: Calibri),
+    size (default: 1pt), opacity (default: .5), rotation (default: 315),
+    width (default: 415pt), height (default: 207.5pt)
+    Path: /watermark — use get, set, remove
 
 --index is 0-based. If omitted, appends to end.
 --from clones an element (cross-part relationships handled automatically).

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using OfficeCli.Core;
 using A = DocumentFormat.OpenXml.Drawing;
@@ -20,6 +21,57 @@ public partial class WordHandler
         {
             SetDocumentProperties(properties);
             _doc.MainDocumentPart?.Document?.Save();
+            return unsupported;
+        }
+
+        // Handle /watermark path
+        if (path.Equals("/watermark", StringComparison.OrdinalIgnoreCase))
+        {
+            // Find watermark VML shape in headers and modify properties
+            foreach (var hp in _doc.MainDocumentPart?.HeaderParts ?? Enumerable.Empty<HeaderPart>())
+            {
+                if (hp.Header == null) continue;
+                var picts = hp.Header.Descendants<Picture>().ToList();
+                foreach (var pict in picts)
+                {
+                    if (!pict.InnerXml.Contains("WaterMark", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    // Rebuild VML with updated properties — parse existing values as defaults
+                    var xml = pict.InnerXml;
+                    foreach (var (key, value) in properties)
+                    {
+                        switch (key.ToLowerInvariant())
+                        {
+                            case "text":
+                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
+                                    @"string=""[^""]*""", $@"string=""{System.Security.SecurityElement.Escape(value)}""");
+                                break;
+                            case "color":
+                                var clr = value.TrimStart('#').ToLowerInvariant();
+                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
+                                    @"fillcolor=""[^""]*""", $@"fillcolor=""{clr}""");
+                                break;
+                            case "font":
+                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
+                                    @"font-family:&quot;[^&]*&quot;", $@"font-family:&quot;{System.Security.SecurityElement.Escape(value)}&quot;");
+                                break;
+                            case "opacity":
+                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
+                                    @"opacity=""[^""]*""", $@"opacity=""{value}""");
+                                break;
+                            case "rotation":
+                                xml = System.Text.RegularExpressions.Regex.Replace(xml,
+                                    @"rotation:\d+", $@"rotation:{value}");
+                                break;
+                            default:
+                                unsupported.Add(key);
+                                break;
+                        }
+                    }
+                    pict.InnerXml = xml;
+                }
+                hp.Header.Save();
+            }
             return unsupported;
         }
 
@@ -1179,7 +1231,8 @@ public partial class WordHandler
     //         thinThickLargeGap, thickThinLargeGap, thinThickThinLargeGap, wave, doubleWave, threeDEmboss, threeDEngrave
     private static BorderValues ParseBorderStyle(string style) => style.ToLowerInvariant() switch
     {
-        "none" or "nil" => BorderValues.Nil,
+        "none" => BorderValues.None,
+        "nil" => BorderValues.Nil,
         "single" or "thin" => BorderValues.Single,
         "thick" or "medium" => BorderValues.Thick,
         "double" => BorderValues.Double,

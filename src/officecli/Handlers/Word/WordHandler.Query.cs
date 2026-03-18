@@ -18,6 +18,51 @@ public partial class WordHandler
         if (path == "/" || path == "")
             return GetRootNode(depth);
 
+        // Handle /watermark path
+        if (path.Equals("/watermark", StringComparison.OrdinalIgnoreCase))
+        {
+            var node = new DocumentNode { Path = "/watermark", Type = "watermark" };
+            var wmText = FindWatermark();
+            if (wmText == null)
+            {
+                node.Text = "(no watermark)";
+                return node;
+            }
+            node.Text = wmText;
+
+            // Extract properties from VML shape in headers
+            foreach (var hp in _doc.MainDocumentPart?.HeaderParts ?? Enumerable.Empty<DocumentFormat.OpenXml.Packaging.HeaderPart>())
+            {
+                if (hp.Header == null) continue;
+                foreach (var pict in hp.Header.Descendants<Picture>())
+                {
+                    var xml = pict.InnerXml;
+                    if (!xml.Contains("WaterMark", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    node.Format["text"] = wmText;
+
+                    // Extract fillcolor
+                    var fillMatch = System.Text.RegularExpressions.Regex.Match(xml, @"fillcolor=""([^""]*)""");
+                    if (fillMatch.Success) node.Format["color"] = fillMatch.Groups[1].Value;
+
+                    // Extract opacity
+                    var opacityMatch = System.Text.RegularExpressions.Regex.Match(xml, @"opacity=""([^""]*)""");
+                    if (opacityMatch.Success) node.Format["opacity"] = opacityMatch.Groups[1].Value;
+
+                    // Extract font
+                    var fontMatch = System.Text.RegularExpressions.Regex.Match(xml, @"font-family:&quot;([^&]*)&quot;");
+                    if (fontMatch.Success) node.Format["font"] = fontMatch.Groups[1].Value;
+
+                    // Extract rotation
+                    var rotMatch = System.Text.RegularExpressions.Regex.Match(xml, @"rotation:(\d+)");
+                    if (rotMatch.Success) node.Format["rotation"] = rotMatch.Groups[1].Value;
+
+                    return node;
+                }
+            }
+            return node;
+        }
+
         // Handle header/footer paths
         var segments = ParsePath(path);
         if (segments.Count >= 1)

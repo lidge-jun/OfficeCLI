@@ -3,6 +3,7 @@
 
 using System.Text;
 using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using OfficeCli.Core;
 using Vml = DocumentFormat.OpenXml.Vml;
@@ -236,6 +237,47 @@ public partial class WordHandler
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Remove all header parts that contain watermark SDT elements.
+    /// </summary>
+    private void RemoveWatermarkHeaders()
+    {
+        var mainPart = _doc.MainDocumentPart;
+        if (mainPart == null) return;
+
+        var toRemove = new List<HeaderPart>();
+        foreach (var hp in mainPart.HeaderParts)
+        {
+            if (hp.Header == null) continue;
+            // Check for watermark: SDT with docPartGallery="Watermarks" or VML shape with "WaterMark" in id
+            var hasSdt = hp.Header.Descendants<SdtProperties>()
+                .Any(sp => sp.Descendants<DocPartGallery>().Any(g =>
+                    g.Val?.Value?.Equals("Watermarks", StringComparison.OrdinalIgnoreCase) == true));
+            if (hasSdt)
+            {
+                toRemove.Add(hp);
+                continue;
+            }
+            foreach (var pict in hp.Header.Descendants<DocumentFormat.OpenXml.Wordprocessing.Picture>())
+            {
+                var hasWm = pict.InnerXml.Contains("WaterMark", StringComparison.OrdinalIgnoreCase);
+                if (hasWm) { toRemove.Add(hp); break; }
+            }
+        }
+
+        foreach (var hp in toRemove)
+        {
+            // Remove header references from section properties
+            var relId = mainPart.GetIdOfPart(hp);
+            foreach (var sectPr in mainPart.Document?.Body?.Elements<SectionProperties>() ?? Enumerable.Empty<SectionProperties>())
+            {
+                var refs = sectPr.Elements<HeaderReference>().Where(r => r.Id?.Value == relId).ToList();
+                foreach (var r in refs) r.Remove();
+            }
+            mainPart.DeletePart(hp);
+        }
     }
 
     private List<string> GetHeaderTexts()

@@ -5,6 +5,8 @@
 
 **English** | [中文](README_zh.md)
 
+**The world's first Office suite designed for AI agents.**
+
 **Let AI agents do anything with Office documents — from the command line.**
 
 OfficeCli is a free, open-source command-line tool for AI agents to read, edit, and automate Word, Excel, and PowerPoint files. Single binary, no Office installation required.
@@ -111,7 +113,7 @@ OfficeCli is designed with a progressive complexity model — start simple, go d
 High-level, semantic views of document content.
 
 ```bash
-# Word — plain text with line numbers
+# Word — plain text with element paths
 officecli view report.docx text
 
 # Word — text with formatting annotations

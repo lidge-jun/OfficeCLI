@@ -5,6 +5,8 @@
 
 [English](README.md) | **中文**
 
+**全球首款专为 AI 智能体打造的 Office 办公软件。**
+
 **让 AI 智能体通过命令行处理一切 Office 文档。**
 
 OfficeCli 是一个免费、开源的命令行工具，专为 AI 智能体设计，可读取、编辑和自动化处理 Word、Excel 和 PowerPoint 文件。单一可执行文件，无需安装 Office。
@@ -221,63 +223,28 @@ officecli close report.docx       # 保存并退出
 
 ## Python 使用示例
 
-OfficeCli 是 CLI 工具，在 Python 中通过 `subprocess` 调用即可，JSON 输出方便解析。
-
 ```python
-import subprocess
-import json
+import subprocess, json
 
-def run(cmd: list[str]) -> str:
-    return subprocess.check_output(["officecli"] + cmd, text=True)
+def cli(*args): return subprocess.check_output(["officecli", *args], text=True)
+def cli_json(*args): return json.loads(cli(*args, "--json"))
 
-def run_json(cmd: list[str]) -> dict | list:
-    return json.loads(run(cmd + ["--json"]))
-
-# 创建文档
-run(["create", "report.docx"])
-run(["create", "budget.xlsx"])
-run(["create", "deck.pptx"])
-
-# 读取内容
-text = run(["view", "report.docx", "text"])
-issues = run_json(["view", "budget.xlsx", "issues"])
-
-# 读取单元格
-cell = run_json(["get", "budget.xlsx", "/Sheet1/B5"])
-print(cell["text"])  # 单元格值
-
-# 修改内容
-run(["set", "report.docx", "/body/p[1]/r[1]", "--prop", "text=Hello World", "--prop", "bold=true"])
-run(["set", "budget.xlsx", "/Sheet1/A1", "--prop", "formula==SUM(A2:A10)"])
-
-# 查询元素
-shapes = run_json(["query", "deck.pptx", "shape"])
-
-# 驻留模式 — 批量编辑，无需每次重新加载文件
-run(["open", "deck.pptx"])
-for i, title in enumerate(["简介", "数据", "总结"], start=1):
-    run(["set", "deck.pptx", f"/slide[{i}]/shape[1]", "--prop", f"text={title}"])
-run(["close", "deck.pptx"])
+cli("create", "deck.pptx")
+cli("set", "deck.pptx", "/slide[1]/shape[1]", "--prop", "text=Hello")
+shapes = cli_json("query", "deck.pptx", "shape")
 ```
 
-异步或高并发场景，可使用 `asyncio.create_subprocess_exec`：
+## JavaScript 使用示例
 
-```python
-import asyncio, json
+```js
+const { execFileSync } = require('child_process')
 
-async def run_json_async(args: list[str]) -> dict | list:
-    proc = await asyncio.create_subprocess_exec(
-        "officecli", *args, "--json",
-        stdout=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    return json.loads(stdout)
+const cli = (...args) => execFileSync('officecli', args, { encoding: 'utf8' })
+const cliJson = (...args) => JSON.parse(cli(...args, '--json'))
 
-async def main():
-    slides = await run_json_async(["query", "deck.pptx", "shape"])
-    print(slides)
-
-asyncio.run(main())
+cli('create', 'deck.pptx')
+cli('set', 'deck.pptx', '/slide[1]/shape[1]', '--prop', 'text=Hello')
+const shapes = cliJson('query', 'deck.pptx', 'shape')
 ```
 
 ## AI 智能体集成

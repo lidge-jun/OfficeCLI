@@ -9,7 +9,7 @@
 
 **让 AI 智能体通过命令行处理一切 Office 文档。**
 
-OfficeCli 是一个免费、开源的命令行工具，专为 AI 智能体设计，可读取、编辑和自动化处理 Word、Excel 和 PowerPoint 文件。单一可执行文件，无需安装 Office。
+OfficeCli 是一个免费、开源的命令行工具，专为 AI 智能体设计，可读取、编辑和自动化处理 Word、Excel 和 PowerPoint 文件。单一可执行文件，无需安装 Microsoft Office、WPS 或任何运行时依赖。
 
 > 为智能体而生，人类亦可用。
 

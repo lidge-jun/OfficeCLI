@@ -9,7 +9,7 @@
 
 **Let AI agents do anything with Office documents — from the command line.**
 
-OfficeCli is a free, open-source command-line tool for AI agents to read, edit, and automate Word, Excel, and PowerPoint files. Single binary, no Office installation required.
+OfficeCli is a free, open-source command-line tool for AI agents to read, edit, and automate Word, Excel, and PowerPoint files. Single binary, no dependencies — no Microsoft Office, no WPS, no runtime needed.
 
 > Built for AI agents. Usable by humans.
 

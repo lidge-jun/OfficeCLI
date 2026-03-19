@@ -46,10 +46,10 @@ public partial class PowerPointHandler
 
         // Attributes
         Dictionary<string, (string Value, bool Negate)>? genericAttrs = null;
-        foreach (Match attrMatch in Regex.Matches(selector, @"\[(\w+)(!?=)([^\]]*)\]"))
+        foreach (Match attrMatch in Regex.Matches(selector, @"\[(\w+)(\\?!?=)([^\]]*)\]"))
         {
             var key = attrMatch.Groups[1].Value.ToLowerInvariant();
-            var op = attrMatch.Groups[2].Value;
+            var op = attrMatch.Groups[2].Value.Replace("\\", "");
             var val = attrMatch.Groups[3].Value.Trim('\'', '"');
 
             switch (key)

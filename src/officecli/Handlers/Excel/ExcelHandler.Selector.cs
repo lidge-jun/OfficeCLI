@@ -12,7 +12,7 @@ public partial class ExcelHandler
     // ==================== Selector ====================
 
     private record CellSelector(string? Sheet, string? Column, string? ValueEquals, string? ValueNotEquals,
-        string? ValueContains, bool? HasFormula, bool? IsEmpty, string? TypeEquals);
+        string? ValueContains, bool? HasFormula, bool? IsEmpty, string? TypeEquals, string? TypeNotEquals);
 
     private CellSelector ParseCellSelector(string selector)
     {
@@ -24,13 +24,15 @@ public partial class ExcelHandler
         bool? hasFormula = null;
         bool? isEmpty = null;
         string? typeEquals = null;
+        string? typeNotEquals = null;
 
         // Check for sheet prefix: Sheet1!cell[...]
-        var exclIdx = selector.IndexOf('!');
-        if (exclIdx > 0)
+        // Only treat '!' as sheet separator if NOT part of '!=' operator
+        var exclMatch = Regex.Match(selector, @"^(.+?)!(?!=)");
+        if (exclMatch.Success)
         {
-            sheet = selector[..exclIdx];
-            selector = selector[(exclIdx + 1)..];
+            sheet = exclMatch.Groups[1].Value;
+            selector = selector[(exclMatch.Length)..];
         }
 
         // Parse element and attributes: cell[attr=value]
@@ -43,18 +45,19 @@ public partial class ExcelHandler
             column = element.ToUpperInvariant();
         }
 
-        // Parse attributes
-        foreach (Match attrMatch in Regex.Matches(selector, @"\[(\w+)(!?=)([^\]]*)\]"))
+        // Parse attributes (\\?! handles zsh escaping \! as !)
+        foreach (Match attrMatch in Regex.Matches(selector, @"\[(\w+)(\\?!?=)([^\]]*)\]"))
         {
             var key = attrMatch.Groups[1].Value.ToLowerInvariant();
-            var op = attrMatch.Groups[2].Value;
+            var op = attrMatch.Groups[2].Value.Replace("\\", "");
             var val = attrMatch.Groups[3].Value.Trim('\'', '"');
 
             switch (key)
             {
                 case "value" when op == "=": valueEquals = val; break;
                 case "value" when op == "!=": valueNotEquals = val; break;
-                case "type": typeEquals = val; break;
+                case "type" when op == "=": typeEquals = val; break;
+                case "type" when op == "!=": typeNotEquals = val; break;
                 case "formula": hasFormula = val.ToLowerInvariant() != "false"; break;
                 case "empty": isEmpty = val.ToLowerInvariant() != "false"; break;
             }
@@ -77,7 +80,7 @@ public partial class ExcelHandler
         // :has(formula) pseudo-selector
         if (selector.Contains(":has(formula)")) hasFormula = true;
 
-        return new CellSelector(sheet, column, valueEquals, valueNotEquals, valueContains, hasFormula, isEmpty, typeEquals);
+        return new CellSelector(sheet, column, valueEquals, valueNotEquals, valueContains, hasFormula, isEmpty, typeEquals, typeNotEquals);
     }
 
     private bool MatchesCellSelector(Cell cell, string sheetName, CellSelector selector)
@@ -113,15 +116,30 @@ public partial class ExcelHandler
         if (selector.IsEmpty == false && string.IsNullOrEmpty(value))
             return false;
 
-        // Type filter
-        if (selector.TypeEquals != null)
+        // Type filter (use friendly names matching CellToNode output)
+        if (selector.TypeEquals != null || selector.TypeNotEquals != null)
         {
-            var type = cell.DataType?.InnerText ?? "Number";
-            if (!type.Equals(selector.TypeEquals, StringComparison.OrdinalIgnoreCase))
+            var type = GetCellTypeName(cell);
+            if (selector.TypeEquals != null && !type.Equals(selector.TypeEquals, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (selector.TypeNotEquals != null && type.Equals(selector.TypeNotEquals, StringComparison.OrdinalIgnoreCase))
                 return false;
         }
 
         return true;
+    }
+
+    private static string GetCellTypeName(Cell cell)
+    {
+        if (cell.DataType?.HasValue != true) return "Number";
+        var dt = cell.DataType.Value;
+        if (dt == CellValues.String) return "String";
+        if (dt == CellValues.SharedString) return "SharedString";
+        if (dt == CellValues.Boolean) return "Boolean";
+        if (dt == CellValues.Error) return "Error";
+        if (dt == CellValues.InlineString) return "InlineString";
+        if (dt == CellValues.Date) return "Date";
+        return "Number";
     }
 
     // ==================== Cell Reference Utils ====================

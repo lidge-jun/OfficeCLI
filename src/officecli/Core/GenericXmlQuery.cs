@@ -483,11 +483,11 @@ public static class GenericXmlQuery
 
         var element = selector[..firstMod].Trim();
 
-        // Parse [attr=value] attributes
-        foreach (Match m in Regex.Matches(selector, @"\[([\w:]+)(!?=)([^\]]+)\]"))
+        // Parse [attr=value] attributes (\\?! handles zsh escaping \! as !)
+        foreach (Match m in Regex.Matches(selector, @"\[([\w:]+)(\\?!?=)([^\]]+)\]"))
         {
             var key = m.Groups[1].Value;
-            var op = m.Groups[2].Value;
+            var op = m.Groups[2].Value.Replace("\\", "");
             var val = m.Groups[3].Value.Trim('\'', '"');
             attrs[key] = (op == "!=" ? "!" : "") + val;
         }

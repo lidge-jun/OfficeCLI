@@ -387,7 +387,9 @@ public partial class ExcelHandler
         var results = new List<DocumentNode>();
 
         // Check if element type is known (Scheme A) or should fall back to generic XML (Scheme B)
-        var elementMatch = Regex.Match(selector.Split('!').Last(), @"^(\w+)");
+        // Strip sheet prefix (Sheet1!cell[...]) but not != operator
+        var selectorForType = Regex.Replace(selector, @"^.+?!(?!=)", "");
+        var elementMatch = Regex.Match(selectorForType, @"^(\w+)");
         var elementName = elementMatch.Success ? elementMatch.Groups[1].Value : "";
         bool isKnownType = string.IsNullOrEmpty(elementName)
             || elementName is "cell" or "row" or "sheet" or "validation" or "comment" or "note" or "table" or "listobject" or "chart" or "pivottable" or "pivot"

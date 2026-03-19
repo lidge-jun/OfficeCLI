@@ -49,10 +49,10 @@ public partial class WordHandler
         {
             var attrPart = selector[bracketIdx..];
             foreach (System.Text.RegularExpressions.Match m in
-                System.Text.RegularExpressions.Regex.Matches(attrPart, @"\[(\w+)(!?=)([^\]]+)\]"))
+                System.Text.RegularExpressions.Regex.Matches(attrPart, @"\[(\w+)(\\?!?=)([^\]]+)\]"))
             {
                 var key = m.Groups[1].Value;
-                var op = m.Groups[2].Value;
+                var op = m.Groups[2].Value.Replace("\\", "");
                 var val = m.Groups[3].Value.Trim('\'', '"');
                 attrs[key] = (op == "!=" ? "!" : "") + val;
             }

@@ -39,8 +39,9 @@ public partial class ExcelHandler
         var match = Regex.Match(selector, @"^(\w+)?(.*)$");
         var element = match.Groups[1].Value;
 
-        // Column filter: e.g., "B" or "cell" in column context
-        if (element.Length <= 3 && Regex.IsMatch(element, @"^[A-Z]+$", RegexOptions.IgnoreCase))
+        // Column filter: e.g., "B" or "AB" — but NOT known element types like "row"
+        if (element.Length <= 3 && Regex.IsMatch(element, @"^[A-Z]+$", RegexOptions.IgnoreCase)
+            && element.ToLowerInvariant() is not ("row" or "cell" or "col"))
         {
             column = element.ToUpperInvariant();
         }

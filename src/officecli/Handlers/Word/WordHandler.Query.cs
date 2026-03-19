@@ -563,16 +563,16 @@ public partial class WordHandler
                     if (instr == null || !instr.Contains(parsed.ContainsText, StringComparison.OrdinalIgnoreCase))
                         continue;
                 }
-                // Filter by attribute (e.g., field[fieldType=page])
+                // Filter by attribute (e.g., field[fieldType=page] or field[fieldType!=page])
                 bool matchAttrs = true;
-                foreach (var (attrKey, attrVal) in parsed.Attributes)
+                foreach (var (attrKey, rawVal) in parsed.Attributes)
                 {
-                    if (fieldNode.Format.TryGetValue(attrKey, out var fmtVal))
-                    {
-                        if (!string.Equals(fmtVal?.ToString(), attrVal, StringComparison.OrdinalIgnoreCase))
-                        { matchAttrs = false; break; }
-                    }
-                    else { matchAttrs = false; break; }
+                    bool negate = rawVal.StartsWith("!");
+                    var val = negate ? rawVal[1..] : rawVal;
+                    var hasKey = fieldNode.Format.TryGetValue(attrKey, out var fmtVal);
+                    bool matches = hasKey && string.Equals(fmtVal?.ToString(), val, StringComparison.OrdinalIgnoreCase);
+                    if (negate ? matches : !matches)
+                    { matchAttrs = false; break; }
                 }
                 if (matchAttrs) results.Add(fieldNode);
             }

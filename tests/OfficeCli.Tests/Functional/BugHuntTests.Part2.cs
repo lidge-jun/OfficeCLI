@@ -178,8 +178,8 @@ public partial class BugHuntTests
             ["width"] = "wide"
         });
 
-        act.Should().Throw<FormatException>(
-            "uint.Parse crashes on 'wide' — should use TryParse");
+        act.Should().Throw<ArgumentException>(
+            "invalid 'pagewidth' should throw ArgumentException with clear error message");
     }
 
 

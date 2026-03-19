@@ -299,7 +299,12 @@ public partial class ExcelHandler
                                 {
                                     node.Format[$"border.{side}"] = b.Style.InnerText;
                                     if (b.Color?.Rgb?.Value != null)
-                                        node.Format[$"border.{side}.color"] = b.Color.Rgb.Value;
+                                    {
+                                        var borderRgb = b.Color.Rgb.Value!;
+                                        if (borderRgb.Length == 8 && borderRgb.StartsWith("FF", StringComparison.OrdinalIgnoreCase))
+                                            borderRgb = borderRgb[2..];
+                                        node.Format[$"border.{side}.color"] = borderRgb;
+                                    }
                                 }
                             }
                             // Diagonal border readback
@@ -308,7 +313,12 @@ public partial class ExcelHandler
                             {
                                 node.Format["border.diagonal"] = diag.Style.InnerText;
                                 if (diag.Color?.Rgb?.Value != null)
-                                    node.Format["border.diagonal.color"] = diag.Color.Rgb.Value;
+                                {
+                                    var diagRgb = diag.Color.Rgb.Value!;
+                                    if (diagRgb.Length == 8 && diagRgb.StartsWith("FF", StringComparison.OrdinalIgnoreCase))
+                                        diagRgb = diagRgb[2..];
+                                    node.Format["border.diagonal.color"] = diagRgb;
+                                }
                             }
                             if (border.DiagonalUp?.Value == true)
                                 node.Format["border.diagonalUp"] = true;

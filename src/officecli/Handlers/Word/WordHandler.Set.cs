@@ -929,7 +929,7 @@ public partial class WordHandler
                         ApplyListStyle(para, value);
                         break;
                     case "start":
-                        SetListStartValue(para, int.Parse(value));
+                        SetListStartValue(para, ParseHelpers.SafeParseInt(value, "start"));
                         break;
                     case "size" or "font" or "bold" or "italic" or "color" or "highlight" or "underline" or "strike":
                         // Apply run-level formatting to all runs in the paragraph
@@ -1222,7 +1222,7 @@ public partial class WordHandler
                         ApplyCellBorders(tcPr, key, value);
                         break;
                     case "gridspan":
-                        var newSpan = int.Parse(value);
+                        var newSpan = ParseHelpers.SafeParseInt(value, "gridspan");
                         tcPr.GridSpan = new GridSpan { Val = newSpan };
                         // Ensure the row has the correct number of tc elements.
                         // Calculate total grid columns occupied by all cells in this row,
@@ -1353,7 +1353,7 @@ public partial class WordHandler
                     case "width":
                         if (value.EndsWith('%'))
                         {
-                            var pct = int.Parse(value.TrimEnd('%')) * 50; // OOXML pct = percent * 50
+                            var pct = ParseHelpers.SafeParseInt(value.TrimEnd('%'), "width") * 50; // OOXML pct = percent * 50
                             tblPr.TableWidth = new TableWidth { Width = pct.ToString(), Type = TableWidthUnitValues.Pct };
                         }
                         else
@@ -1362,7 +1362,7 @@ public partial class WordHandler
                         }
                         break;
                     case "indent":
-                        tblPr.TableIndentation = new TableIndentation { Width = int.Parse(value), Type = TableWidthUnitValues.Dxa };
+                        tblPr.TableIndentation = new TableIndentation { Width = ParseHelpers.SafeParseInt(value, "indent"), Type = TableWidthUnitValues.Dxa };
                         break;
                     case "cellspacing":
                         tblPr.TableCellSpacing = new TableCellSpacing { Width = value, Type = TableWidthUnitValues.Dxa };
@@ -1378,7 +1378,7 @@ public partial class WordHandler
                         var dxa = value;
                         var cm = tblPr.TableCellMarginDefault ?? tblPr.AppendChild(new TableCellMarginDefault());
                         cm.TopMargin = new TopMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
-                        var paddingVal = int.Parse(dxa);
+                        var paddingVal = ParseHelpers.SafeParseInt(dxa, "padding");
                         cm.TableCellLeftMargin = new TableCellLeftMargin { Width = (short)Math.Min(paddingVal, short.MaxValue), Type = TableWidthValues.Dxa };
                         cm.BottomMargin = new BottomMargin { Width = dxa, Type = TableWidthUnitValues.Dxa };
                         cm.TableCellRightMargin = new TableCellRightMargin { Width = (short)Math.Min(paddingVal, short.MaxValue), Type = TableWidthValues.Dxa };
@@ -1634,11 +1634,11 @@ public partial class WordHandler
                 return true;
             case "numid":
                 var numPr = pProps.NumberingProperties ?? (pProps.NumberingProperties = new NumberingProperties());
-                numPr.NumberingId = new NumberingId { Val = int.Parse(value) };
+                numPr.NumberingId = new NumberingId { Val = ParseHelpers.SafeParseInt(value, "numid") };
                 return true;
             case "numlevel" or "ilvl":
                 var numPr2 = pProps.NumberingProperties ?? (pProps.NumberingProperties = new NumberingProperties());
-                numPr2.NumberingLevelReference = new NumberingLevelReference { Val = int.Parse(value) };
+                numPr2.NumberingLevelReference = new NumberingLevelReference { Val = ParseHelpers.SafeParseInt(value, "numlevel") };
                 return true;
             case "pbdr.top" or "pbdr.bottom" or "pbdr.left" or "pbdr.right" or "pbdr.between" or "pbdr.bar" or "pbdr.all" or "pbdr":
                 ApplyParagraphBorders(pProps, key, value);
@@ -1816,19 +1816,19 @@ public partial class WordHandler
         value = value.Trim();
         if (value.EndsWith("cm", StringComparison.OrdinalIgnoreCase))
         {
-            var num = double.Parse(value[..^2], System.Globalization.CultureInfo.InvariantCulture);
+            var num = ParseHelpers.SafeParseDouble(value[..^2], "twips (cm)");
             return (uint)Math.Round(num * 567);
         }
         if (value.EndsWith("in", StringComparison.OrdinalIgnoreCase))
         {
-            var num = double.Parse(value[..^2], System.Globalization.CultureInfo.InvariantCulture);
+            var num = ParseHelpers.SafeParseDouble(value[..^2], "twips (in)");
             return (uint)Math.Round(num * 1440);
         }
         if (value.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
         {
-            var num = double.Parse(value[..^2], System.Globalization.CultureInfo.InvariantCulture);
+            var num = ParseHelpers.SafeParseDouble(value[..^2], "twips (pt)");
             return (uint)Math.Round(num * 20);
         }
-        return uint.Parse(value);
+        return ParseHelpers.SafeParseUint(value, "twips");
     }
 }

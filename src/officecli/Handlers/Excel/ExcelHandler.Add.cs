@@ -878,10 +878,10 @@ public partial class ExcelHandler
                     ChartHelper.SetChartProperties(chartPart, deferredProps);
 
                 // Position via TwoCellAnchor
-                var fromCol = properties.TryGetValue("x", out var xStr) ? int.Parse(xStr) : 0;
-                var fromRow = properties.TryGetValue("y", out var yStr) ? int.Parse(yStr) : 0;
-                var toCol = properties.TryGetValue("width", out var wStr) ? fromCol + int.Parse(wStr) : fromCol + 8;
-                var toRow = properties.TryGetValue("height", out var hStr) ? fromRow + int.Parse(hStr) : fromRow + 15;
+                var fromCol = properties.TryGetValue("x", out var xStr) ? ParseHelpers.SafeParseInt(xStr, "x") : 0;
+                var fromRow = properties.TryGetValue("y", out var yStr) ? ParseHelpers.SafeParseInt(yStr, "y") : 0;
+                var toCol = properties.TryGetValue("width", out var wStr) ? fromCol + ParseHelpers.SafeParseInt(wStr, "width") : fromCol + 8;
+                var toRow = properties.TryGetValue("height", out var hStr) ? fromRow + ParseHelpers.SafeParseInt(hStr, "height") : fromRow + 15;
 
                 var anchor = new XDR.TwoCellAnchor();
                 anchor.Append(new XDR.FromMarker(

@@ -825,7 +825,7 @@ public partial class ExcelHandler
                         sheetView = new SheetView { WorkbookViewId = 0 };
                         sheetViews.AppendChild(sheetView);
                     }
-                    sheetView.ZoomScale = uint.Parse(value);
+                    sheetView.ZoomScale = ParseHelpers.SafeParseUint(value, "zoom");
                     break;
                 }
 
@@ -953,7 +953,7 @@ public partial class ExcelHandler
             switch (key.ToLowerInvariant())
             {
                 case "width":
-                    col.Width = double.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+                    col.Width = ParseHelpers.SafeParseDouble(value, "width");
                     col.CustomWidth = true;
                     break;
                 case "hidden":

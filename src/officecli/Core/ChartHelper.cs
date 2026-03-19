@@ -58,8 +58,7 @@ internal static class ChartHelper
                 var valStr = seriesPart[(colonIdx + 1)..].Trim();
                 if (string.IsNullOrEmpty(valStr))
                     throw new ArgumentException($"Series '{name}' has no data values. Expected format: 'Name:1,2,3'");
-                var vals = valStr.Split(',')
-                    .Select(v => double.Parse(v.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                var vals = ParseSeriesValues(valStr, name);
                 result.Add((name, vals));
             }
             return result;
@@ -71,19 +70,29 @@ internal static class ChartHelper
             var colonIdx = seriesStr.IndexOf(':');
             if (colonIdx < 0)
             {
-                var vals = seriesStr.Split(',').Select(v => double.Parse(v.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                var vals = ParseSeriesValues(seriesStr, $"series{i}");
                 result.Add(($"Series {i}", vals));
             }
             else
             {
                 var name = seriesStr[..colonIdx].Trim();
-                var vals = seriesStr[(colonIdx + 1)..].Split(',')
-                    .Select(v => double.Parse(v.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                var vals = ParseSeriesValues(seriesStr[(colonIdx + 1)..], name);
                 result.Add((name, vals));
             }
         }
 
         return result;
+    }
+
+    private static double[] ParseSeriesValues(string valStr, string seriesName)
+    {
+        return valStr.Split(',').Select(v =>
+        {
+            var trimmed = v.Trim();
+            if (!double.TryParse(trimmed, System.Globalization.CultureInfo.InvariantCulture, out var num))
+                throw new ArgumentException($"Invalid data value '{trimmed}' in series '{seriesName}'. Expected comma-separated numbers (e.g. '1,2,3').");
+            return num;
+        }).ToArray();
     }
 
     internal static string[]? ParseCategories(Dictionary<string, string> properties)
@@ -1510,7 +1519,7 @@ internal static class ChartHelper
                         if (colonIdx >= 0)
                         {
                             var sName = value[..colonIdx].Trim();
-                            vals = value[(colonIdx + 1)..].Split(',').Select(v => double.Parse(v.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                            vals = ParseSeriesValues(value[(colonIdx + 1)..], value[..colonIdx].Trim());
                             var serText = ser.GetFirstChild<C.SeriesText>();
                             if (serText != null)
                             {
@@ -1520,7 +1529,7 @@ internal static class ChartHelper
                         }
                         else
                         {
-                            vals = value.Split(',').Select(v => double.Parse(v.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                            vals = ParseSeriesValues(value, "series data");
                         }
 
                         var valEl = ser.GetFirstChild<C.Values>();

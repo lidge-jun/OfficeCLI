@@ -1422,7 +1422,7 @@ public partial class PowerPointHandler
                 if (properties.TryGetValue("color", out var rColor))
                     rProps.AppendChild(BuildSolidFill(rColor));
                 if (properties.TryGetValue("spacing", out var rSpacing) || properties.TryGetValue("charspacing", out rSpacing))
-                    rProps.Spacing = (int)(double.Parse(rSpacing, System.Globalization.CultureInfo.InvariantCulture) * 100);
+                    rProps.Spacing = (int)(ParseHelpers.SafeParseDouble(rSpacing, "charspacing") * 100);
                 if (properties.TryGetValue("baseline", out var rBaseline))
                 {
                     rProps.Baseline = rBaseline.ToLowerInvariant() switch
@@ -1430,7 +1430,7 @@ public partial class PowerPointHandler
                         "super" or "true" => 30000,
                         "sub" => -25000,
                         "none" or "false" or "0" => 0,
-                        _ => (int)(double.Parse(rBaseline, System.Globalization.CultureInfo.InvariantCulture) * 1000)
+                        _ => (int)(ParseHelpers.SafeParseDouble(rBaseline, "baseline") * 1000)
                     };
                 }
                 else if (properties.TryGetValue("superscript", out var rSuper))

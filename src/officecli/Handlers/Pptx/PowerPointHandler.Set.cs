@@ -260,21 +260,21 @@ public partial class PowerPointHandler
                         var pProps = para.ParagraphProperties ?? (para.ParagraphProperties = new Drawing.ParagraphProperties());
                         pProps.RemoveAllChildren<Drawing.LineSpacing>();
                         pProps.AppendChild(new Drawing.LineSpacing(
-                            new Drawing.SpacingPercent { Val = (int)(double.Parse(value, System.Globalization.CultureInfo.InvariantCulture) * 100000) }));
+                            new Drawing.SpacingPercent { Val = (int)(ParseHelpers.SafeParseDouble(value, "lineSpacing") * 100000) }));
                         break;
                     }
                     case "spacebefore" or "space.before":
                     {
                         var pProps = para.ParagraphProperties ?? (para.ParagraphProperties = new Drawing.ParagraphProperties());
                         pProps.RemoveAllChildren<Drawing.SpaceBefore>();
-                        pProps.AppendChild(new Drawing.SpaceBefore(new Drawing.SpacingPoints { Val = (int)(double.Parse(value, System.Globalization.CultureInfo.InvariantCulture) * 100) }));
+                        pProps.AppendChild(new Drawing.SpaceBefore(new Drawing.SpacingPoints { Val = (int)(ParseHelpers.SafeParseDouble(value, "spaceBefore") * 100) }));
                         break;
                     }
                     case "spaceafter" or "space.after":
                     {
                         var pProps = para.ParagraphProperties ?? (para.ParagraphProperties = new Drawing.ParagraphProperties());
                         pProps.RemoveAllChildren<Drawing.SpaceAfter>();
-                        pProps.AppendChild(new Drawing.SpaceAfter(new Drawing.SpacingPoints { Val = (int)(double.Parse(value, System.Globalization.CultureInfo.InvariantCulture) * 100) }));
+                        pProps.AppendChild(new Drawing.SpaceAfter(new Drawing.SpacingPoints { Val = (int)(ParseHelpers.SafeParseDouble(value, "spaceAfter") * 100) }));
                         break;
                     }
                     default:

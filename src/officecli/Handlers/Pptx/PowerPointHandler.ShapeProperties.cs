@@ -848,10 +848,10 @@ public partial class PowerPointHandler
                     break;
                 }
                 case "gridspan" or "colspan":
-                    cell.GridSpan = new DocumentFormat.OpenXml.Int32Value(int.Parse(value));
+                    cell.GridSpan = new DocumentFormat.OpenXml.Int32Value(ParseHelpers.SafeParseInt(value, "gridspan"));
                     break;
                 case "rowspan":
-                    cell.RowSpan = new DocumentFormat.OpenXml.Int32Value(int.Parse(value));
+                    cell.RowSpan = new DocumentFormat.OpenXml.Int32Value(ParseHelpers.SafeParseInt(value, "rowspan"));
                     break;
                 case "vmerge":
                     cell.VerticalMerge = new DocumentFormat.OpenXml.BooleanValue(IsTruthy(value));

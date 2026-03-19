@@ -40,7 +40,9 @@ public partial class PowerPointHandler
             if (t is "shape" or "textbox" or "title" or "picture" or "pic"
                 or "video" or "audio"
                 or "equation" or "math" or "formula"
-                or "table" or "chart" or "placeholder")
+                or "table" or "chart" or "placeholder"
+                or "connector" or "connection"
+                or "group" or "notes")
                 elementType = t;
         }
 

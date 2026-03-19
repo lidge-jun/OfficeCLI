@@ -27,6 +27,25 @@ public partial class WordHandler
         ParseHelpers.SanitizeColorForOoxml(value).Rgb;
 
     /// <summary>
+    /// Parse a highlight color name, throwing ArgumentException with valid options on failure.
+    /// </summary>
+    private static readonly HashSet<string> ValidHighlightColors = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "yellow", "green", "cyan", "magenta", "blue", "red",
+        "darkBlue", "darkCyan", "darkGreen", "darkMagenta", "darkRed", "darkYellow",
+        "darkGray", "lightGray", "black", "white", "none"
+    };
+
+    private static HighlightColorValues ParseHighlightColor(string value)
+    {
+        if (!ValidHighlightColors.Contains(value))
+            throw new ArgumentException(
+                $"Invalid 'highlight' value '{value}'. Valid values: yellow, green, cyan, magenta, blue, red, " +
+                $"darkBlue, darkCyan, darkGreen, darkMagenta, darkRed, darkYellow, darkGray, lightGray, black, white, none.");
+        return new HighlightColorValues(value);
+    }
+
+    /// <summary>
     /// Warn if a value that should be a shading pattern name looks like a hex color instead.
     /// </summary>
     private static void WarnIfShadingOrderWrong(string patternSegment)
@@ -386,7 +405,7 @@ public partial class WordHandler
                 break;
             case "highlight":
                 props.RemoveAllChildren<Highlight>();
-                props.AppendChild(new Highlight { Val = new HighlightColorValues(value) });
+                props.AppendChild(new Highlight { Val = ParseHighlightColor(value) });
                 break;
             case "underline":
                 props.RemoveAllChildren<Underline>();

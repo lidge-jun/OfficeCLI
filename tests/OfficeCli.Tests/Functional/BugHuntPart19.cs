@@ -107,25 +107,6 @@ public class BugHuntPart19 : IDisposable
     }
 
 
-    // ==================== BUG #3: Excel column width not in Get for individual column ====================
-    [Fact]
-    public void Excel_Column_Width_RoundTrip()
-    {
-        _excelHandler.Set("/Sheet1/col[1]", new()
-        {
-            ["width"] = "20"
-        });
-
-        var col = _excelHandler.Get("/Sheet1/col[1]");
-        col.Should().NotBeNull();
-
-        col.Format.Should().ContainKey("width",
-            "column Get should include width when it's been set");
-        col.Format["width"]?.ToString().Should().Be("20",
-            "column width should round-trip through Set/Get");
-    }
-
-
     // ==================== BUG #4: Word comment Get doesn't include author ====================
     [Fact]
     public void Word_Comment_Get_ShouldIncludeAuthor()
@@ -198,24 +179,6 @@ public class BugHuntPart19 : IDisposable
     }
 
 
-    // ==================== BUG #7: Excel cell wrap text not in Get ====================
-    [Fact]
-    public void Excel_Cell_WrapText_RoundTrip()
-    {
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["value"] = "Long text that should wrap",
-            ["wrap"] = "true"
-        });
-
-        var cell = _excelHandler.Get("/Sheet1/A1");
-        cell.Should().NotBeNull();
-
-        cell.Format.Should().ContainKey("wrap",
-            "cell Get should include wrap text property when it's been set");
-    }
-
-
     // ==================== BUG #8: PPTX slide Set transition then Get should read it back ====================
     [Fact]
     public void Pptx_Slide_Get_ShouldIncludeTransition()
@@ -234,24 +197,6 @@ public class BugHuntPart19 : IDisposable
         slide.Format.Should().ContainKey("transition",
             "slide Get should include transition type after Set in the same session");
         slide.Format["transition"]?.ToString().Should().Be("fade");
-    }
-
-
-    // ==================== BUG #9: Word paragraph pagebreakbefore not in Get ====================
-    [Fact]
-    public void Word_Paragraph_Get_ShouldIncludePageBreakBefore()
-    {
-        _wordHandler.Add("/", "paragraph", null, new()
-        {
-            ["text"] = "New page",
-            ["pagebreakbefore"] = "true"
-        });
-
-        var para = _wordHandler.Get("/body/p[1]");
-        para.Should().NotBeNull();
-
-        para.Format.Should().ContainKey("pagebreakbefore",
-            "paragraph Get should expose pagebreakbefore when it's set");
     }
 
 

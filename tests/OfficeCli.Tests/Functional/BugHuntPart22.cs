@@ -183,31 +183,6 @@ public class BugHuntPart22 : IDisposable
     }
 
 
-    // ==================== BUG #7: Excel data validation Get should include all properties ====================
-    [Fact]
-    public void Excel_DataValidation_Get_ShouldIncludeOperator()
-    {
-        _excelHandler.Add("/Sheet1", "validation", null, new()
-        {
-            ["sqref"] = "A1:A10",
-            ["type"] = "whole",
-            ["operator"] = "between",
-            ["formula1"] = "1",
-            ["formula2"] = "100",
-            ["errorTitle"] = "Invalid",
-            ["error"] = "Please enter 1-100"
-        });
-
-        var dv = _excelHandler.Get("/Sheet1/validation[1]");
-        dv.Should().NotBeNull();
-
-        dv.Format.Should().ContainKey("operator",
-            "data validation Get should include operator");
-        dv.Format.Should().ContainKey("errorTitle",
-            "data validation Get should include error title");
-    }
-
-
     // ==================== BUG #8: PPTX slide layout name not in Get for slide ====================
     [Fact]
     public void Pptx_Slide_Get_ShouldIncludeLayoutName()

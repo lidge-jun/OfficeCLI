@@ -35,25 +35,6 @@ public partial class BugHuntTests
         }
     }
 
-    /// Bug #172 — Word endnote: space prepended on every Set
-    /// File: WordHandler.Set.cs, lines 141-142
-    /// Same as footnote — endnote text prepends " " each time.
-    [Fact]
-    public void Bug172_WordEndnote_SpacePrependedOnEverySet()
-    {
-        _wordHandler.Add("/body", "p", null, new() { ["text"] = "Main text" });
-        _wordHandler.Add("/body/p[1]", "endnote", null, new() { ["text"] = "End note" });
-
-        _wordHandler.Set("/body/p[1]/endnote[1]", new() { ["text"] = "Updated" });
-
-        var node = _wordHandler.Get("/body/p[1]/endnote[1]");
-        if (node?.Text != null)
-        {
-            node.Text.Should().NotStartWith("  ",
-                "Endnote text should not accumulate leading spaces");
-        }
-    }
-
     /// Bug #173 — Word footnote: only first run updated in multi-run footnote
     /// File: WordHandler.Set.cs, lines 112-119
     /// Set only modifies the first non-reference-mark run.

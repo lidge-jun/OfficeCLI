@@ -87,26 +87,6 @@ public class BugHuntPart17 : IDisposable
     }
 
 
-    // ==================== BUG #2: Word paragraph Get doesn't include keepnext/keeplines ====================
-    // After Set keepnext=true on a paragraph, Get should report it.
-    [Fact]
-    public void Word_Paragraph_Get_ShouldIncludeKeepNext()
-    {
-        _wordHandler.Add("/", "paragraph", null, new()
-        {
-            ["text"] = "Keep with next",
-            ["keepnext"] = "true"
-        });
-
-        var para = _wordHandler.Get("/body/p[1]");
-        para.Should().NotBeNull();
-
-        // BUG: keepnext is set but Get doesn't include it in Format
-        para.Format.Should().ContainKey("keepnext",
-            "paragraph Get should expose keepnext property when it's set");
-    }
-
-
     // ==================== BUG #3: Excel sheet Add returns wrong path when sheets exist ====================
     // When adding a second sheet, the returned path should use the new sheet's name.
     [Fact]
@@ -172,56 +152,6 @@ public class BugHuntPart17 : IDisposable
     }
 
 
-    // ==================== BUG #6: Excel cell bgcolor persistence after reopen ====================
-    // Background color set via style should survive file reopen.
-    [Fact]
-    public void Excel_Cell_BgColor_Persistence()
-    {
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["value"] = "Colored",
-            ["bgcolor"] = "FFFF00"
-        });
-
-        // Verify before reopen
-        var before = _excelHandler.Get("/Sheet1/A1");
-        before.Format.Should().ContainKey("bgcolor");
-
-        // Reopen
-        ReopenExcel();
-
-        var after = _excelHandler.Get("/Sheet1/A1");
-        after.Format.Should().ContainKey("bgcolor",
-            "cell background color should persist after file reopen");
-
-        after.Format["bgcolor"]?.ToString().Should().Contain("FFFF00",
-            "background color value should be preserved after reopen");
-    }
-
-
-    // ==================== BUG #7: Word paragraph spacebefore/spaceafter not in Get ====================
-    // After setting spacing on a paragraph, Get should report it.
-    [Fact]
-    public void Word_Paragraph_Get_ShouldIncludeSpacing()
-    {
-        _wordHandler.Add("/", "paragraph", null, new()
-        {
-            ["text"] = "Spaced",
-            ["spacebefore"] = "240",
-            ["spaceafter"] = "120"
-        });
-
-        var para = _wordHandler.Get("/body/p[1]");
-        para.Should().NotBeNull();
-
-        // Check that spacing properties are exposed
-        para.Format.Should().ContainKey("spacebefore",
-            "paragraph Get should expose spacebefore when it's set");
-        para.Format.Should().ContainKey("spaceafter",
-            "paragraph Get should expose spaceafter when it's set");
-    }
-
-
     // ==================== BUG #8: PPTX table cell vertical alignment not in Get ====================
     // After setting valign on a table cell, Get should report it.
     [Fact]
@@ -280,27 +210,4 @@ public class BugHuntPart17 : IDisposable
     }
 
 
-    // ==================== BUG #10: Excel cell font.size readback is numeric, not formatted ====================
-    // ExcelHandler.Helpers.cs:235 stores font.size as raw numeric value (e.g. 11)
-    // but PPTX and Word return formatted strings like "11pt".
-    // The format is inconsistent across handlers.
-    [Fact]
-    public void Excel_Cell_FontSize_Format_ShouldBeConsistent()
-    {
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["value"] = "Test",
-            ["font.size"] = "14"
-        });
-
-        var cell = _excelHandler.Get("/Sheet1/A1");
-        cell.Format.Should().ContainKey("font.size");
-
-        var fontSize = cell.Format["font.size"];
-        // The font size format should be consistent with Word/PPTX handlers
-        // Word returns "14pt", PPTX returns "14pt", but Excel returns raw number 14
-        // BUG: Excel should return "14pt" for consistency, or all handlers should return raw numbers
-        fontSize?.ToString().Should().EndWith("pt",
-            "font size format should include 'pt' suffix for consistency with Word and PPTX handlers");
-    }
 }

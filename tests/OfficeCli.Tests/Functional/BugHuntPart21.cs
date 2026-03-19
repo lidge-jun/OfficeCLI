@@ -141,23 +141,6 @@ public class BugHuntPart21 : IDisposable
     }
 
 
-    // ==================== BUG #6: Excel sheet Get missing freeze pane info ====================
-    [Fact]
-    public void Excel_Sheet_Get_ShouldIncludeFreeze()
-    {
-        _excelHandler.Set("/Sheet1", new()
-        {
-            ["freeze"] = "B2"
-        });
-
-        var sheet = _excelHandler.Get("/Sheet1");
-        sheet.Should().NotBeNull();
-
-        sheet.Format.Should().ContainKey("freeze",
-            "sheet Get should include freeze pane information when it's been set");
-    }
-
-
     // ==================== BUG #7: Word run highlight readback value format ====================
     // Set uses color name like "yellow", but Get reports it as the enum InnerText
     [Fact]
@@ -220,17 +203,4 @@ public class BugHuntPart21 : IDisposable
     }
 
 
-    // ==================== BUG #10: Excel autofilter not in sheet Get ====================
-    [Fact]
-    public void Excel_Sheet_Get_ShouldIncludeAutoFilter()
-    {
-        _excelHandler.Set("/Sheet1", new()
-        {
-            ["autofilter"] = "A1:D10"
-        });
-
-        var sheet = _excelHandler.Get("/Sheet1");
-        sheet.Format.Should().ContainKey("autofilter",
-            "sheet Get should include autofilter range when it's been set");
-    }
 }

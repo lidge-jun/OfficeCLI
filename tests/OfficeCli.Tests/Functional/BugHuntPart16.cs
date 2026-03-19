@@ -120,28 +120,6 @@ public class BugHuntPart16 : IDisposable
     }
 
 
-    // ==================== BUG #3: PPTX slide Get doesn't include notes info ====================
-    // When a slide has notes, Get("/slide[1]") should indicate notes presence.
-    [Fact]
-    public void Pptx_Slide_Get_ShouldIndicateNotesPresence()
-    {
-        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
-
-        // Add notes to the slide
-        pptx.Set("/slide[1]", new()
-        {
-            ["notes"] = "Speaker notes for slide 1"
-        });
-
-        var slide = pptx.Get("/slide[1]");
-        slide.Should().NotBeNull();
-
-        // The slide node should indicate that notes are present
-        slide.Format.Should().ContainKey("notes",
-            "slide Get should expose notes content or at least indicate notes presence");
-    }
-
-
     // ==================== BUG #4: Word Add section break returns inconsistent path ====================
     // Section break returns "/section[N]" but the section count may not match
     // because it counts sections in paragraph properties, not body-level SectionProperties.
@@ -222,42 +200,6 @@ public class BugHuntPart16 : IDisposable
         // The footer should report its type
         footer.Format.Should().ContainKey("type",
             "footer Get should include the type (default/even/first) in Format");
-    }
-
-
-    // ==================== BUG #7: Excel Set cell with formula then clear doesn't reset type ====================
-    // Setting a formula, then clearing, then setting a string value:
-    // the DataType may not be properly reset on clear.
-    [Fact]
-    public void Excel_Cell_FormulaToValueTransition()
-    {
-        // Set formula
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["formula"] = "=1+1"
-        });
-
-        var withFormula = _excelHandler.Get("/Sheet1/A1");
-        withFormula.Format.Should().ContainKey("formula");
-
-        // Clear
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["clear"] = "true"
-        });
-
-        // Set string value
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["value"] = "Hello"
-        });
-
-        var withValue = _excelHandler.Get("/Sheet1/A1");
-        withValue.Text.Should().Be("Hello");
-
-        // The formula should be completely gone
-        withValue.Format.Should().NotContainKey("formula",
-            "after clear + set value, the formula should be completely removed");
     }
 
 

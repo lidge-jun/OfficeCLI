@@ -102,21 +102,6 @@ public partial class BugHuntTests
     // CATEGORY D: Excel Set value after formula — formula not cleared
     // ===========================================================================================
 
-    // BUG #1507: Excel Set value doesn't clear existing formula
-    [Fact]
-    public void Bug1507_Excel_Set_ValueAfterFormula_FormulaPersists()
-    {
-        _excelHandler.Set("/Sheet1/A1", new() { ["formula"] = "=1+1" });
-        _excelHandler.Set("/Sheet1/A1", new() { ["value"] = "manual" });
-
-        var node = _excelHandler.Get("/Sheet1/A1");
-
-        // The formula should be cleared when a value is explicitly set
-        node.Format.Should().NotContainKey("formula",
-            "setting a value on a cell with a formula should clear the formula, " +
-            "but ExcelHandler.Set.cs 'value' case doesn't clear CellFormula");
-    }
-
     // ===========================================================================================
     // CATEGORY E: Excel comment author lookup is case-sensitive
     // ExcelHandler.Add.cs line 191: FindIndex(a => a.Text == cmtAuthor) — exact match

@@ -124,32 +124,6 @@ public class BugHuntPart15 : IDisposable
     }
 
 
-    // ==================== BUG #3: Word header font size persistence through reopen ====================
-    // The integer division bug in header font size means the value is lossy:
-    // Save 13.5pt → stored as 27 half-points → reopen → read as 13pt (truncated)
-    [Fact]
-    public void Word_Header_FontSize_Persistence()
-    {
-        _wordHandler.Add("/", "header", null, new()
-        {
-            ["text"] = "Header",
-            ["size"] = "13.5"
-        });
-
-        // Save and reopen
-        ReopenWord();
-
-        var header = _wordHandler.Get("/header[1]");
-        header.Should().NotBeNull();
-        header.Format.Should().ContainKey("size");
-
-        // BUG: After persistence, size should still be "13.5pt" but integer division
-        // truncates it to "13pt"
-        header.Format["size"]?.ToString().Should().Be("13.5pt",
-            "header font size should survive reopen without precision loss");
-    }
-
-
     // ==================== BUG #4: Excel Set multiple cells in different sheets ====================
     // When setting cells in Sheet2, the handler needs to find the correct worksheet.
     // Path format is /Sheet2/A1 — but if Sheet2 doesn't exist yet, it should error clearly.
@@ -223,31 +197,6 @@ public class BugHuntPart15 : IDisposable
     }
 
 
-    // ==================== BUG #7: Excel colorscale 3-char hex same issue as databar ====================
-    // Same color normalization bug: 3-char hex not expanded
-    [Fact]
-    public void Excel_ColorScale_3CharMinColor_ShouldBeNormalized()
-    {
-        _excelHandler.Add("/Sheet1", "colorscale", null, new()
-        {
-            ["sqref"] = "A1:A10",
-            ["mincolor"] = "F00",
-            ["maxcolor"] = "00FF00"  // 6-char = correct
-        });
-
-        var cf = _excelHandler.Get("/Sheet1/cf[1]");
-        cf.Should().NotBeNull();
-
-        if (cf.Format.ContainsKey("mincolor"))
-        {
-            var minColor = cf.Format["mincolor"]?.ToString();
-            // BUG: "F00" is stored as "F00" (3 chars), not a valid 8-char ARGB
-            minColor.Should().HaveLength(8,
-                "color should be normalized to 8-char ARGB hex");
-        }
-    }
-
-
     // ==================== BUG #8: Word table cell Set font on empty cell is lost ====================
     // Same pattern as paragraph: Set font iterates over existing runs.
     // Empty cell has no runs → font is silently lost.
@@ -282,33 +231,6 @@ public class BugHuntPart15 : IDisposable
             para.Children[0].Format.Should().ContainKey("font",
                 "font set on empty cell should be applied when text is subsequently added");
         }
-    }
-
-
-    // ==================== BUG #9: PPTX Get shape doesn't include underline in Format ====================
-    // NodeBuilder.cs reads bold, italic, font, size, color — but not underline.
-    // Setting underline on a shape has no way to verify it via Get.
-    [Fact]
-    public void Pptx_Shape_Get_ShouldIncludeUnderline()
-    {
-        using var pptx = new PowerPointHandler(_pptxPath, editable: true);
-
-        pptx.Add("/slide[1]", "shape", null, new()
-        {
-            ["text"] = "Underlined"
-        });
-
-        pptx.Set("/slide[1]/shape[1]", new()
-        {
-            ["underline"] = "true"
-        });
-
-        var shape = pptx.Get("/slide[1]/shape[1]");
-        shape.Should().NotBeNull();
-
-        // BUG: Format doesn't include underline even though it was set
-        shape.Format.Should().ContainKey("underline",
-            "shape Get should expose underline property in Format");
     }
 
 

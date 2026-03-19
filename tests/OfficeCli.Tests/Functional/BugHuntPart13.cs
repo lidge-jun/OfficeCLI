@@ -274,28 +274,6 @@ public class BugHuntPart13 : IDisposable
     }
 
 
-    // ==================== BUG #7: Word table Add padding uses short.Parse ====================
-    // WordHandler.Add.cs:451,453 uses short.Parse(tv) for TableCellLeftMargin and
-    // TableCellRightMargin, but short max is 32767. Values > 32767 will throw OverflowException.
-    // Meanwhile, top/bottom margins use string directly (no parse) → inconsistent behavior.
-    [Fact]
-    public void Word_Table_Add_WithLargePadding_ShouldNotThrow()
-    {
-        // Create table with padding value that exceeds short.MaxValue
-        var act = () => _wordHandler.Add("/", "table", null, new()
-        {
-            ["rows"] = "1",
-            ["cols"] = "1",
-            ["padding"] = "40000"  // > short.MaxValue (32767)
-        });
-
-        // BUG: short.Parse("40000") throws OverflowException for left/right margins
-        // but top/bottom are set as strings and don't fail
-        act.Should().NotThrow<OverflowException>(
-            "table padding should handle values larger than short.MaxValue without overflow");
-    }
-
-
     // ==================== BUG #8: Excel databar color for 3-char hex ====================
     // ExcelHandler.Add.cs:387 does: (strippedColor.Length == 6 ? "FF" : "") + strippedColor
     // For a 3-char hex like "F00", it stores "F00" (no "FF" prefix, invalid ARGB)

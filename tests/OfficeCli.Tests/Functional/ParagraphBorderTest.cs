@@ -44,8 +44,8 @@ public class ParagraphBorderTest : IDisposable
         // Get and verify
         var node = _wordHandler.Get("/body/p[1]", depth: 0);
         node.Should().NotBeNull();
-        node!.Format.Should().ContainKey("pBdr.bottom");
-        var border = node.Format["pBdr.bottom"].ToString()!;
+        node!.Format.Should().ContainKey("pbdr.bottom");
+        var border = node.Format["pbdr.bottom"].ToString()!;
         border.Should().Contain("single");
         border.Should().Contain("12");
     }
@@ -65,15 +65,15 @@ public class ParagraphBorderTest : IDisposable
         // Get and verify
         var node = _wordHandler.Get("/body/p[1]", depth: 0);
         node.Should().NotBeNull();
-        node!.Format.Should().ContainKey("pBdr.bottom");
-        var border = node.Format["pBdr.bottom"].ToString()!;
+        node!.Format.Should().ContainKey("pbdr.bottom");
+        var border = node.Format["pbdr.bottom"].ToString()!;
         border.Should().Contain("single");
         border.Should().Contain("FF0000");
 
         // Update to double border
         _wordHandler.Set("/body/p[1]", new() { ["pbdr.bottom"] = "double;8;0000FF" });
         node = _wordHandler.Get("/body/p[1]", depth: 0);
-        border = node!.Format["pBdr.bottom"].ToString()!;
+        border = node!.Format["pbdr.bottom"].ToString()!;
         border.Should().Contain("double");
         border.Should().Contain("0000FF");
     }
@@ -90,11 +90,11 @@ public class ParagraphBorderTest : IDisposable
         _wordHandler.Set("/body/p[1]", new() { ["pbdr.all"] = "single;4;333333" });
 
         var node = _wordHandler.Get("/body/p[1]", depth: 0);
-        node!.Format.Should().ContainKey("pBdr.top");
-        node.Format.Should().ContainKey("pBdr.bottom");
-        node.Format.Should().ContainKey("pBdr.left");
-        node.Format.Should().ContainKey("pBdr.right");
-        node.Format.Should().ContainKey("pBdr.between");
+        node!.Format.Should().ContainKey("pbdr.top");
+        node.Format.Should().ContainKey("pbdr.bottom");
+        node.Format.Should().ContainKey("pbdr.left");
+        node.Format.Should().ContainKey("pbdr.right");
+        node.Format.Should().ContainKey("pbdr.between");
     }
 
     [Fact]
@@ -110,8 +110,8 @@ public class ParagraphBorderTest : IDisposable
         var handler = Reopen();
         var node = handler.Get("/body/p[1]", depth: 0);
         node.Should().NotBeNull();
-        node!.Format.Should().ContainKey("pBdr.bottom");
-        var border = node.Format["pBdr.bottom"].ToString()!;
+        node!.Format.Should().ContainKey("pbdr.bottom");
+        var border = node.Format["pbdr.bottom"].ToString()!;
         border.Should().Contain("thick");
     }
 }

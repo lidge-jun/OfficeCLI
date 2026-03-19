@@ -80,8 +80,9 @@ public partial class BugHuntTests
         var node = _excelHandler.Get("/Sheet1/A1");
 
         // The underline should still be "double", not downgraded to "single"
-        node.Format.TryGetValue("underline", out var ul);
-        (ul == "double" || ul == "Double").Should().BeTrue(
+        // Get returns under "font.underline" key
+        var ul = node.Format.ContainsKey("font.underline") ? node.Format["font.underline"]?.ToString() : null;
+        ul.Should().Be("double",
             "Double underline should be preserved when merging styles, " +
             "but ExcelStyleManager defaults baseFont underline to 'single'");
     }
@@ -120,8 +121,9 @@ public partial class BugHuntTests
         ReopenExcel();
         var node = _excelHandler.Get("/Sheet1/A1");
 
-        // The fill should be applied correctly
-        node.Format.TryGetValue("bgcolor", out var bg);
+        // The fill should be applied correctly (Get returns under "fill" key)
+        var bg = node.Format.ContainsKey("fill") ? node.Format["fill"]
+            : node.Format.ContainsKey("bgcolor") ? node.Format["bgcolor"] : null;
         bg.Should().NotBeNull("background color should be preserved after reopen");
     }
 

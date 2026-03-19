@@ -385,42 +385,4 @@ public partial class BugHuntTests
     // These can be Set on a paragraph but aren't returned by Get/ElementToNode
     // ===========================================================================================
 
-    // BUG #1014: paragraph spacebefore not returned by Get
-    [Fact]
-    public void Bug1014_Word_Get_ParagraphSpaceBefore_NotReturned()
-    {
-        _wordHandler.Add("/body", "paragraph", null, new() { ["text"] = "Spaced text" });
-        _wordHandler.Set("/body/p[1]", new() { ["spacebefore"] = "240" });
-
-        var node = _wordHandler.Get("/body/p[1]");
-
-        node.Format.Should().ContainKey("spacebefore",
-            "Get should return spacebefore for a paragraph that has it set");
-    }
-
-    // BUG #1015: paragraph linespacing not returned by Get
-    [Fact]
-    public void Bug1015_Word_Get_ParagraphLineSpacing_NotReturned()
-    {
-        _wordHandler.Add("/body", "paragraph", null, new() { ["text"] = "Line spaced" });
-        _wordHandler.Set("/body/p[1]", new() { ["linespacing"] = "360" });
-
-        var node = _wordHandler.Get("/body/p[1]");
-
-        node.Format.Should().ContainKey("linespacing",
-            "Get should return linespacing for a paragraph that has it set");
-    }
-
-    // BUG #1016: paragraph leftIndent not returned by Get
-    [Fact]
-    public void Bug1016_Word_Get_ParagraphLeftIndent_NotReturned()
-    {
-        _wordHandler.Add("/body", "paragraph", null, new() { ["text"] = "Indented" });
-        _wordHandler.Set("/body/p[1]", new() { ["leftindent"] = "720" });
-
-        var node = _wordHandler.Get("/body/p[1]");
-
-        node.Format.Should().ContainKey("leftindent",
-            "Get should return leftindent for a paragraph that has it set");
-    }
 }

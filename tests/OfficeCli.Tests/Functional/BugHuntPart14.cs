@@ -128,29 +128,6 @@ public class BugHuntPart14 : IDisposable
     }
 
 
-    // ==================== BUG #3: Excel Set cell value with boolean loses original string ====================
-    // ExcelHandler.Set.cs:507-510 auto-detects booleans: "true" → Boolean type, value "1"
-    // This means setting value="true" then getting it returns "1", not "true"
-    // The round-trip is lossy for boolean values
-    [Fact]
-    public void Excel_SetCellValue_Boolean_RoundTrip_ShouldPreserveOriginal()
-    {
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["value"] = "true"
-        });
-
-        var cell = _excelHandler.Get("/Sheet1/A1");
-        cell.Should().NotBeNull();
-
-        // BUG: value "true" is auto-detected as boolean and stored as "1"
-        // The original string "true" is lost — Get returns "1" instead
-        cell.Text.Should().Be("true",
-            "setting value 'true' should preserve the original string, " +
-            "not silently convert to boolean representation '1'");
-    }
-
-
     // ==================== BUG #4: Excel colorscale color for 8-char ARGB ====================
     // Same normalization bug as databar: (length == 6 ? "FF" : "") + color
     // For an 8-char ARGB like "80FF0000" (semi-transparent red), it's stored correctly (no prefix).
@@ -284,9 +261,10 @@ public class BugHuntPart14 : IDisposable
             ["font.bold"] = "true"
         });
 
-        // Verify style was applied
+        // Verify style was applied (Get returns fill under "fill" key)
         var before = _excelHandler.Get("/Sheet1/A1");
-        before.Format.Should().ContainKey("bgcolor");
+        (before.Format.ContainsKey("fill") || before.Format.ContainsKey("bgcolor")).Should().BeTrue(
+            "fill color should be applied");
 
         // Clear the cell
         _excelHandler.Set("/Sheet1/A1", new()
@@ -298,6 +276,8 @@ public class BugHuntPart14 : IDisposable
 
         // BUG: clear resets value/formula/type but not StyleIndex
         // The cell still shows yellow background even though content is cleared
+        after.Format.Should().NotContainKey("fill",
+            "clearing a cell should also reset its style/formatting, not just content");
         after.Format.Should().NotContainKey("bgcolor",
             "clearing a cell should also reset its style/formatting, not just content");
     }

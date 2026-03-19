@@ -653,15 +653,15 @@ public class PptxFunctionalTests : IDisposable
             ["shadow"] = "000000"
         });
 
-        // 2. Get + Verify
+        // 2. Get + Verify — shadow now includes full params: color-blur-angle-dist-opacity
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("shadow");
-        node.Format["shadow"].Should().Be("000000");
+        node.Format["shadow"]!.ToString()!.Should().StartWith("000000");
 
         // 3. Set new shadow color + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["shadow"] = "404040" });
         node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["shadow"].Should().Be("404040");
+        node.Format["shadow"]!.ToString()!.Should().StartWith("404040");
 
         // 4. Remove shadow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["shadow"] = "none" });
@@ -680,15 +680,15 @@ public class PptxFunctionalTests : IDisposable
             ["glow"] = "0070FF"
         });
 
-        // 2. Get + Verify
+        // 2. Get + Verify — glow now includes full params: color-radius-opacity
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("glow");
-        node.Format["glow"].Should().Be("0070FF");
+        node.Format["glow"]!.ToString()!.Should().StartWith("0070FF");
 
         // 3. Set new glow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["glow"] = "FF0000-10" });
         node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["glow"].Should().Be("FF0000");
+        node.Format["glow"]!.ToString()!.Should().StartWith("FF0000");
 
         // 4. Remove glow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["glow"] = "none" });
@@ -710,7 +710,8 @@ public class PptxFunctionalTests : IDisposable
         // 2. Get + Verify
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("reflection");
-        node.Format["reflection"].Should().Be("true");
+        // reflection now returns type: "tight", "half", or "full"
+        node.Format["reflection"]!.ToString()!.Should().Be("half");
 
         // 3. Remove reflection + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["reflection"] = "none" });

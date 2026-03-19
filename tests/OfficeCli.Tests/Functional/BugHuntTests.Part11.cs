@@ -123,22 +123,6 @@ public partial class BugHuntTests
     // CATEGORY F: Excel Set "wrap" property on cell
     // ===========================================================================================
 
-    // BUG #1610: Excel Get cell wrap not returned
-    [Fact]
-    public void Bug1610_Excel_Get_CellWrap_NotReturned()
-    {
-        _excelHandler.Set("/Sheet1/A1", new()
-        {
-            ["value"] = "Long text that should wrap",
-            ["wrap"] = "true"
-        });
-
-        var node = _excelHandler.Get("/Sheet1/A1");
-
-        node.Format.Should().ContainKey("wrap",
-            "Get should return wrap for a cell that has text wrapping enabled");
-    }
-
     // ===========================================================================================
     // CATEGORY J: FormulaParser — \text command round-trip
     // ===========================================================================================

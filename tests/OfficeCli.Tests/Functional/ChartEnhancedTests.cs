@@ -41,7 +41,7 @@ public class ChartEnhancedTests : IDisposable
     private void ReopenExcel() { _excel.Dispose(); _excel = new ExcelHandler(_xlsxPath, editable: true); }
     private void ReopenPptx() { _pptx.Dispose(); _pptx = new PowerPointHandler(_pptxPath, editable: true); }
 
-    private string AddExcelChart(Dictionary<string, string>? extraProps = null)
+    private string AddExcelChart(Dictionary<string, string> extraProps = null)
     {
         var props = new Dictionary<string, string>
         {
@@ -54,7 +54,7 @@ public class ChartEnhancedTests : IDisposable
         return _excel.Add("/Sheet1", "chart", null, props);
     }
 
-    private string AddPptxChart(Dictionary<string, string>? extraProps = null)
+    private string AddPptxChart(Dictionary<string, string> extraProps = null)
     {
         _pptx.Add("/", "slide", null, new());
         var props = new Dictionary<string, string>

@@ -26,8 +26,8 @@ public class BtBugRegressionTests : IDisposable
     private readonly string _xlsxPath = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid():N}.xlsx");
     private readonly string _docxPath = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid():N}.docx");
 
-    private ExcelHandler? _excel;
-    private WordHandler? _word;
+    private ExcelHandler _excel;
+    private WordHandler _word;
 
     private ExcelHandler GetExcel()
     {

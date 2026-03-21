@@ -77,7 +77,7 @@ public class FuzzBugTests2 : IDisposable
     public void F42_Pptx_Get_NegativeShapeIndex_ReturnsNullOrThrows()
     {
         using var handler = new PowerPointHandler(_pptxPath, editable: false);
-        DocumentNode? result = null;
+        DocumentNode result = null;
         var threw = false;
         try
         {
@@ -104,7 +104,7 @@ public class FuzzBugTests2 : IDisposable
     public void F43_Excel_Get_InvalidCellRef_ReturnsNullOrThrows(string path)
     {
         using var handler = new ExcelHandler(_xlsxPath, editable: false);
-        DocumentNode? result = null;
+        DocumentNode result = null;
         var threw = false;
         try
         {
@@ -128,7 +128,7 @@ public class FuzzBugTests2 : IDisposable
     public void F44_Pptx_Get_EmptyPath_ReturnsNullOrThrows()
     {
         using var handler = new PowerPointHandler(_pptxPath, editable: false);
-        DocumentNode? result = null;
+        DocumentNode result = null;
         var threw = false;
         try
         {
@@ -147,7 +147,7 @@ public class FuzzBugTests2 : IDisposable
     public void F44_Docx_Get_EmptyPath_ReturnsNullOrThrows()
     {
         using var handler = new WordHandler(_docxPath, editable: false);
-        DocumentNode? result = null;
+        DocumentNode result = null;
         var threw = false;
         try
         {

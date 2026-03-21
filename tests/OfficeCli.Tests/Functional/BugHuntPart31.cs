@@ -632,7 +632,7 @@ public class BugHuntPart31 : IDisposable
 
         // Check if any border side has a color
         var hasBorderColor = false;
-        string? borderColorVal = null;
+        string borderColorVal = null;
         foreach (var key in new[] { "border.left.color", "border.right.color", "border.top.color", "border.bottom.color" })
         {
             if (node2.Format.ContainsKey(key))

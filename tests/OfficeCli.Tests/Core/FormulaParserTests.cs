@@ -14,7 +14,7 @@ public class FormulaParserTests
     // Parse() uses WrapInOfficeMath which returns the element directly when
     // only a single node is produced. Descendants<T>() does not include self,
     // so we use FindFirst<T> that checks the root element as well.
-    private static T? FindFirst<T>(OpenXmlElement root) where T : OpenXmlElement
+    private static T FindFirst<T>(OpenXmlElement root) where T : OpenXmlElement
         => root as T ?? root.Descendants<T>().FirstOrDefault();
 
     private static IEnumerable<T> FindAll<T>(OpenXmlElement root) where T : OpenXmlElement

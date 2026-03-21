@@ -22,6 +22,8 @@ jobs:
             name: officecli-linux-arm64
           - rid: win-x64
             name: officecli-win-x64.exe
+          - rid: win-arm64
+            name: officecli-win-arm64.exe
 
     steps:
       - uses: actions/checkout@v4

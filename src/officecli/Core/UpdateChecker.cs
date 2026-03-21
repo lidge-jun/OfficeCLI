@@ -192,7 +192,8 @@ internal static class UpdateChecker
             return RuntimeInformation.ProcessArchitecture == Architecture.Arm64
                 ? "officecli-linux-arm64" : "officecli-linux-x64";
         if (OperatingSystem.IsWindows())
-            return "officecli-win-x64.exe";
+            return RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+                ? "officecli-win-arm64.exe" : "officecli-win-x64.exe";
         return null;
     }
 

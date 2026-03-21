@@ -37,7 +37,7 @@ public partial class BugHuntTests
             var node = handler.Get("/slide[1]/shape[2]");
             var color = node.Format.GetValueOrDefault("color")?.ToString() ?? "";
 
-            color.Should().Be("FF0000",
+            color.Should().Be("#FF0000",
                 "PPTX Add shape text color should strip # prefix like BuildColorElement does, " +
                 "but Add.cs line 162 uses raw ToUpperInvariant() without TrimStart('#')");
         }

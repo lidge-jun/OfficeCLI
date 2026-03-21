@@ -298,7 +298,7 @@ public class BugHuntPart28 : IDisposable
         });
 
         var node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        node.Format["shd"]?.ToString().Should().Be("FF9900");
+        node.Format["shd"]?.ToString().Should().Be("#FF9900");
         node.Format["valign"]?.ToString().Should().Be("center");
         int.Parse(node.Format["gridspan"]!.ToString()!).Should().Be(2);
         node.Format.Should().ContainKey("nowrap");
@@ -370,7 +370,7 @@ public class BugHuntPart28 : IDisposable
 
         var node = _wordHandler.Get("/body/p[1]");
         node.Format["alignment"]?.ToString().Should().Be("center");
-        node.Format["lineSpacing"]?.ToString().Should().Be("360");
+        node.Format["lineSpacing"]?.ToString().Should().Be("1.5x");
         node.Format.Should().ContainKey("spaceBefore");
         node.Format.Should().ContainKey("spaceAfter");
         node.Format["leftindent"]?.ToString().Should().Be("720");
@@ -383,7 +383,7 @@ public class BugHuntPart28 : IDisposable
 
         var run = _wordHandler.Get("/body/p[1]", depth: 2).Children[0];
         run.Format["highlight"]?.ToString().Should().Be("yellow");
-        run.Format["color"]?.ToString().Should().Be("FF0000");
+        run.Format["color"]?.ToString().Should().Be("#FF0000");
     }
 
     [Fact]
@@ -482,7 +482,7 @@ public class BugHuntPart28 : IDisposable
         var node = _pptxHandler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("lineSpacing",
             "lineSpacing from Add should be readable in Get");
-        node.Format["lineSpacing"]?.ToString().Should().Be("2");
+        node.Format["lineSpacing"]?.ToString().Should().Be("2x");
     }
 
     // =================================================================
@@ -539,7 +539,7 @@ public class BugHuntPart28 : IDisposable
 
         var node = _pptxHandler.Get("/slide[1]/shape[1]");
         node.Text.Should().Be("Full featured");
-        node.Format["fill"]?.ToString().Should().Be("FFCC00");
+        node.Format["fill"]?.ToString().Should().Be("#FFCC00");
         node.Format["font"]?.ToString().Should().Be("Arial");
         node.Format["bold"].Should().NotBeNull();
         node.Format.Should().ContainKey("align");

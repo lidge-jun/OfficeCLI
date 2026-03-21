@@ -296,8 +296,8 @@ public class BugHuntPart13 : IDisposable
             var color = cf.Format["color"]?.ToString();
             // BUG: 3-char hex "F00" is stored as just "F00" — not a valid ARGB color
             // It should either be expanded to "FFFF0000" or rejected
-            color.Should().HaveLength(8,
-                "color should be a valid 8-char ARGB hex string, not a 3-char shorthand");
+            color.Should().HaveLength(7,
+                "color should be a valid #RRGGBB hex string (7 chars with # prefix), not a 3-char shorthand");
         }
     }
 

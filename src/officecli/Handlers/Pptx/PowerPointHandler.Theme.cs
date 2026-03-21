@@ -150,9 +150,10 @@ public partial class PowerPointHandler
         {
             if (el == null) return null;
             var rgb = el.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-            if (rgb != null) return rgb;
+            if (rgb != null) return ParseHelpers.FormatHexColor(rgb);
             var sys = el.GetFirstChild<Drawing.SystemColor>();
-            return sys?.LastColor?.Value ?? sys?.Val?.InnerText;
+            var sysColor = sys?.LastColor?.Value ?? sys?.Val?.InnerText;
+            return sysColor != null ? ParseHelpers.FormatHexColor(sysColor) : null;
         }
 
         if (ReadSchemeColor(scheme.Dark1Color) is { } dk1) node.Format["dk1"] = dk1;

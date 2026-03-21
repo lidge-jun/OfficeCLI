@@ -460,7 +460,7 @@ public partial class PowerPointHandler
         if (stopEls == null || stopEls.Count == 0) return "gradient";
 
         var stopData = stopEls.Select(gs => (
-            color: gs.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "?",
+            color: ParseHelpers.FormatHexColor(gs.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "?"),
             pos: gs.Position?.Value
         )).ToList();
 
@@ -688,6 +688,23 @@ public partial class PowerPointHandler
                 updatedContent[targetIndex].InsertBeforeSelf(shape);
             else
                 shapeTree.AppendChild(shape);
+        }
+    }
+
+    /// <summary>
+    /// Apply a position/size property (x, y, width, height) to offset and extents.
+    /// Returns true if the key was handled.
+    /// </summary>
+    private static bool TryApplyPositionSize(string key, string value, Drawing.Offset offset, Drawing.Extents extents)
+    {
+        var emu = ParseEmu(value);
+        switch (key)
+        {
+            case "x": offset.X = emu; return true;
+            case "y": offset.Y = emu; return true;
+            case "width": extents.Cx = emu; return true;
+            case "height": extents.Cy = emu; return true;
+            default: return false;
         }
     }
 }

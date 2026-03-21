@@ -73,8 +73,8 @@ public class BugHuntPart20 : IDisposable
 
         var color = shape.Format["color"]?.ToString();
         // Color should be consistent: either always with # or always without
-        color.Should().Be("FF0000",
-            "color readback should be bare hex without # prefix, matching the Set format");
+        color.Should().Be("#FF0000",
+            "color readback should use #-prefixed hex format");
     }
 
 
@@ -132,8 +132,8 @@ public class BugHuntPart20 : IDisposable
         shape.Format.Should().ContainKey("fill");
 
         var fill = shape.Format["fill"]?.ToString();
-        fill.Should().Be("00FF00",
-            "shape fill should round-trip: Set '00FF00' → Get '00FF00'");
+        fill.Should().Be("#00FF00",
+            "shape fill should round-trip: Set '00FF00' → Get '#00FF00'");
     }
 
 

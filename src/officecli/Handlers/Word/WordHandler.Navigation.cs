@@ -237,15 +237,17 @@ public partial class WordHandler
                 {
                     if (pProps.SpacingBetweenLines.Before?.Value != null)
                     {
-                        node.Format["spaceBefore"] = pProps.SpacingBetweenLines.Before.Value;
+                        node.Format["spaceBefore"] = SpacingConverter.FormatWordSpacing(pProps.SpacingBetweenLines.Before.Value);
                     }
                     if (pProps.SpacingBetweenLines.After?.Value != null)
                     {
-                        node.Format["spaceAfter"] = pProps.SpacingBetweenLines.After.Value;
+                        node.Format["spaceAfter"] = SpacingConverter.FormatWordSpacing(pProps.SpacingBetweenLines.After.Value);
                     }
                     if (pProps.SpacingBetweenLines.Line?.Value != null)
                     {
-                        node.Format["lineSpacing"] = pProps.SpacingBetweenLines.Line.Value;
+                        node.Format["lineSpacing"] = SpacingConverter.FormatWordLineSpacing(
+                            pProps.SpacingBetweenLines.Line.Value,
+                            pProps.SpacingBetweenLines.LineRule?.InnerText);
                     }
                 }
                 if (pProps.Indentation?.FirstLine?.Value != null)
@@ -279,14 +281,14 @@ public partial class WordHandler
                         && !string.IsNullOrEmpty(shdFill)
                         && string.IsNullOrEmpty(shdColor))
                     {
-                        node.Format["shd"] = shdFill;
+                        node.Format["shd"] = ParseHelpers.FormatHexColor(shdFill);
                     }
                     else
                     {
                         var shdParts = new List<string>();
                         if (!string.IsNullOrEmpty(shdVal)) shdParts.Add(shdVal);
-                        if (!string.IsNullOrEmpty(shdFill)) shdParts.Add(shdFill);
-                        if (!string.IsNullOrEmpty(shdColor)) shdParts.Add(shdColor);
+                        if (!string.IsNullOrEmpty(shdFill)) shdParts.Add(ParseHelpers.FormatHexColor(shdFill));
+                        if (!string.IsNullOrEmpty(shdColor)) shdParts.Add(ParseHelpers.FormatHexColor(shdColor));
                         node.Format["shd"] = string.Join(";", shdParts);
                     }
                 }
@@ -333,7 +335,7 @@ public partial class WordHandler
                 if (rp.Bold != null && !node.Format.ContainsKey("bold")) node.Format["bold"] = true;
                 if (rp.Italic != null && !node.Format.ContainsKey("italic")) node.Format["italic"] = true;
                 if (rp.Color?.Val?.Value != null && !node.Format.ContainsKey("color"))
-                    node.Format["color"] = rp.Color.Val.Value;
+                    node.Format["color"] = ParseHelpers.FormatHexColor(rp.Color.Val.Value);
                 if (rp.Underline?.Val != null && !node.Format.ContainsKey("underline"))
                     node.Format["underline"] = rp.Underline.Val.InnerText;
                 if (rp.Strike != null && !node.Format.ContainsKey("strike"))
@@ -360,7 +362,7 @@ public partial class WordHandler
             if (size != null) node.Format["size"] = size;
             if (run.RunProperties?.Bold != null) node.Format["bold"] = true;
             if (run.RunProperties?.Italic != null) node.Format["italic"] = true;
-            if (run.RunProperties?.Color?.Val?.Value != null) node.Format["color"] = run.RunProperties.Color.Val.Value;
+            if (run.RunProperties?.Color?.Val?.Value != null) node.Format["color"] = ParseHelpers.FormatHexColor(run.RunProperties.Color.Val.Value);
             if (run.RunProperties?.Underline?.Val != null) node.Format["underline"] = run.RunProperties.Underline.Val.InnerText;
             if (run.RunProperties?.Strike != null) node.Format["strike"] = true;
             if (run.RunProperties?.Highlight?.Val != null) node.Format["highlight"] = run.RunProperties.Highlight.Val.InnerText;
@@ -380,9 +382,11 @@ public partial class WordHandler
                 node.Format["subscript"] = true;
             if (run.RunProperties?.Shading?.Fill?.Value != null)
             {
-                node.Format["shading"] = run.RunProperties.Shading.Fill.Value;
-                node.Format["shd"] = run.RunProperties.Shading.Fill.Value;
+                node.Format["shading"] = ParseHelpers.FormatHexColor(run.RunProperties.Shading.Fill.Value);
+                node.Format["shd"] = ParseHelpers.FormatHexColor(run.RunProperties.Shading.Fill.Value);
             }
+            // w14 text effects
+            ReadW14TextEffects(run.RunProperties, node);
             // Image properties if run contains a Drawing
             var runDrawing = run.GetFirstChild<Drawing>();
             if (runDrawing != null)
@@ -711,13 +715,13 @@ public partial class WordHandler
                 var angle = angleMatch.Success ? int.Parse(angleMatch.Groups[1].Value) / 60000 : 0;
                 if (colors.Count >= 2)
                 {
-                    node.Format["shd"] = $"gradient;{colors[0]};{colors[1]};{angle}";
+                    node.Format["shd"] = $"gradient;{ParseHelpers.FormatHexColor(colors[0])};{ParseHelpers.FormatHexColor(colors[1])};{angle}";
                     node.Format["fill"] = node.Format["shd"];
                 }
                 else if (colors.Count == 1)
                 {
-                    node.Format["shd"] = colors[0];
-                    node.Format["fill"] = colors[0];
+                    node.Format["shd"] = ParseHelpers.FormatHexColor(colors[0]);
+                    node.Format["fill"] = ParseHelpers.FormatHexColor(colors[0]);
                 }
             }
             else
@@ -725,8 +729,8 @@ public partial class WordHandler
                 var shd = tcPr.Shading;
                 if (shd?.Fill?.Value != null)
                 {
-                    node.Format["shd"] = shd.Fill.Value;
-                    node.Format["fill"] = shd.Fill.Value;
+                    node.Format["shd"] = ParseHelpers.FormatHexColor(shd.Fill.Value);
+                    node.Format["fill"] = ParseHelpers.FormatHexColor(shd.Fill.Value);
                 }
             }
             // Width
@@ -771,7 +775,7 @@ public partial class WordHandler
             if (rPr.FontSize?.Val?.Value != null) node.Format["size"] = $"{int.Parse(rPr.FontSize.Val.Value) / 2.0:0.##}pt";
             if (rPr.Bold != null) node.Format["bold"] = true;
             if (rPr.Italic != null) node.Format["italic"] = true;
-            if (rPr.Color?.Val?.Value != null) node.Format["color"] = rPr.Color.Val.Value;
+            if (rPr.Color?.Val?.Value != null) node.Format["color"] = ParseHelpers.FormatHexColor(rPr.Color.Val.Value);
             if (rPr.Underline?.Val != null) node.Format["underline"] = rPr.Underline.Val.InnerText;
             if (rPr.Strike != null) node.Format["strike"] = true;
             if (rPr.Highlight?.Val != null) node.Format["highlight"] = rPr.Highlight.Val.InnerText;
@@ -787,7 +791,7 @@ public partial class WordHandler
         var space = border.Space?.Value ?? 0u;
         var parts = new List<string> { style };
         if (size > 0 || color != null || space > 0) parts.Add(size.ToString());
-        if (color != null || space > 0) parts.Add(color is not null ? color : "auto");
+        if (color != null || space > 0) parts.Add(color is not null ? ParseHelpers.FormatHexColor(color) : "auto");
         if (space > 0) parts.Add(space.ToString());
         node.Format[key] = string.Join(";", parts);
     }

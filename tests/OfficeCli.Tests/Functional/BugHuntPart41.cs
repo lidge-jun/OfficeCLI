@@ -132,7 +132,7 @@ public class BugHuntPart41 : IDisposable
 
         var node = handler.Get("/slide[1]/connector[1]");
         node.Format.Should().ContainKey("lineColor");
-        node.Format["lineColor"].Should().Be("FF0000");
+        node.Format["lineColor"].Should().Be("#FF0000");
         node.Format.Should().ContainKey("lineWidth");
     }
 
@@ -183,7 +183,7 @@ public class BugHuntPart41 : IDisposable
 
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("fill");
-        node.Format["fill"].Should().Be("FF0000");
+        node.Format["fill"].Should().Be("#FF0000");
         node.Format.Should().ContainKey("opacity",
             because: "opacity with fill in same Add call should work since fill is processed first");
         node.Format["opacity"].Should().Be("0.5");
@@ -503,7 +503,7 @@ public class BugHuntPart41 : IDisposable
         runNode.Format.Should().ContainKey("italic");
         runNode.Format["italic"].Should().Be(true);
         runNode.Format.Should().ContainKey("color");
-        runNode.Format["color"].Should().Be("FF0000");
+        runNode.Format["color"].Should().Be("#FF0000");
     }
 
     // =====================================================================

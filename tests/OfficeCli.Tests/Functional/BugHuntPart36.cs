@@ -224,7 +224,7 @@ public class BugHuntPart36 : IDisposable
         node.Text.Should().Be("Red text");
         node.Format.Should().ContainKey("color",
             "Text set via deferred text should inherit the color from the same Set call");
-        node.Format["color"].ToString()!.Should().Contain("FF0000");
+        node.Format["color"].ToString()!.Should().Contain("#FF0000");
     }
 
     // =====================================================================
@@ -320,7 +320,7 @@ public class BugHuntPart36 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Text.Should().Contain("Line A");
         node.Format.Should().ContainKey("fill");
-        node.Format["fill"].ToString().Should().Be("00FF00");
+        node.Format["fill"].ToString().Should().Be("#00FF00");
     }
 
     // =====================================================================

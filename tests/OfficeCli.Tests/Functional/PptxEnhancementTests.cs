@@ -65,7 +65,7 @@ public class PptxEnhancementTests : IDisposable
         para.Children[0].Text.Should().Be("Hello");
         para.Children[1].Text.Should().Be(" World");
         para.Children[1].Format["bold"].Should().Be(true);
-        para.Children[1].Format["color"].Should().Be("FF0000");
+        para.Children[1].Format["color"].Should().Be("#FF0000");
 
         // 6. Set (modify the added run)
         handler.Set("/slide[1]/shape[2]/paragraph[1]/run[2]", new()
@@ -87,7 +87,7 @@ public class PptxEnhancementTests : IDisposable
         para.Children[1].Text.Should().Be(" World");
         para.Children[1].Format["bold"].Should().Be(true);
         para.Children[1].Format["italic"].Should().Be(true);
-        para.Children[1].Format["color"].Should().Be("FF0000");
+        para.Children[1].Format["color"].Should().Be("#FF0000");
 
         handler.Dispose();
     }
@@ -214,7 +214,7 @@ public class PptxEnhancementTests : IDisposable
         para.Children[2].Text.Should().Be(" italic");
         para.Children[2].Format["italic"].Should().Be(true);
         para.Children[3].Text.Should().Be(" red");
-        para.Children[3].Format["color"].Should().Be("FF0000");
+        para.Children[3].Format["color"].Should().Be("#FF0000");
 
         // 4. Set (modify run[3] — change italic to bold+italic)
         handler.Set("/slide[1]/shape[2]/paragraph[1]/run[3]", new() { ["bold"] = "true" });
@@ -231,7 +231,7 @@ public class PptxEnhancementTests : IDisposable
         para.Children[1].Format["bold"].Should().Be(true);
         para.Children[2].Format["italic"].Should().Be(true);
         para.Children[2].Format["bold"].Should().Be(true);
-        para.Children[3].Format["color"].Should().Be("FF0000");
+        para.Children[3].Format["color"].Should().Be("#FF0000");
 
         handler.Dispose();
     }
@@ -1082,12 +1082,12 @@ public class PptxEnhancementTests : IDisposable
         // Find the "Hello World" shape in cloned slide
         var helloShape = slide2Shapes.FirstOrDefault(s => s.Text?.Contains("Hello World") == true);
         helloShape.Should().NotBeNull();
-        helloShape!.Format["fill"].Should().Be("4472C4");
+        helloShape!.Format["fill"].Should().Be("#4472C4");
         helloShape.Format["bold"].Should().Be(true);
 
         var subShape = slide2Shapes.FirstOrDefault(s => s.Text?.Contains("Subtitle") == true);
         subShape.Should().NotBeNull();
-        subShape!.Format["color"].Should().Be("FF0000");
+        subShape!.Format["color"].Should().Be("#FF0000");
 
         // 6. Set (modify cloned slide to verify independence)
         handler.Set("/slide[2]/shape[2]", new() { ["text"] = "Cloned!" });
@@ -1170,7 +1170,7 @@ public class PptxEnhancementTests : IDisposable
         handler.Set("/slide[2]", new() { ["background"] = "FF0000" });
 
         // 7. Verify independence
-        handler.Get("/slide[1]").Format["background"].Should().NotBe("FF0000");
+        handler.Get("/slide[1]").Format["background"].Should().NotBe("#FF0000");
 
         // 8. Reopen + Verify
         Reopen(ref handler);
@@ -1204,8 +1204,8 @@ public class PptxEnhancementTests : IDisposable
         node = handler.Get("/slide[1]/shape[2]");
         node.Format.Should().ContainKey("textFill");
         var textFill = node.Format["textFill"].ToString()!;
-        textFill.Should().Contain("FF0000");
-        textFill.Should().Contain("0000FF");
+        textFill.Should().Contain("#FF0000");
+        textFill.Should().Contain("#0000FF");
 
         // 6. Set (modify to different gradient)
         handler.Set("/slide[1]/shape[2]", new() { ["textFill"] = "00FF00-FFFF00" });
@@ -1213,7 +1213,7 @@ public class PptxEnhancementTests : IDisposable
         // 7. Get + Verify
         node = handler.Get("/slide[1]/shape[2]");
         textFill = node.Format["textFill"].ToString()!;
-        textFill.Should().Contain("00FF00");
+        textFill.Should().Contain("#00FF00");
 
         // 8. Reopen + Verify
         Reopen(ref handler);
@@ -1250,13 +1250,13 @@ public class PptxEnhancementTests : IDisposable
 
         // 6. Get + Verify (gradient replaced by solid)
         para = handler.Get("/slide[1]/shape[2]/paragraph[1]");
-        para.Children[1].Format["color"].Should().Be("FF0000");
+        para.Children[1].Format["color"].Should().Be("#FF0000");
         para.Children[1].Format.Should().NotContainKey("textFill");
 
         // 7. Reopen + Verify
         Reopen(ref handler);
         para = handler.Get("/slide[1]/shape[2]/paragraph[1]");
-        para.Children[1].Format["color"].Should().Be("FF0000");
+        para.Children[1].Format["color"].Should().Be("#FF0000");
 
         handler.Dispose();
     }
@@ -1282,7 +1282,7 @@ public class PptxEnhancementTests : IDisposable
         // 3. Get + Verify (should NOT have preset since it's custom)
         var node = handler.Get("/slide[1]/shape[2]");
         node.Text.Should().Contain("Triangle");
-        node.Format["fill"].Should().Be("4472C4");
+        node.Format["fill"].Should().Be("#4472C4");
 
         // 4. Set (change to different custom geometry — wave shape)
         handler.Set("/slide[1]/shape[2]", new()
@@ -1294,7 +1294,7 @@ public class PptxEnhancementTests : IDisposable
         Reopen(ref handler);
         node = handler.Get("/slide[1]/shape[2]");
         node.Text.Should().Contain("Triangle");
-        node.Format["fill"].Should().Be("4472C4");
+        node.Format["fill"].Should().Be("#4472C4");
 
         // 6. Set back to preset (should replace custom geometry)
         handler.Set("/slide[1]/shape[2]", new() { ["preset"] = "ellipse" });

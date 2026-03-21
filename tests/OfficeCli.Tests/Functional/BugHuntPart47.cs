@@ -203,7 +203,7 @@ public class BugHuntPart47 : IDisposable
         {
             // fill should NOT be a solid color when the shape has gradient fill
             var fillVal = node.Format["fill"]?.ToString();
-            fillVal.Should().NotBe("FF0000",
+            fillVal.Should().NotBe("#FF0000",
                 because: "when a shape has gradient fill, the 'fill' key should not contain " +
                          "a misleading solid color value from the first gradient stop. " +
                          "Currently ShapeToNode processes gradient fill twice: " +
@@ -427,7 +427,7 @@ public class BugHuntPart47 : IDisposable
             because: "shadow should have 5 components: color-blur-angle-dist-opacity");
 
         // Verify the values round-trip correctly
-        parts[0].Should().Be("000000", because: "shadow color should be preserved");
+        parts[0].Should().Be("#000000", because: "shadow color should be preserved");
     }
 
     // ==================== Bug4710 ====================
@@ -457,7 +457,7 @@ public class BugHuntPart47 : IDisposable
         var parts = glow.Split('-');
         parts.Length.Should().BeGreaterThanOrEqualTo(3,
             because: "glow should have 3 components: color-radius-opacity");
-        parts[0].Should().Be("0070FF", because: "glow color should be preserved");
+        parts[0].Should().Be("#0070FF", because: "glow color should be preserved");
         parts[1].Should().Be("10", because: "glow radius should be 10 points");
         parts[2].Should().Be("60", because: "glow opacity should be 60%");
     }
@@ -553,7 +553,7 @@ public class BugHuntPart47 : IDisposable
         // First verify solid fill works
         var node1 = handler.Get("/slide[1]/shape[1]");
         if (node1.Format.ContainsKey("fill"))
-            node1.Format["fill"].Should().Be("FF0000");
+            node1.Format["fill"].Should().Be("#FF0000");
 
         // Now change to gradient fill
         handler.Set("/slide[1]/shape[1]", new()
@@ -574,7 +574,7 @@ public class BugHuntPart47 : IDisposable
         if (node2.Format.ContainsKey("fill"))
         {
             var fillValue = node2.Format["fill"]?.ToString() ?? "";
-            fillValue.Should().NotMatch("^[0-9A-Fa-f]{6}$",
+            fillValue.Should().NotMatch("^#[0-9A-Fa-f]{6}$",
                 because: "fill key should not contain a solid hex color when the shape " +
                          "has gradient fill. Currently the first gradient stop color " +
                          "is erroneously written to the 'fill' key by ShapeToNode's " +
@@ -1106,7 +1106,7 @@ public class BugHuntPart47 : IDisposable
 
         var fill = cellNode.Format["gradient"]?.ToString() ?? "";
         // Should contain the gradient representation
-        fill.Should().Contain("FF0000",
+        fill.Should().Contain("#FF0000",
             because: "gradient fill should contain first color");
     }
 
@@ -1128,7 +1128,7 @@ public class BugHuntPart47 : IDisposable
 
         var node = handler.Get("/slide[1]");
         node.Format.Should().ContainKey("background");
-        node.Format["background"].Should().Be("336699",
+        node.Format["background"].Should().Be("#336699",
             because: "solid background color should round-trip correctly");
     }
 
@@ -1156,15 +1156,15 @@ public class BugHuntPart47 : IDisposable
 
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("lineSpacing");
-        node.Format["lineSpacing"].Should().Be("1.5",
+        node.Format["lineSpacing"].Should().Be("1.5x",
             because: "lineSpacing 1.5x should round-trip correctly");
 
         node.Format.Should().ContainKey("spaceBefore");
-        node.Format["spaceBefore"].Should().Be("12",
+        node.Format["spaceBefore"].Should().Be("12pt",
             because: "spaceBefore 12pt should round-trip correctly");
 
         node.Format.Should().ContainKey("spaceAfter");
-        node.Format["spaceAfter"].Should().Be("6",
+        node.Format["spaceAfter"].Should().Be("6pt",
             because: "spaceAfter 6pt should round-trip correctly");
     }
 }

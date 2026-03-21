@@ -144,12 +144,14 @@ public partial class PowerPointHandler
             if (qParaPProps?.Indent?.HasValue == true) paraNode.Format["indent"] = FormatEmu(qParaPProps.Indent.Value);
             if (qParaPProps?.LeftMargin?.HasValue == true) paraNode.Format["marginLeft"] = FormatEmu(qParaPProps.LeftMargin.Value);
             if (qParaPProps?.RightMargin?.HasValue == true) paraNode.Format["marginRight"] = FormatEmu(qParaPProps.RightMargin.Value);
-            var qLs = qParaPProps?.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPercent>()?.Val?.Value;
-            if (qLs.HasValue) paraNode.Format["lineSpacing"] = $"{qLs.Value / 100000.0:0.##}";
+            var qLsPct = qParaPProps?.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPercent>()?.Val?.Value;
+            if (qLsPct.HasValue) paraNode.Format["lineSpacing"] = SpacingConverter.FormatPptLineSpacingPercent(qLsPct.Value);
+            var qLsPts = qParaPProps?.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
+            if (qLsPts.HasValue) paraNode.Format["lineSpacing"] = SpacingConverter.FormatPptLineSpacingPoints(qLsPts.Value);
             var qSb = qParaPProps?.GetFirstChild<Drawing.SpaceBefore>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
-            if (qSb.HasValue) paraNode.Format["spaceBefore"] = $"{qSb.Value / 100.0:0.##}";
+            if (qSb.HasValue) paraNode.Format["spaceBefore"] = SpacingConverter.FormatPptSpacing(qSb.Value);
             var qSa = qParaPProps?.GetFirstChild<Drawing.SpaceAfter>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
-            if (qSa.HasValue) paraNode.Format["spaceAfter"] = $"{qSa.Value / 100.0:0.##}";
+            if (qSa.HasValue) paraNode.Format["spaceAfter"] = SpacingConverter.FormatPptSpacing(qSa.Value);
 
             var runs = para.Elements<Drawing.Run>().ToList();
             paraNode.ChildCount = runs.Count;
@@ -303,8 +305,8 @@ public partial class PowerPointHandler
                 var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>().ToList();
                 if (stops != null && stops.Count >= 2)
                 {
-                    var gc1 = stops[0].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "";
-                    var gc2 = stops[^1].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "";
+                    var gc1 = ParseHelpers.FormatHexColor(stops[0].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "");
+                    var gc2 = ParseHelpers.FormatHexColor(stops[^1].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "");
                     var lin = gradFill.GetFirstChild<Drawing.LinearGradientFill>();
                     int deg = lin?.Angle?.Value != null ? lin.Angle.Value / 60000 : 0;
                     var gradient = $"linear;{gc1};{gc2};{deg}";
@@ -315,7 +317,7 @@ public partial class PowerPointHandler
             else
             {
                 var cellFillHex = tcPr?.GetFirstChild<Drawing.SolidFill>()?.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-                if (cellFillHex != null) cellNode.Format["fill"] = cellFillHex;
+                if (cellFillHex != null) cellNode.Format["fill"] = ParseHelpers.FormatHexColor(cellFillHex);
             }
 
             // Cell borders — following POI's getBorderWidth/getBorderColor pattern
@@ -359,7 +361,7 @@ public partial class PowerPointHandler
                 if (firstRun.RunProperties.Italic?.Value == true) cellNode.Format["italic"] = true;
                 var colorHex = firstRun.RunProperties.GetFirstChild<Drawing.SolidFill>()
                     ?.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-                if (colorHex != null) cellNode.Format["color"] = colorHex;
+                if (colorHex != null) cellNode.Format["color"] = ParseHelpers.FormatHexColor(colorHex);
             }
 
             return cellNode;

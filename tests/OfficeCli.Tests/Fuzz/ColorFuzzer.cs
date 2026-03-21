@@ -57,6 +57,11 @@ public class ColorFuzzer : IDisposable
         new object[] { "80FF0000" },  // AARRGGBB with alpha
         new object[] { "000" },       // 3-char shorthand for black (valid)
         new object[] { "FFF" },       // 3-char shorthand for white (valid)
+        new object[] { "red" },       // named color
+        new object[] { "blue" },      // named color
+        new object[] { "Green" },     // named color (case-insensitive)
+        new object[] { "rgb(255,0,0)" },  // rgb() notation
+        new object[] { "rgb(0, 128, 255)" }, // rgb() with spaces
     };
 
     [Theory]
@@ -104,14 +109,14 @@ public class ColorFuzzer : IDisposable
         new object[] { "" },
         new object[] { "invalid" },
         new object[] { "GGGGGG" },
-        new object[] { "red" },         // named colors not accepted
         new object[] { "12345" },       // 5 chars — invalid
         new object[] { "1234567" },     // 7 chars — invalid
         new object[] { "ZZZZZZ" },
         new object[] { "FF 00 00" },    // spaces
-        new object[] { "rgb(255,0,0)" },
         new object[] { "transparent" },
         new object[] { "#GG0000" },
+        new object[] { "rgb(256,0,0)" },  // out of range
+        new object[] { "rgb(0,0)" },      // too few components
     };
 
     [Theory]

@@ -310,9 +310,7 @@ public class ExcelStyleManager
         double size;
         if (fontProps.TryGetValue("size", out var szVal))
         {
-            if (!double.TryParse(szVal, out var sz) || double.IsNaN(sz) || double.IsInfinity(sz))
-                throw new ArgumentException($"Invalid font.size value: '{szVal}'. Expected a finite number.");
-            size = sz;
+            size = ParseHelpers.ParseFontSize(szVal);
         }
         else
         {

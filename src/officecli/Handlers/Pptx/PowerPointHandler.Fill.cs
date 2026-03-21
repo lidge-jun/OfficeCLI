@@ -4,6 +4,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
+using OfficeCli.Core;
 using Drawing = DocumentFormat.OpenXml.Drawing;
 
 namespace OfficeCli.Handlers;
@@ -89,7 +90,7 @@ public partial class PowerPointHandler
     {
         if (solidFill == null) return null;
         var rgb = solidFill.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-        if (rgb != null) return rgb;
+        if (rgb != null) return ParseHelpers.FormatHexColor(rgb);
         var scheme = solidFill.GetFirstChild<Drawing.SchemeColor>()?.Val;
         if (scheme?.HasValue == true) return scheme.InnerText;
         return null;
@@ -102,7 +103,7 @@ public partial class PowerPointHandler
     {
         if (parent == null) return null;
         var rgb = parent.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-        if (rgb != null) return rgb;
+        if (rgb != null) return ParseHelpers.FormatHexColor(rgb);
         var scheme = parent.GetFirstChild<Drawing.SchemeColor>()?.Val;
         if (scheme?.HasValue == true) return scheme.InnerText;
         return null;

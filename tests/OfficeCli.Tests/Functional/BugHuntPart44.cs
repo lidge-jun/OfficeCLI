@@ -80,7 +80,7 @@ public class BugHuntPart44 : IDisposable
 
         var node = handler.Get("/slide[1]/connector[1]");
         node.Format.Should().ContainKey("lineColor");
-        node.Format["lineColor"].Should().Be("FF0000",
+        node.Format["lineColor"].Should().Be("#FF0000",
             because: "'line' key during connector Add should set line color");
     }
 
@@ -139,7 +139,7 @@ public class BugHuntPart44 : IDisposable
         var node2 = handler.Get("/slide[1]/shape[1]");
         // The "line" key probably doesn't match any Set case
         // and falls through to GenericXmlQuery
-        node2.Format["line"].Should().Be("0000FF",
+        node2.Format["line"].Should().Be("#0000FF",
             because: "setting 'line' should update the line color");
     }
 
@@ -259,7 +259,7 @@ public class BugHuntPart44 : IDisposable
         var node = handler.Get("/Sheet1/A1");
         node.Format.Should().ContainKey("font.color",
             because: "font.color should be readable after Add");
-        node.Format["font.color"].Should().Be("FF0000");
+        node.Format["font.color"].Should().Be("#FF0000");
     }
 
     // =====================================================================
@@ -800,7 +800,7 @@ public class BugHuntPart44 : IDisposable
         var node = handler.Get("/body/p[1]/r[1]");
         node.Format.Should().ContainKey("shading",
             because: "run shading should be readable after Set");
-        node.Format["shading"].ToString().Should().Be("FF0000",
+        node.Format["shading"].ToString().Should().Be("#FF0000",
             because: "shading color should round-trip correctly");
     }
 

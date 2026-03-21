@@ -693,7 +693,7 @@ public class WordNewFeaturesTests : IDisposable
         // The bold run should now have red color
         var boldRun = p.Children.FirstOrDefault(c => c.Format.ContainsKey("bold"));
         boldRun.Should().NotBeNull();
-        boldRun!.Format["color"].Should().Be("FF0000");
+        boldRun!.Format["color"].Should().Be("#FF0000");
     }
 
     // =====================================================================

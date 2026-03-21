@@ -498,22 +498,22 @@ public class ExcelFunctionalTests : IDisposable
         cf.Type.Should().Be("conditionalFormatting");
         ((string)cf.Format["cfType"]).Should().Be("colorScale");
         ((string)cf.Format["sqref"]).Should().Be("A1:A5");
-        ((string)cf.Format["mincolor"]).Should().Contain("F8696B");
-        ((string)cf.Format["maxcolor"]).Should().Contain("63BE7B");
+        ((string)cf.Format["mincolor"]).Should().Contain("#F8696B");
+        ((string)cf.Format["maxcolor"]).Should().Contain("#63BE7B");
 
         // 4. Set (modify colors)
         _handler.Set("/Sheet1/cf[1]", new() { ["mincolor"] = "0000FF", ["maxcolor"] = "FF0000" });
 
         // 5. Get + Verify
         cf = _handler.Get("/Sheet1/cf[1]");
-        ((string)cf.Format["mincolor"]).Should().Contain("0000FF");
-        ((string)cf.Format["maxcolor"]).Should().Contain("FF0000");
+        ((string)cf.Format["mincolor"]).Should().Contain("#0000FF");
+        ((string)cf.Format["maxcolor"]).Should().Contain("#FF0000");
 
         // 6. Persistence
         Reopen();
         cf = _handler.Get("/Sheet1/cf[1]");
         ((string)cf.Format["cfType"]).Should().Be("colorScale");
-        ((string)cf.Format["mincolor"]).Should().Contain("0000FF");
+        ((string)cf.Format["mincolor"]).Should().Contain("#0000FF");
     }
 
     // ==================== IconSet Lifecycle ====================
@@ -748,8 +748,8 @@ public class ExcelFunctionalTests : IDisposable
         node.Format["font"].ToString()!.Should().Be("Arial");
         node.Format["size"].ToString()!.Should().Be("24pt");
         node.Format["bold"].Should().Be(true);
-        node.Format["color"].ToString()!.Should().Be("FF0000");
-        node.Format["fill"].ToString()!.Should().Be("0000FF");
+        node.Format["color"].ToString()!.Should().Be("#FF0000");
+        node.Format["fill"].ToString()!.Should().Be("#0000FF");
         node.Format["x"].ToString()!.Should().Be("1");
         node.Format["width"].ToString()!.Should().Be("6");
     }
@@ -771,7 +771,7 @@ public class ExcelFunctionalTests : IDisposable
         var node = _handler.Get("/Sheet1/shape[1]");
         node.Format["font"].ToString()!.Should().Be("Georgia");
         node.Format["size"].ToString()!.Should().Be("36pt");
-        node.Format["color"].ToString()!.Should().Be("FF4500");
+        node.Format["color"].ToString()!.Should().Be("#FF4500");
         node.Format["bold"].Should().Be(true);
     }
 
@@ -804,8 +804,8 @@ public class ExcelFunctionalTests : IDisposable
         var node = _handler.Get("/Sheet1/shape[1]");
         node.Format.Should().ContainKey("shadow");
         node.Format.Should().ContainKey("glow");
-        node.Format["shadow"].ToString()!.Should().StartWith("FF0000");
-        node.Format["glow"].ToString()!.Should().StartWith("FF6600");
+        node.Format["shadow"].ToString()!.Should().StartWith("#FF0000");
+        node.Format["glow"].ToString()!.Should().StartWith("#FF6600");
 
         // Remove effects
         _handler.Set("/Sheet1/shape[1]", new Dictionary<string, string>
@@ -834,7 +834,7 @@ public class ExcelFunctionalTests : IDisposable
         node.Format["font"].ToString()!.Should().Be("Impact");
         node.Format["size"].ToString()!.Should().Be("48pt");
         node.Format["bold"].Should().Be(true);
-        node.Format["color"].ToString()!.Should().Be("FFD700");
-        node.Format["fill"].ToString()!.Should().Be("1A1A2E");
+        node.Format["color"].ToString()!.Should().Be("#FFD700");
+        node.Format["fill"].ToString()!.Should().Be("#1A1A2E");
     }
 }

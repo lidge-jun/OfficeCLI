@@ -45,7 +45,7 @@ public class BugHuntPart43 : IDisposable
         // BUG: Add uses "line" key, not "lineColor" — so "lineColor" is silently ignored
         // The connector gets default black (000000) instead of FF0000
         node.Format.Should().ContainKey("lineColor");
-        node.Format["lineColor"].Should().Be("FF0000",
+        node.Format["lineColor"].Should().Be("#FF0000",
             because: "lineColor during Add should set the connector's line color");
     }
 

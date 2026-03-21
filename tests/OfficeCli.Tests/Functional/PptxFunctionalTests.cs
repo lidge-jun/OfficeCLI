@@ -106,7 +106,7 @@ public class PptxFunctionalTests : IDisposable
 
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("fill");
-        node.Format["fill"].Should().Be("FF0000");
+        node.Format["fill"].Should().Be("#FF0000");
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public class PptxFunctionalTests : IDisposable
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["fill"] = "FF0000" });
 
         var node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["fill"].Should().Be("FF0000");
+        node.Format["fill"].Should().Be("#FF0000");
     }
 
     [Fact]
@@ -434,7 +434,7 @@ public class PptxFunctionalTests : IDisposable
 
         var node = _handler.Get("/slide[1]");
         node.Format.Should().ContainKey("background");
-        node.Format["background"].Should().Be("FF0000");
+        node.Format["background"].Should().Be("#FF0000");
     }
 
     [Fact]
@@ -446,8 +446,8 @@ public class PptxFunctionalTests : IDisposable
         node.Format.Should().ContainKey("background");
         var bg = node.Format["background"]?.ToString();
         bg.Should().NotBeNull();
-        bg!.Should().Contain("FF0000");
-        bg.Should().Contain("0000FF");
+        bg!.Should().Contain("#FF0000");
+        bg.Should().Contain("#0000FF");
     }
 
     [Fact]
@@ -458,7 +458,7 @@ public class PptxFunctionalTests : IDisposable
 
         var node = _handler.Get("/slide[1]");
         node.Format.Should().ContainKey("background");
-        node.Format["background"].Should().Be("FF0000");
+        node.Format["background"].Should().Be("#FF0000");
     }
 
     [Fact]
@@ -469,7 +469,7 @@ public class PptxFunctionalTests : IDisposable
         _handler.Set("/slide[1]", new Dictionary<string, string> { ["background"] = "0000FF" });
 
         var node = _handler.Get("/slide[1]");
-        node.Format["background"].Should().Be("0000FF");
+        node.Format["background"].Should().Be("#0000FF");
     }
 
     [Fact]
@@ -490,7 +490,7 @@ public class PptxFunctionalTests : IDisposable
         var handler2 = Reopen();
         var node = handler2.Get("/slide[1]");
         node.Format.Should().ContainKey("background");
-        node.Format["background"].Should().Be("00FF00");
+        node.Format["background"].Should().Be("#00FF00");
     }
 
     // ==================== Persistence ====================
@@ -656,12 +656,12 @@ public class PptxFunctionalTests : IDisposable
         // 2. Get + Verify — shadow now includes full params: color-blur-angle-dist-opacity
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("shadow");
-        node.Format["shadow"]!.ToString()!.Should().StartWith("000000");
+        node.Format["shadow"]!.ToString()!.Should().StartWith("#000000");
 
         // 3. Set new shadow color + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["shadow"] = "404040" });
         node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["shadow"]!.ToString()!.Should().StartWith("404040");
+        node.Format["shadow"]!.ToString()!.Should().StartWith("#404040");
 
         // 4. Remove shadow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["shadow"] = "none" });
@@ -683,12 +683,12 @@ public class PptxFunctionalTests : IDisposable
         // 2. Get + Verify — glow now includes full params: color-radius-opacity
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("glow");
-        node.Format["glow"]!.ToString()!.Should().StartWith("0070FF");
+        node.Format["glow"]!.ToString()!.Should().StartWith("#0070FF");
 
         // 3. Set new glow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["glow"] = "FF0000-10" });
         node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["glow"]!.ToString()!.Should().StartWith("FF0000");
+        node.Format["glow"]!.ToString()!.Should().StartWith("#FF0000");
 
         // 4. Remove glow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["glow"] = "none" });
@@ -712,12 +712,12 @@ public class PptxFunctionalTests : IDisposable
         // Get + Verify
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("shadow");
-        node.Format["shadow"]!.ToString()!.Should().StartWith("333333");
+        node.Format["shadow"]!.ToString()!.Should().StartWith("#333333");
 
         // Set new shadow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["shadow"] = "FF0000-6-90-4-60" });
         node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["shadow"]!.ToString()!.Should().StartWith("FF0000");
+        node.Format["shadow"]!.ToString()!.Should().StartWith("#FF0000");
         node.Format["shadow"]!.ToString()!.Should().Contain("6");
 
         // Remove shadow + Verify
@@ -741,12 +741,12 @@ public class PptxFunctionalTests : IDisposable
         // Get + Verify
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("glow");
-        node.Format["glow"]!.ToString()!.Should().StartWith("E94560");
+        node.Format["glow"]!.ToString()!.Should().StartWith("#E94560");
 
         // Set new glow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["glow"] = "0000FF-12-90" });
         node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["glow"]!.ToString()!.Should().StartWith("0000FF");
+        node.Format["glow"]!.ToString()!.Should().StartWith("#0000FF");
 
         // Remove glow + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["glow"] = "none" });
@@ -770,7 +770,7 @@ public class PptxFunctionalTests : IDisposable
 
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("shadow");
-        node.Format["shadow"]!.ToString()!.Should().StartWith("222222");
+        node.Format["shadow"]!.ToString()!.Should().StartWith("#222222");
     }
 
     [Fact]
@@ -789,7 +789,7 @@ public class PptxFunctionalTests : IDisposable
 
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("glow");
-        node.Format["glow"]!.ToString()!.Should().StartWith("FF6600");
+        node.Format["glow"]!.ToString()!.Should().StartWith("#FF6600");
     }
 
     [Fact]
@@ -808,18 +808,18 @@ public class PptxFunctionalTests : IDisposable
         // Get + Verify textFill is readable
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("textFill");
-        node.Format["textFill"]!.ToString()!.Should().Contain("FF0000");
+        node.Format["textFill"]!.ToString()!.Should().Contain("#FF0000");
 
         // Set new textFill + Verify
         _handler.Set("/slide[1]/shape[1]", new Dictionary<string, string> { ["textFill"] = "00FF00-FFFF00-180" });
         node = _handler.Get("/slide[1]/shape[1]");
-        node.Format["textFill"]!.ToString()!.Should().Contain("00FF00");
+        node.Format["textFill"]!.ToString()!.Should().Contain("#00FF00");
 
         // Persistence
         Reopen();
         node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("textFill");
-        node.Format["textFill"]!.ToString()!.Should().Contain("00FF00");
+        node.Format["textFill"]!.ToString()!.Should().Contain("#00FF00");
     }
 
     /// <summary>
@@ -1253,8 +1253,8 @@ public class PptxFunctionalTests : IDisposable
         node.Format.Should().ContainKey("gradient");
         var grad = (string)node.Format["gradient"];
         grad.Should().StartWith("radial:");
-        grad.Should().Contain("1E90FF");
-        grad.Should().Contain("4B0082");
+        grad.Should().Contain("#1E90FF");
+        grad.Should().Contain("#4B0082");
         grad.Should().EndWith("tr");
 
         // 4. Change to center focus
@@ -1310,7 +1310,7 @@ public class PptxFunctionalTests : IDisposable
         // 3. Get + Verify
         var node = _handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("line");
-        ((string)node.Format["line"]).Should().Be("FFFFFF");
+        ((string)node.Format["line"]).Should().Be("#FFFFFF");
         node.Format.Should().ContainKey("lineOpacity");
         ((string)node.Format["lineOpacity"]).Should().Be("0.5");
 
@@ -2020,18 +2020,18 @@ public class PptxFunctionalTests : IDisposable
         // 2. Get + Verify series colors at depth 1
         var node = _handler.Get("/slide[1]/chart[1]", 1);
         node.Children.Should().HaveCount(2);
-        ((string)node.Children[0].Format["color"]).Should().Be("FF0000");
-        ((string)node.Children[1].Format["color"]).Should().Be("00FF00");
+        ((string)node.Children[0].Format["color"]).Should().Be("#FF0000");
+        ((string)node.Children[1].Format["color"]).Should().Be("#00FF00");
 
         // 3. Set — change colors
         _handler.Set("/slide[1]/chart[1]", new() { ["colors"] = "0000FF,FFFF00" });
         node = _handler.Get("/slide[1]/chart[1]", 1);
-        ((string)node.Children[0].Format["color"]).Should().Be("0000FF");
+        ((string)node.Children[0].Format["color"]).Should().Be("#0000FF");
 
         // 4. Persist + Verify
         Reopen();
         node = _handler.Get("/slide[1]/chart[1]", 1);
-        ((string)node.Children[0].Format["color"]).Should().Be("0000FF");
+        ((string)node.Children[0].Format["color"]).Should().Be("#0000FF");
     }
 
     [Fact]

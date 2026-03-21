@@ -149,7 +149,7 @@ public class BugHuntPart45 : IDisposable
         var parts = shadow.Split('-');
         parts.Should().HaveCount(5,
             because: "shadow should have 5 components: color-blur-angle-dist-opacity");
-        parts[0].Should().Be("000000", because: "shadow color should be black");
+        parts[0].Should().Be("#000000", because: "shadow color should be black");
         parts[4].Should().Be("50", because: "shadow opacity should be 50");
     }
 
@@ -176,7 +176,7 @@ public class BugHuntPart45 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("lineSpacing",
             because: "lineSpacing should be readable after Set");
-        node.Format["lineSpacing"].ToString().Should().Be("1.5",
+        node.Format["lineSpacing"].ToString().Should().Be("1.5x",
             because: "lineSpacing=1.5 should roundtrip correctly");
     }
 
@@ -201,7 +201,7 @@ public class BugHuntPart45 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("spaceBefore",
             because: "spaceBefore should be readable after Set");
-        node.Format["spaceBefore"].ToString().Should().Be("12",
+        node.Format["spaceBefore"].ToString().Should().Be("12pt",
             because: "spaceBefore=12 should roundtrip correctly");
     }
 
@@ -226,7 +226,7 @@ public class BugHuntPart45 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("spaceAfter",
             because: "spaceAfter should be readable after Set");
-        node.Format["spaceAfter"].ToString().Should().Be("6",
+        node.Format["spaceAfter"].ToString().Should().Be("6pt",
             because: "spaceAfter=6 should roundtrip correctly");
     }
 
@@ -418,7 +418,7 @@ public class BugHuntPart45 : IDisposable
         var node = handler.Get("/Sheet1/A1");
         node.Format.Should().ContainKey("font.color",
             because: "font.color should be readable after Add");
-        node.Format["font.color"].ToString().Should().Be("FF0000",
+        node.Format["font.color"].ToString().Should().Be("#FF0000",
             because: "font.color=FF0000 should roundtrip correctly");
     }
 
@@ -441,7 +441,7 @@ public class BugHuntPart45 : IDisposable
         var node = handler.Get("/Sheet1/A1");
         node.Format.Should().ContainKey("fill",
             because: "fill should be readable after Add");
-        node.Format["fill"].ToString().Should().Be("00FF00",
+        node.Format["fill"].ToString().Should().Be("#00FF00",
             because: "fill=00FF00 should roundtrip correctly");
     }
 
@@ -818,7 +818,7 @@ public class BugHuntPart45 : IDisposable
         node.Format.Should().ContainKey("glow",
             because: "glow should be readable after Add");
         var glow = node.Format["glow"].ToString()!;
-        glow.Should().Contain("FFFF00",
+        glow.Should().Contain("#FFFF00",
             because: "glow color should be preserved");
     }
 }

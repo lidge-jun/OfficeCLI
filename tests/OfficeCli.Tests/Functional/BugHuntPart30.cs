@@ -102,7 +102,7 @@ public class BugHuntPart30 : IDisposable
 
         // 2. Get + Verify initial state
         var node1 = _handler.Get("/slide[1]/shape[1]");
-        node1.Format["fill"].ToString().Should().Be("FF0000");
+        node1.Format["fill"].ToString().Should().Be("#FF0000");
         node1.Format.Should().NotContainKey("opacity");
 
         // 3. Set opacity
@@ -268,21 +268,21 @@ public class BugHuntPart30 : IDisposable
         var fill = node2.Format["fill"].ToString()!;
         fill.Should().NotStartWith("gradient;",
             "readback should use hyphen format matching Set input");
-        fill.Should().Contain("FF0000");
-        fill.Should().Contain("0000FF");
+        fill.Should().Contain("#FF0000");
+        fill.Should().Contain("#0000FF");
 
         // 5. Set new gradient (round-trip from readback)
         _handler.Set("/slide[1]/table[1]/tr[1]/tc[1]", new() { ["fill"] = "00FF00-FF00FF" });
 
         // 6. Get + Verify
         var node3 = _handler.Get("/slide[1]/table[1]/tr[1]/tc[1]", 0);
-        node3.Format["fill"].ToString().Should().Contain("00FF00");
-        node3.Format["fill"].ToString().Should().Contain("FF00FF");
+        node3.Format["fill"].ToString().Should().Contain("#00FF00");
+        node3.Format["fill"].ToString().Should().Contain("#FF00FF");
 
         // 7. Reopen + Verify
         Reopen();
         var node4 = _handler.Get("/slide[1]/table[1]/tr[1]/tc[1]", 0);
-        node4.Format["fill"].ToString().Should().Contain("00FF00");
+        node4.Format["fill"].ToString().Should().Contain("#00FF00");
     }
 
     // ===================== Bug 6: Table cell align all paragraphs =====================
@@ -704,14 +704,14 @@ public class BugHuntPart30 : IDisposable
         // 2. Get + Verify
         var node1 = _handler.Get("/slide[1]");
         node1.Format.Should().ContainKey("background");
-        node1.Format["background"].ToString().Should().Contain("FF0000");
+        node1.Format["background"].ToString().Should().Contain("#FF0000");
 
         // 3. Reopen + Verify persistence
         Reopen();
         var node2 = _handler.Get("/slide[1]");
         node2.Format.Should().ContainKey("background");
-        node2.Format["background"].ToString().Should().Contain("FF0000");
-        node2.Format["background"].ToString().Should().Contain("0000FF");
+        node2.Format["background"].ToString().Should().Contain("#FF0000");
+        node2.Format["background"].ToString().Should().Contain("#0000FF");
     }
 
     // ===================== 19: Shape line dash =====================

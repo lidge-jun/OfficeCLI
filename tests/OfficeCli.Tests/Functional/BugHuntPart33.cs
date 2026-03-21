@@ -57,7 +57,7 @@ public class BugHuntPart33 : IDisposable
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
         node.Format.Should().ContainKey("glow");
         // Readback format: "COLOR-RADIUS-OPACITY"
-        node.Format["glow"].Should().Be("00FFFF-15-75");
+        node.Format["glow"].Should().Be("#00FFFF-15-75");
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class BugHuntPart33 : IDisposable
         _pptxHandler.Set("/slide[1]/shape[2]", new() { ["glow"] = "00FF00;12" });
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["glow"].Should().Be("00FF00-12-75");
+        node.Format["glow"].Should().Be("#00FF00-12-75");
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class BugHuntPart33 : IDisposable
         });
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["glow"].Should().Be("0000FF-10-60");
+        node.Format["glow"].Should().Be("#0000FF-10-60");
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public class BugHuntPart33 : IDisposable
         Reopen();
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["glow"].Should().Be("00FFFF-15-75");
+        node.Format["glow"].Should().Be("#00FFFF-15-75");
 
         var errors = _pptxHandler.Validate();
         errors.Should().BeEmpty();
@@ -218,7 +218,7 @@ public class BugHuntPart33 : IDisposable
         errors.Should().BeEmpty("glow + bevel + rot3d combined should produce valid XML");
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["glow"].Should().Be("00FFFF-15-75");
+        node.Format["glow"].Should().Be("#00FFFF-15-75");
         node.Format["bevel"].ToString().Should().Contain("circle");
         node.Format["rot3d"].Should().Be("20,340,0");
     }
@@ -239,7 +239,7 @@ public class BugHuntPart33 : IDisposable
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
         node.Format.Should().ContainKey("shadow");
         // Readback format: "COLOR-BLUR-ANGLE-DIST-OPACITY"
-        node.Format["shadow"].Should().Be("000000-6-315-4-50");
+        node.Format["shadow"].Should().Be("#000000-6-315-4-50");
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class BugHuntPart33 : IDisposable
         _pptxHandler.Set("/slide[1]/shape[2]", new() { ["shadow"] = "FF0000;10;90;5;80" });
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["shadow"].Should().Be("FF0000-10-90-5-80");
+        node.Format["shadow"].Should().Be("#FF0000-10-90-5-80");
     }
 
     [Fact]
@@ -285,7 +285,7 @@ public class BugHuntPart33 : IDisposable
         Reopen();
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["shadow"].Should().Be("000000-6-315-4-50");
+        node.Format["shadow"].Should().Be("#000000-6-315-4-50");
 
         var errors = _pptxHandler.Validate();
         errors.Should().BeEmpty();
@@ -380,7 +380,7 @@ public class BugHuntPart33 : IDisposable
         errors.Should().BeEmpty("effectLst should be ordered before scene3d/sp3d in spPr");
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["glow"].Should().Be("00FFFF-15-75");
+        node.Format["glow"].Should().Be("#00FFFF-15-75");
         node.Format["bevel"].ToString().Should().Contain("circle");
         node.Format["rot3d"].Should().Be("20,340,0");
     }
@@ -481,7 +481,7 @@ public class BugHuntPart33 : IDisposable
         errors.Should().BeEmpty();
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["glow"].Should().Be("00FFFF-15-75");
+        node.Format["glow"].Should().Be("#00FFFF-15-75");
         node.Format["bevel"].ToString().Should().Contain("circle");
         node.Format["rot3d"].Should().Be("20,340,0");
     }

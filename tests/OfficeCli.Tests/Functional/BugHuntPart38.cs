@@ -127,7 +127,7 @@ public class BugHuntPart38 : IDisposable
         // fill is in Format dict, so this should work correctly
         var results = handler.Query("shape[fill=FF0000]");
         results.Should().HaveCount(1, "shape[fill=FF0000] should match exactly the red-filled shape");
-        results[0].Format["fill"].ToString().Should().Be("FF0000");
+        results[0].Format["fill"].ToString().Should().Be("#FF0000");
     }
 
     // Bug3804: shape[text=Hello] should exact-match only that shape, not "Hello World"

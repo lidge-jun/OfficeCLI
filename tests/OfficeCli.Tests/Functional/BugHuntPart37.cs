@@ -103,7 +103,7 @@ public class BugHuntPart37 : IDisposable
         cell.Text.Should().Be("Red text");
         cell.Format.Should().ContainKey("color",
             "Color should appear on the run created by 'text' for empty cell");
-        cell.Format["color"].ToString().Should().Be("FF0000");
+        cell.Format["color"].ToString().Should().Be("#FF0000");
     }
 
     // =====================================================================
@@ -296,7 +296,7 @@ public class BugHuntPart37 : IDisposable
         node.Text.Should().Contain("Line1");
         node.Format.Should().ContainKey("color",
             "Color should be applied to new runs after multiline text replacement (stale runs bug)");
-        node.Format["color"].ToString().Should().Be("FF0000");
+        node.Format["color"].ToString().Should().Be("#FF0000");
     }
 
     // =====================================================================
@@ -457,7 +457,7 @@ public class BugHuntPart37 : IDisposable
         var cell = tableNode.Children[0].Children[0];
         cell.Format.Should().ContainKey("color",
             "TableToNode should read text color from cell runs");
-        cell.Format["color"].ToString().Should().Be("FF0000");
+        cell.Format["color"].ToString().Should().Be("#FF0000");
     }
 
     // =====================================================================
@@ -802,7 +802,7 @@ public class BugHuntPart37 : IDisposable
         node.Text.Should().Be("Red content");
         node.Format.Should().ContainKey("color",
             "Color set on empty cell with deferred text should be preserved via PMR cloning");
-        node.Format["color"].ToString().Should().Be("FF0000");
+        node.Format["color"].ToString().Should().Be("#FF0000");
     }
 
     // =====================================================================

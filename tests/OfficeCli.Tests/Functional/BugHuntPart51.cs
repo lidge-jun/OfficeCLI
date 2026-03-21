@@ -226,7 +226,7 @@ public class BugHuntPart51 : IDisposable
         node.Format.Should().ContainKey("shading");
         if (node.Format.ContainsKey("shading"))
         {
-            node.Format["shading"]?.ToString().Should().Be("FFFF00",
+            node.Format["shading"]?.ToString().Should().Be("#FFFF00",
                 because: "Run shading round-trip: Set 'FFFF00' → Get 'FFFF00'");
         }
     }

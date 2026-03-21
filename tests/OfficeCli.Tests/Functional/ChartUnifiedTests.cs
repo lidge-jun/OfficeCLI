@@ -140,8 +140,8 @@ public class ChartUnifiedTests : IDisposable
             ["chartType"] = "column", ["title"] = "T", ["data"] = "S1:1,2;S2:3,4", ["colors"] = "FF0000,00FF00"
         });
         var node = _excel.Get("/Sheet1/chart[1]", depth: 2);
-        ((string)node.Children[0].Format["color"]).Should().Be("FF0000");
-        ((string)node.Children[1].Format["color"]).Should().Be("00FF00");
+        ((string)node.Children[0].Format["color"]).Should().Be("#FF0000");
+        ((string)node.Children[1].Format["color"]).Should().Be("#00FF00");
     }
 
     [Fact]
@@ -326,9 +326,9 @@ public class ChartUnifiedTests : IDisposable
         });
         _excel.Set("/Sheet1/chart[1]", new() { ["colors"] = "FF0000,00FF00" });
         var node = _excel.Get("/Sheet1/chart[1]", depth: 2);
-        ((string)node.Children[0].Format["color"]).Should().Be("FF0000");
+        ((string)node.Children[0].Format["color"]).Should().Be("#FF0000");
         ReopenExcel();
-        ((string)_excel.Get("/Sheet1/chart[1]", depth: 2).Children[0].Format["color"]).Should().Be("FF0000");
+        ((string)_excel.Get("/Sheet1/chart[1]", depth: 2).Children[0].Format["color"]).Should().Be("#FF0000");
     }
 
     [Fact]
@@ -472,7 +472,7 @@ public class ChartUnifiedTests : IDisposable
         ((double)node.Format["majorUnit"]).Should().Be(100);
         ((double)node.Format["minorUnit"]).Should().Be(25);
         ((string)node.Format["axisNumFmt"]).Should().Be("$#,##0");
-        ((string)node.Children[0].Format["color"]).Should().Be("FF0000");
+        ((string)node.Children[0].Format["color"]).Should().Be("#FF0000");
 
         // 3. Set — change everything
         _excel.Set("/Sheet1/chart[1]", new()
@@ -497,7 +497,7 @@ public class ChartUnifiedTests : IDisposable
         ((double)node.Format["majorUnit"]).Should().Be(50);
         ((double)node.Format["minorUnit"]).Should().Be(10);
         ((string)node.Format["axisNumFmt"]).Should().Be("0.0%");
-        ((string)node.Children[0].Format["color"]).Should().Be("0000FF");
+        ((string)node.Children[0].Format["color"]).Should().Be("#0000FF");
 
         // 5. Reopen + Verify
         ReopenExcel();
@@ -507,7 +507,7 @@ public class ChartUnifiedTests : IDisposable
         ((string)node.Format["axisTitle"]).Should().Be("Revenue ($)");
         ((double)node.Format["axisMin"]).Should().Be(10);
         ((string)node.Format["axisNumFmt"]).Should().Be("0.0%");
-        ((string)node.Children[0].Format["color"]).Should().Be("0000FF");
+        ((string)node.Children[0].Format["color"]).Should().Be("#0000FF");
     }
 
     // ==================== Word: Add + Get + Reopen ====================
@@ -598,7 +598,7 @@ public class ChartUnifiedTests : IDisposable
             ["chartType"] = "column", ["title"] = "T", ["data"] = "S1:1,2;S2:3,4", ["colors"] = "AA0000,00BB00"
         });
         var node = _word.Get("/chart[1]", depth: 2);
-        ((string)node.Children[0].Format["color"]).Should().Be("AA0000");
+        ((string)node.Children[0].Format["color"]).Should().Be("#AA0000");
     }
 
     [Fact]
@@ -761,9 +761,9 @@ public class ChartUnifiedTests : IDisposable
     {
         _word.Add("/body", "chart", null, new() { ["chartType"] = "column", ["title"] = "T", ["data"] = "S1:1,2;S2:3,4" });
         _word.Set("/chart[1]", new() { ["colors"] = "0000FF,FF00FF" });
-        ((string)_word.Get("/chart[1]", depth: 2).Children[0].Format["color"]).Should().Be("0000FF");
+        ((string)_word.Get("/chart[1]", depth: 2).Children[0].Format["color"]).Should().Be("#0000FF");
         ReopenWord();
-        ((string)_word.Get("/chart[1]", depth: 2).Children[0].Format["color"]).Should().Be("0000FF");
+        ((string)_word.Get("/chart[1]", depth: 2).Children[0].Format["color"]).Should().Be("#0000FF");
     }
 
     [Fact]

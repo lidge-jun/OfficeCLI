@@ -131,7 +131,7 @@ public partial class PowerPointHandler
         else if (gradFill != null)
         {
             var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>()
-                .Select(gs => gs.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "?")
+                .Select(gs => ParseHelpers.FormatHexColor(gs.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "?"))
                 .ToList();
             if (stops?.Count > 0)
             {

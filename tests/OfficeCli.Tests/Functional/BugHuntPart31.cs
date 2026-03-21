@@ -323,8 +323,8 @@ public class BugHuntPart31 : IDisposable
         var node1 = _wordHandler.Get("/body/p[1]");
         node1.Format.Should().ContainKey("spaceBefore");
         node1.Format.Should().ContainKey("spaceAfter");
-        node1.Format["spaceBefore"].ToString().Should().Be("240");
-        node1.Format["spaceAfter"].ToString().Should().Be("120");
+        node1.Format["spaceBefore"].ToString().Should().Be("12pt");
+        node1.Format["spaceAfter"].ToString().Should().Be("6pt");
 
         // 3. Set (modify spacing)
         _wordHandler.Set("/body/p[1]", new() { ["spacebefore"] = "480" });
@@ -332,13 +332,13 @@ public class BugHuntPart31 : IDisposable
         // 4. Get + Verify modification
         var node2 = _wordHandler.Get("/body/p[1]");
         node2.Format.Should().ContainKey("spaceBefore");
-        node2.Format["spaceBefore"].ToString().Should().Be("480");
+        node2.Format["spaceBefore"].ToString().Should().Be("24pt");
 
         // 5. Reopen + Verify persistence
         ReopenWord();
         var node3 = _wordHandler.Get("/body/p[1]");
         node3.Format.Should().ContainKey("spaceBefore");
-        node3.Format["spaceBefore"].ToString().Should().Be("480");
+        node3.Format["spaceBefore"].ToString().Should().Be("24pt");
     }
 
     // EDGE CASE: Word multiple runs in one paragraph.
@@ -442,7 +442,7 @@ public class BugHuntPart31 : IDisposable
         node1.Format.Should().ContainKey("font.bold");
         node1.Format["font.bold"].Should().Be(true);
         node1.Format.Should().ContainKey("fill");
-        node1.Format["fill"].ToString().Should().Be("FFFF00");
+        node1.Format["fill"].ToString().Should().Be("#FFFF00");
 
         // 3. Set (modify fill color)
         _excelHandler.Set("/Sheet1/A1", new() { ["fill"] = "00FF00" });
@@ -450,7 +450,7 @@ public class BugHuntPart31 : IDisposable
         // 4. Get + Verify modification
         var node2 = _excelHandler.Get("/Sheet1/A1");
         node2.Format.Should().ContainKey("fill");
-        node2.Format["fill"].ToString().Should().Be("00FF00");
+        node2.Format["fill"].ToString().Should().Be("#00FF00");
 
         // 5. Reopen + Verify persistence
         ReopenExcel();
@@ -459,7 +459,7 @@ public class BugHuntPart31 : IDisposable
         node3.Format.Should().ContainKey("font.bold");
         node3.Format["font.bold"].Should().Be(true);
         node3.Format.Should().ContainKey("fill");
-        node3.Format["fill"].ToString().Should().Be("00FF00");
+        node3.Format["fill"].ToString().Should().Be("#00FF00");
     }
 
     // EDGE CASE: Excel cell merge and readback.
@@ -599,13 +599,13 @@ public class BugHuntPart31 : IDisposable
         // 4. Get + Verify modification
         var node2 = _excelHandler.Get("/Sheet1");
         node2.Format.Should().ContainKey("tabColor");
-        node2.Format["tabColor"].ToString().Should().Contain("FF0000");
+        node2.Format["tabColor"].ToString().Should().Contain("#FF0000");
 
         // 5. Reopen + Verify persistence
         ReopenExcel();
         var node3 = _excelHandler.Get("/Sheet1");
         node3.Format.Should().ContainKey("tabColor");
-        node3.Format["tabColor"].ToString().Should().Contain("FF0000");
+        node3.Format["tabColor"].ToString().Should().Contain("#FF0000");
     }
 
     // CONFIRMED BUG: Excel cell border color readback includes ARGB
@@ -647,9 +647,9 @@ public class BugHuntPart31 : IDisposable
         {
             // BUG: Border color readback returns "FFFF0000" (with ARGB prefix)
             // while font color readback correctly returns "FF0000"
-            borderColorVal.Should().Be("FF0000",
-                "border color readback should strip ARGB alpha prefix like font.color does, " +
-                "but CellToNode doesn't strip it for border colors");
+            borderColorVal.Should().Be("#FF0000",
+                "border color readback should use #-prefixed hex format like font.color does, " +
+                "but CellToNode doesn't strip ARGB prefix for border colors");
         }
     }
 

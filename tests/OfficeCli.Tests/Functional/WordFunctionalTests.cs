@@ -500,26 +500,26 @@ public class WordFunctionalTests : IDisposable
 
         // 2. Get table + verify borders
         var tbl = _handler.Get("/body/tbl[1]");
-        tbl.Format["border.top"].Should().Be("double;6;FF0000");
-        tbl.Format["border.bottom"].Should().Be("double;6;FF0000");
-        tbl.Format["border.left"].Should().Be("double;6;FF0000");
-        tbl.Format["border.right"].Should().Be("double;6;FF0000");
-        tbl.Format["border.insideH"].Should().Be("double;6;FF0000");
-        tbl.Format["border.insideV"].Should().Be("double;6;FF0000");
+        tbl.Format["border.top"].Should().Be("double;6;#FF0000");
+        tbl.Format["border.bottom"].Should().Be("double;6;#FF0000");
+        tbl.Format["border.left"].Should().Be("double;6;#FF0000");
+        tbl.Format["border.right"].Should().Be("double;6;#FF0000");
+        tbl.Format["border.insideH"].Should().Be("double;6;#FF0000");
+        tbl.Format["border.insideV"].Should().Be("double;6;#FF0000");
 
         // 3. Set — change table borders
         _handler.Set("/body/tbl[1]", new() { ["border.top"] = "thick;12;0000FF", ["border.insideV"] = "none" });
 
         // 4. Get + Verify updated
         tbl = _handler.Get("/body/tbl[1]");
-        tbl.Format["border.top"].Should().Be("thick;12;0000FF");
+        tbl.Format["border.top"].Should().Be("thick;12;#0000FF");
         tbl.Format["border.insideV"].Should().Be("none;4");
 
         // 5. Persistence
         Reopen();
         tbl = _handler.Get("/body/tbl[1]");
-        tbl.Format["border.top"].Should().Be("thick;12;0000FF");
-        tbl.Format["border.bottom"].Should().Be("double;6;FF0000");
+        tbl.Format["border.top"].Should().Be("thick;12;#0000FF");
+        tbl.Format["border.bottom"].Should().Be("double;6;#FF0000");
     }
 
     [Fact]
@@ -538,24 +538,24 @@ public class WordFunctionalTests : IDisposable
         // 3. Get cell + verify borders
         var cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
         cell.Text.Should().Be("Bordered");
-        cell.Format["border.top"].Should().Be("dashed;4;00FF00");
-        cell.Format["border.bottom"].Should().Be("dashed;4;00FF00");
-        cell.Format["border.left"].Should().Be("dashed;4;00FF00");
-        cell.Format["border.right"].Should().Be("dashed;4;00FF00");
+        cell.Format["border.top"].Should().Be("dashed;4;#00FF00");
+        cell.Format["border.bottom"].Should().Be("dashed;4;#00FF00");
+        cell.Format["border.left"].Should().Be("dashed;4;#00FF00");
+        cell.Format["border.right"].Should().Be("dashed;4;#00FF00");
 
         // 4. Modify single side
         _handler.Set("/body/tbl[1]/tr[1]/tc[1]", new() { ["border.bottom"] = "thick;12;FF0000" });
 
         // 5. Get + Verify
         cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        cell.Format["border.top"].Should().Be("dashed;4;00FF00");
-        cell.Format["border.bottom"].Should().Be("thick;12;FF0000");
+        cell.Format["border.top"].Should().Be("dashed;4;#00FF00");
+        cell.Format["border.bottom"].Should().Be("thick;12;#FF0000");
 
         // 6. Persistence
         Reopen();
         cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        cell.Format["border.bottom"].Should().Be("thick;12;FF0000");
-        cell.Format["border.top"].Should().Be("dashed;4;00FF00");
+        cell.Format["border.bottom"].Should().Be("thick;12;#FF0000");
+        cell.Format["border.top"].Should().Be("dashed;4;#00FF00");
     }
 
     [Fact]
@@ -572,8 +572,8 @@ public class WordFunctionalTests : IDisposable
 
         // Verify table-level borders
         var tbl = _handler.Get("/body/tbl[1]");
-        tbl.Format["border.top"].Should().Be("thick;12;000000");
-        tbl.Format["border.bottom"].Should().Be("thick;12;000000");
+        tbl.Format["border.top"].Should().Be("thick;12;#000000");
+        tbl.Format["border.bottom"].Should().Be("thick;12;#000000");
         tbl.Format["border.insideV"].Should().Be("none;4");
 
         // Set header row cells with bottom border (the middle line)
@@ -583,15 +583,15 @@ public class WordFunctionalTests : IDisposable
 
         // Verify cell borders
         var headerCell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        headerCell.Format["border.bottom"].Should().Be("single;6;000000");
+        headerCell.Format["border.bottom"].Should().Be("single;6;#000000");
         headerCell.Text.Should().Be("Col A");
 
         // Persistence
         Reopen();
         tbl = _handler.Get("/body/tbl[1]");
-        tbl.Format["border.top"].Should().Be("thick;12;000000");
+        tbl.Format["border.top"].Should().Be("thick;12;#000000");
         headerCell = _handler.Get("/body/tbl[1]/tr[1]/tc[2]");
-        headerCell.Format["border.bottom"].Should().Be("single;6;000000");
+        headerCell.Format["border.bottom"].Should().Be("single;6;#000000");
     }
 
     [Fact]
@@ -603,7 +603,7 @@ public class WordFunctionalTests : IDisposable
         // Set wave border
         _handler.Set("/body/tbl[1]/tr[1]/tc[1]", new() { ["border.all"] = "wave;6;FF0000" });
         var cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        cell.Format["border.top"].Should().Be("wave;6;FF0000");
+        cell.Format["border.top"].Should().Be("wave;6;#FF0000");
 
         // Change to 3D emboss
         _handler.Set("/body/tbl[1]/tr[1]/tc[1]", new() { ["border.all"] = "3dEmboss;12;808080" });
@@ -873,7 +873,7 @@ public class WordFunctionalTests : IDisposable
         // 3. Get + Verify all properties returned
         var cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
         cell.Text.Should().Be("Full");
-        cell.Format["shd"].Should().Be("FF0000");
+        cell.Format["shd"].Should().Be("#FF0000");
         cell.Format["alignment"].Should().Be("center");
         cell.Format["valign"].Should().Be("center");
 
@@ -890,7 +890,7 @@ public class WordFunctionalTests : IDisposable
         // 5. Persistence
         Reopen();
         cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        cell.Format["shd"].Should().Be("FF0000");
+        cell.Format["shd"].Should().Be("#FF0000");
         cell.Format["vmerge"].Should().Be("restart");
     }
 
@@ -1187,9 +1187,9 @@ public class WordFunctionalTests : IDisposable
         ((string)style.Format["font"]).Should().Be("Arial");
         ((string)style.Format["size"]).Should().Be("14pt");
         ((bool)style.Format["bold"]).Should().BeTrue();
-        ((string)style.Format["color"]).Should().Be("FF0000");
+        ((string)style.Format["color"]).Should().Be("#FF0000");
         ((string)style.Format["alignment"]).Should().Be("center");
-        ((string)style.Format["spaceBefore"]).Should().Be("240");
+        ((string)style.Format["spaceBefore"]).Should().Be("12pt");
 
         // 3. Set (modify style)
         _handler.Set("/styles/MyCustomStyle", new() { ["font"] = "Calibri", ["size"] = "12", ["bold"] = "false" });
@@ -1211,5 +1211,385 @@ public class WordFunctionalTests : IDisposable
         ((string)style.Format["font"]).Should().Be("Calibri");
         node = _handler.Get("/body/p[1]");
         node.Style.Should().Be("MyCustomStyle");
+    }
+
+    // ==================== w14 Text Effects ====================
+
+    [Fact]
+    public void W14TextOutline_Lifecycle()
+    {
+        // Add with property
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Outlined",
+            ["textOutline"] = "1pt;FF0000"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Text.Should().Be("Outlined");
+        node.Format.Should().ContainKey("textOutline");
+        ((string)node.Format["textOutline"]).Should().Contain("#FF0000");
+        ((string)node.Format["textOutline"]).Should().Contain("1pt");
+
+        // Set (modify to different value)
+        _handler.Set("/body/p[1]/r[1]", new() { ["textOutline"] = "0.5pt;0000FF" });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["textOutline"]).Should().Contain("#0000FF");
+        ((string)node.Format["textOutline"]).Should().Contain("0.5pt");
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("textOutline");
+        ((string)node.Format["textOutline"]).Should().Contain("#0000FF");
+    }
+
+    [Fact]
+    public void W14TextOutline_RemoveWithNone()
+    {
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Outlined",
+            ["textOutline"] = "1pt;0000FF"
+        });
+        node_ShouldHaveKey("textOutline");
+
+        _handler.Set("/body/p[1]/r[1]", new() { ["textOutline"] = "none" });
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().NotContainKey("textOutline");
+
+        // Persistence of removal
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().NotContainKey("textOutline");
+    }
+
+    [Fact]
+    public void W14TextFill_LinearGradient_Lifecycle()
+    {
+        // Add with linear gradient
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Gradient",
+            ["textFill"] = "FF0000;0000FF;90"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        var tf = (string)node.Format["textFill"];
+        tf.Should().Contain("#FF0000");
+        tf.Should().Contain("#0000FF");
+        tf.Should().Contain("90");
+
+        // Set (modify to different gradient)
+        _handler.Set("/body/p[1]/r[1]", new() { ["textFill"] = "00FF00;FFFF00;180" });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        tf = (string)node.Format["textFill"];
+        tf.Should().Contain("#00FF00");
+        tf.Should().Contain("#FFFF00");
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("textFill");
+        ((string)node.Format["textFill"]).Should().Contain("#00FF00");
+    }
+
+    [Fact]
+    public void W14TextFill_RadialGradient_Lifecycle()
+    {
+        // Add with radial gradient
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Radial",
+            ["textFill"] = "radial:FF0000;00FF00"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        var tf = (string)node.Format["textFill"];
+        tf.Should().StartWith("radial:");
+        tf.Should().Contain("#FF0000");
+
+        // Set (modify to linear)
+        _handler.Set("/body/p[1]/r[1]", new() { ["textFill"] = "AABBCC;112233;45" });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        tf = (string)node.Format["textFill"];
+        tf.Should().Contain("#AABBCC");
+        tf.Should().NotStartWith("radial:");
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["textFill"]).Should().Contain("#AABBCC");
+    }
+
+    [Fact]
+    public void W14TextFill_SolidColor_Lifecycle()
+    {
+        // Add with solid color fill
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Solid",
+            ["textFill"] = "4472C4"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["textFill"]).Should().Be("#4472C4");
+
+        // Set (modify to different color)
+        _handler.Set("/body/p[1]/r[1]", new() { ["textFill"] = "FF6600" });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["textFill"]).Should().Be("#FF6600");
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["textFill"]).Should().Be("#FF6600");
+    }
+
+    [Fact]
+    public void W14Shadow_Lifecycle()
+    {
+        // Add with shadow
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Shadowed",
+            ["w14shadow"] = "000000;4;315;3;50"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("w14shadow");
+        ((string)node.Format["w14shadow"]).Should().Be("#000000");
+
+        // Set (modify to different shadow)
+        _handler.Set("/body/p[1]/r[1]", new() { ["w14shadow"] = "FF0000;6;45;5;60" });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["w14shadow"]).Should().Be("#FF0000");
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("w14shadow");
+        ((string)node.Format["w14shadow"]).Should().Be("#FF0000");
+    }
+
+    [Fact]
+    public void W14Shadow_RemoveWithNone()
+    {
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Shadowed",
+            ["w14shadow"] = "000000"
+        });
+        node_ShouldHaveKey("w14shadow");
+
+        _handler.Set("/body/p[1]/r[1]", new() { ["w14shadow"] = "none" });
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().NotContainKey("w14shadow");
+    }
+
+    [Fact]
+    public void W14Glow_Lifecycle()
+    {
+        // Add with glow
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Glowing",
+            ["w14glow"] = "4472C4;10;75"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("w14glow");
+        var glow = (string)node.Format["w14glow"];
+        glow.Should().Contain("#4472C4");
+        glow.Should().Contain("10");
+
+        // Set (modify to different glow)
+        _handler.Set("/body/p[1]/r[1]", new() { ["w14glow"] = "FF6600;5;50" });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        glow = (string)node.Format["w14glow"];
+        glow.Should().Contain("#FF6600");
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("w14glow");
+        ((string)node.Format["w14glow"]).Should().Contain("#FF6600");
+    }
+
+    [Fact]
+    public void W14Glow_RemoveWithNone()
+    {
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Glowing",
+            ["w14glow"] = "4472C4"
+        });
+        node_ShouldHaveKey("w14glow");
+
+        _handler.Set("/body/p[1]/r[1]", new() { ["w14glow"] = "none" });
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().NotContainKey("w14glow");
+    }
+
+    [Fact]
+    public void W14Reflection_Lifecycle()
+    {
+        // Add with reflection
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Reflected",
+            ["w14reflection"] = "half"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("w14reflection");
+        ((string)node.Format["w14reflection"]).Should().Be("half");
+
+        // Set (modify to different reflection)
+        _handler.Set("/body/p[1]/r[1]", new() { ["w14reflection"] = "full" });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["w14reflection"]).Should().Be("full");
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("w14reflection");
+        ((string)node.Format["w14reflection"]).Should().Be("full");
+    }
+
+    [Fact]
+    public void W14Reflection_RemoveWithNone()
+    {
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Reflected",
+            ["w14reflection"] = "half"
+        });
+        node_ShouldHaveKey("w14reflection");
+
+        _handler.Set("/body/p[1]/r[1]", new() { ["w14reflection"] = "none" });
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().NotContainKey("w14reflection");
+    }
+
+    [Fact]
+    public void W14_MultipleEffects_Lifecycle()
+    {
+        // Add with multiple effects
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "FancyText",
+            ["textOutline"] = "0.5pt;FF0000",
+            ["w14shadow"] = "000000",
+            ["w14glow"] = "4472C4"
+        });
+
+        // Get + Verify after Add
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("textOutline");
+        node.Format.Should().ContainKey("w14shadow");
+        node.Format.Should().ContainKey("w14glow");
+
+        // Set (modify one, add another)
+        _handler.Set("/body/p[1]/r[1]", new()
+        {
+            ["textOutline"] = "1pt;00FF00",
+            ["w14reflection"] = "tight"
+        });
+
+        // Get + Verify after Set
+        node = _handler.Get("/body/p[1]/r[1]");
+        ((string)node.Format["textOutline"]).Should().Contain("#00FF00");
+        node.Format.Should().ContainKey("w14shadow");  // unchanged
+        node.Format.Should().ContainKey("w14glow");    // unchanged
+        node.Format.Should().ContainKey("w14reflection"); // newly added
+
+        // Persistence
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("textOutline");
+        node.Format.Should().ContainKey("w14shadow");
+        node.Format.Should().ContainKey("w14glow");
+        node.Format.Should().ContainKey("w14reflection");
+    }
+
+    [Fact]
+    public void W14TextFill_RemoveWithNone()
+    {
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new()
+        {
+            ["text"] = "Filled",
+            ["textFill"] = "FF0000;0000FF;90"
+        });
+        node_ShouldHaveKey("textFill");
+
+        _handler.Set("/body/p[1]/r[1]", new() { ["textFill"] = "none" });
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().NotContainKey("textFill");
+
+        // Persistence of removal
+        Reopen();
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().NotContainKey("textFill");
+    }
+
+    [Fact]
+    public void W14_LegacyDashSeparator_BackwardCompatible()
+    {
+        // Verify '-' separator still works as legacy fallback
+        _handler.Add("/body", "paragraph", null, new());
+        _handler.Add("/body/p[1]", "run", null, new() { ["text"] = "Legacy" });
+
+        // Use '-' separator (legacy)
+        _handler.Set("/body/p[1]/r[1]", new() { ["textOutline"] = "0.5pt-FF0000" });
+        var node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("textOutline");
+        ((string)node.Format["textOutline"]).Should().Contain("FF0000");
+        ((string)node.Format["textOutline"]).Should().Contain("0.5pt");
+
+        // Use '-' for shadow
+        _handler.Set("/body/p[1]/r[1]", new() { ["w14shadow"] = "000000-4-45-3-50" });
+        node = _handler.Get("/body/p[1]/r[1]");
+        node.Format.Should().ContainKey("w14shadow");
+    }
+
+    /// <summary>Helper: verify a key exists on /body/p[1]/r[1]</summary>
+    private void node_ShouldHaveKey(string key)
+    {
+        _handler.Get("/body/p[1]/r[1]").Format.Should().ContainKey(key);
     }
 }

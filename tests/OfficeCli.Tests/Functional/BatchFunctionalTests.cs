@@ -84,7 +84,7 @@ public class BatchFunctionalTests : IDisposable
         // shape[1] is the title placeholder; added shapes follow
         var shape1 = handler.Get("/slide[1]/shape[2]");
         shape1.Text.Should().Be("Hello");
-        shape1.Format["fill"].Should().Be("FF0000");
+        shape1.Format["fill"].Should().Be("#FF0000");
 
         var shape2 = handler.Get("/slide[1]/shape[3]");
         shape2.Text.Should().Be("World");

@@ -188,7 +188,7 @@ public class BugHuntPart35 : IDisposable
 
         var run = handler.Get("/body/p[1]/r[1]");
         run.Format.Should().ContainKey("color");
-        run.Format["color"].ToString().Should().Be("FF0000");
+        run.Format["color"].ToString().Should().Be("#FF0000");
     }
 
     // =====================================================================
@@ -274,7 +274,7 @@ public class BugHuntPart35 : IDisposable
         cell.Text.Should().Be("Red text");
         // Color should be on the actual runs
         cell.Format.Should().ContainKey("color");
-        cell.Format["color"].ToString().Should().Be("FF0000");
+        cell.Format["color"].ToString().Should().Be("#FF0000");
     }
 
     // =====================================================================

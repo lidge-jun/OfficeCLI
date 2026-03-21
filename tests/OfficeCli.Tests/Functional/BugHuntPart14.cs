@@ -150,8 +150,8 @@ public class BugHuntPart14 : IDisposable
         if (cf.Format.ContainsKey("mincolor"))
         {
             var minColor = cf.Format["mincolor"]?.ToString();
-            minColor.Should().HaveLength(8,
-                "color should be a valid 8-char ARGB hex string");
+            minColor.Should().HaveLength(7,
+                "color should be a valid #RRGGBB hex string (7 chars with # prefix)");
         }
     }
 

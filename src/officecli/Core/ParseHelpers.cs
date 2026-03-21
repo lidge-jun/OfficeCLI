@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace OfficeCli.Core;
 
@@ -12,6 +13,76 @@ namespace OfficeCli.Core;
 /// </summary>
 public static class ParseHelpers
 {
+    /// <summary>
+    /// Map of common CSS/HTML named colors to 6-digit uppercase hex RGB.
+    /// </summary>
+    private static readonly Dictionary<string, string> NamedColors = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["red"] = "FF0000", ["green"] = "008000", ["blue"] = "0000FF",
+        ["white"] = "FFFFFF", ["black"] = "000000", ["yellow"] = "FFFF00",
+        ["cyan"] = "00FFFF", ["aqua"] = "00FFFF", ["magenta"] = "FF00FF",
+        ["fuchsia"] = "FF00FF", ["orange"] = "FFA500", ["purple"] = "800080",
+        ["pink"] = "FFC0CB", ["brown"] = "A52A2A", ["gray"] = "808080",
+        ["grey"] = "808080", ["silver"] = "C0C0C0", ["gold"] = "FFD700",
+        ["navy"] = "000080", ["teal"] = "008080", ["maroon"] = "800000",
+        ["olive"] = "808000", ["lime"] = "00FF00", ["coral"] = "FF7F50",
+        ["salmon"] = "FA8072", ["tomato"] = "FF6347", ["crimson"] = "DC143C",
+        ["indigo"] = "4B0082", ["violet"] = "EE82EE", ["turquoise"] = "40E0D0",
+        ["tan"] = "D2B48C", ["khaki"] = "F0E68C", ["beige"] = "F5F5DC",
+        ["ivory"] = "FFFFF0", ["lavender"] = "E6E6FA", ["plum"] = "DDA0DD",
+        ["orchid"] = "DA70D6", ["chocolate"] = "D2691E", ["sienna"] = "A0522D",
+        ["peru"] = "CD853F", ["wheat"] = "F5DEB3", ["linen"] = "FAF0E6",
+        ["skyblue"] = "87CEEB", ["steelblue"] = "4682B4", ["slategray"] = "708090",
+        ["darkred"] = "8B0000", ["darkgreen"] = "006400", ["darkblue"] = "00008B",
+        ["darkcyan"] = "008B8B", ["darkmagenta"] = "8B008B", ["darkorange"] = "FF8C00",
+        ["darkviolet"] = "9400D3", ["deeppink"] = "FF1493", ["deepskyblue"] = "00BFFF",
+        ["lightgray"] = "D3D3D3", ["lightgreen"] = "90EE90", ["lightblue"] = "ADD8E6",
+        ["lightyellow"] = "FFFFE0", ["lightpink"] = "FFB6C1", ["lightcoral"] = "F08080",
+        ["darkgray"] = "A9A9A9", ["dimgray"] = "696969",
+    };
+
+    /// <summary>
+    /// Try to resolve a named color (e.g. "red") or rgb() notation to 6-digit hex.
+    /// Returns null if the input is not a named color or rgb() expression.
+    /// </summary>
+    private static string? TryResolveColorInput(string value)
+    {
+        var trimmed = value.Trim();
+
+        // Named color lookup
+        if (NamedColors.TryGetValue(trimmed, out var hex))
+            return hex;
+
+        // rgb(r,g,b) notation
+        var m = Regex.Match(trimmed, @"^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            var r = int.Parse(m.Groups[1].Value);
+            var g = int.Parse(m.Groups[2].Value);
+            var b = int.Parse(m.Groups[3].Value);
+            if (r > 255 || g > 255 || b > 255)
+                throw new ArgumentException($"Invalid color value: '{value}'. RGB components must be 0-255.");
+            return $"{r:X2}{g:X2}{b:X2}";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Format a raw hex color value for user-facing output.
+    /// Adds '#' prefix to 6-digit hex colors. Passes through scheme color names and special values unchanged.
+    /// </summary>
+    public static string FormatHexColor(string rawValue)
+    {
+        if (string.IsNullOrEmpty(rawValue)) return rawValue;
+        if (rawValue.StartsWith('#')) return rawValue.ToUpperInvariant();
+        if (rawValue.Length == 6 && rawValue.All(char.IsAsciiHexDigit))
+            return "#" + rawValue.ToUpperInvariant();
+        // 8-char ARGB (e.g. "FFFF0000") → strip alpha prefix → "#FF0000"
+        if (rawValue.Length == 8 && rawValue.All(char.IsAsciiHexDigit))
+            return "#" + rawValue[2..].ToUpperInvariant();
+        return rawValue; // scheme colors ("accent1"), "none", "auto", etc.
+    }
     /// <summary>
     /// Accepts "true", "1", "yes", "on" (case-insensitive) as truthy.
     /// </summary>
@@ -82,6 +153,10 @@ public static class ParseHelpers
     /// </summary>
     public static string NormalizeArgbColor(string value)
     {
+        // Try named color / rgb() first
+        var resolved = TryResolveColorInput(value);
+        if (resolved != null) return "FF" + resolved;
+
         var hex = value.TrimStart('#').ToUpperInvariant();
         if (hex.Length == 3 && hex.All(char.IsAsciiHexDigit))
         {
@@ -94,7 +169,8 @@ public static class ParseHelpers
             return hex;
         throw new ArgumentException(
             $"Invalid color value: '{value}'. Expected 6-digit hex RGB (e.g. FF0000), " +
-            $"8-digit AARRGGBB (e.g. 80FF0000), or 3-digit shorthand (e.g. F00).");
+            $"8-digit AARRGGBB (e.g. 80FF0000), 3-digit shorthand (e.g. F00), " +
+            $"named color (e.g. red), or rgb() notation (e.g. rgb(255,0,0)).");
     }
 
     /// <summary>
@@ -105,6 +181,10 @@ public static class ParseHelpers
     /// </summary>
     public static (string Rgb, int? AlphaPercent) SanitizeColorForOoxml(string value)
     {
+        // Try named color / rgb() first
+        var resolved = TryResolveColorInput(value);
+        if (resolved != null) return (resolved, null);
+
         var hex = value.TrimStart('#').ToUpperInvariant();
         if (hex.Length == 8 && hex.All(char.IsAsciiHexDigit))
         {
@@ -122,7 +202,8 @@ public static class ParseHelpers
         if (hex.Length != 6 || !hex.All(char.IsAsciiHexDigit))
             throw new ArgumentException(
                 $"Invalid color value: '{value}'. Expected 6-digit hex RGB (e.g. FF0000), " +
-                $"8-digit AARRGGBB (e.g. 80FF0000), or scheme color name.");
+                $"8-digit AARRGGBB (e.g. 80FF0000), named color (e.g. red), " +
+                $"rgb() notation (e.g. rgb(255,0,0)), or scheme color name.");
 
         return (hex, null);
     }

@@ -45,7 +45,7 @@ public partial class WordHandler
 
                     // Extract fillcolor
                     var fillMatch = System.Text.RegularExpressions.Regex.Match(xml, @"fillcolor=""([^""]*)""");
-                    if (fillMatch.Success) node.Format["color"] = fillMatch.Groups[1].Value;
+                    if (fillMatch.Success) node.Format["color"] = ParseHelpers.FormatHexColor(fillMatch.Groups[1].Value);
 
                     // Extract opacity
                     var opacityMatch = System.Text.RegularExpressions.Regex.Match(xml, @"opacity=""([^""]*)""");
@@ -233,7 +233,7 @@ public partial class WordHandler
                 if (rPr.FontSize?.Val?.Value != null) styleNode.Format["size"] = $"{int.Parse(rPr.FontSize.Val.Value) / 2.0:0.##}pt";
                 if (rPr.Bold != null) styleNode.Format["bold"] = true;
                 if (rPr.Italic != null) styleNode.Format["italic"] = true;
-                if (rPr.Color?.Val?.Value != null) styleNode.Format["color"] = rPr.Color.Val.Value;
+                if (rPr.Color?.Val?.Value != null) styleNode.Format["color"] = ParseHelpers.FormatHexColor(rPr.Color.Val.Value);
             }
 
             // Read paragraph properties
@@ -241,8 +241,8 @@ public partial class WordHandler
             if (pPr != null)
             {
                 if (pPr.Justification?.Val?.Value != null) styleNode.Format["alignment"] = pPr.Justification.Val.InnerText;
-                if (pPr.SpacingBetweenLines?.Before?.Value != null) styleNode.Format["spaceBefore"] = pPr.SpacingBetweenLines.Before.Value;
-                if (pPr.SpacingBetweenLines?.After?.Value != null) styleNode.Format["spaceAfter"] = pPr.SpacingBetweenLines.After.Value;
+                if (pPr.SpacingBetweenLines?.Before?.Value != null) styleNode.Format["spaceBefore"] = SpacingConverter.FormatWordSpacing(pPr.SpacingBetweenLines.Before.Value);
+                if (pPr.SpacingBetweenLines?.After?.Value != null) styleNode.Format["spaceAfter"] = SpacingConverter.FormatWordSpacing(pPr.SpacingBetweenLines.After.Value);
             }
             return styleNode;
         }
@@ -433,7 +433,7 @@ public partial class WordHandler
                 node.Format["size"] = $"{int.Parse(rp.FontSize.Val.Value) / 2.0:0.##}pt";
             if (rp.Bold != null) node.Format["bold"] = true;
             if (rp.Italic != null) node.Format["italic"] = true;
-            if (rp.Color?.Val?.Value != null) node.Format["color"] = rp.Color.Val.Value;
+            if (rp.Color?.Val?.Value != null) node.Format["color"] = ParseHelpers.FormatHexColor(rp.Color.Val.Value);
         }
 
         var firstPara = header.Elements<Paragraph>().FirstOrDefault();
@@ -488,7 +488,7 @@ public partial class WordHandler
                 node.Format["size"] = $"{int.Parse(rp.FontSize.Val.Value) / 2.0:0.##}pt";
             if (rp.Bold != null) node.Format["bold"] = true;
             if (rp.Italic != null) node.Format["italic"] = true;
-            if (rp.Color?.Val?.Value != null) node.Format["color"] = rp.Color.Val.Value;
+            if (rp.Color?.Val?.Value != null) node.Format["color"] = ParseHelpers.FormatHexColor(rp.Color.Val.Value);
         }
 
         var firstPara = footer.Elements<Paragraph>().FirstOrDefault();

@@ -126,7 +126,7 @@ public partial class ExcelHandler
             // Include tab color
             var tabColor = ws.GetFirstChild<SheetProperties>()?.GetFirstChild<TabColor>();
             if (tabColor?.Rgb?.HasValue == true)
-                sheetNode.Format["tabColor"] = tabColor.Rgb.Value;
+                sheetNode.Format["tabColor"] = ParseHelpers.FormatHexColor(tabColor.Rgb.Value);
 
             // Include autofilter info
             var autoFilter = ws.GetFirstChild<AutoFilter>();
@@ -234,7 +234,7 @@ public partial class ExcelHandler
                 {
                     cfNode.Format["cfType"] = "dataBar";
                     var dbColor = dataBar.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.Color>();
-                    if (dbColor?.Rgb?.Value != null) cfNode.Format["color"] = dbColor.Rgb.Value;
+                    if (dbColor?.Rgb?.Value != null) cfNode.Format["color"] = ParseHelpers.FormatHexColor(dbColor.Rgb.Value);
                 }
 
                 // ColorScale
@@ -245,10 +245,10 @@ public partial class ExcelHandler
                     var colors = colorScale.Elements<DocumentFormat.OpenXml.Spreadsheet.Color>().ToList();
                     if (colors.Count >= 2)
                     {
-                        cfNode.Format["mincolor"] = colors[0].Rgb?.Value ?? "";
-                        cfNode.Format["maxcolor"] = colors[^1].Rgb?.Value ?? "";
+                        cfNode.Format["mincolor"] = ParseHelpers.FormatHexColor(colors[0].Rgb?.Value ?? "");
+                        cfNode.Format["maxcolor"] = ParseHelpers.FormatHexColor(colors[^1].Rgb?.Value ?? "");
                         if (colors.Count >= 3)
-                            cfNode.Format["midcolor"] = colors[1].Rgb?.Value ?? "";
+                            cfNode.Format["midcolor"] = ParseHelpers.FormatHexColor(colors[1].Rgb?.Value ?? "");
                     }
                 }
 

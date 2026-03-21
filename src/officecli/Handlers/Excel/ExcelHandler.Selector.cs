@@ -168,7 +168,7 @@ public partial class ExcelHandler
                 var matchedKey = node.Format.Keys.FirstOrDefault(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
                 if (matchedKey == null) return false;
                 var actual = node.Format[matchedKey]?.ToString() ?? "";
-                if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
+                if (!ColorNormalizedEquals(actual, expected))
                     return false;
             }
         }
@@ -178,11 +178,20 @@ public partial class ExcelHandler
             {
                 var matchedKey = node.Format.Keys.FirstOrDefault(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
                 var actual = matchedKey != null ? (node.Format[matchedKey]?.ToString() ?? "") : "";
-                if (actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
+                if (ColorNormalizedEquals(actual, expected))
                     return false;
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Compare two strings with color-aware normalization: "#FF0000" matches "FF0000".
+    /// </summary>
+    private static bool ColorNormalizedEquals(string a, string b)
+    {
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+        return string.Equals(a.TrimStart('#'), b.TrimStart('#'), StringComparison.OrdinalIgnoreCase);
     }
 
     // ==================== Cell Reference Utils ====================

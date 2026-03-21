@@ -149,7 +149,7 @@ public class BugHuntPart53 : IDisposable
         // Get returns camelCase "spaceBefore"
         node.Format.Should().ContainKey("spaceBefore",
             "Get should return 'spaceBefore' key for paragraph spacing");
-        node.Format["spaceBefore"].Should().Be("240");
+        node.Format["spaceBefore"].Should().Be("12pt");
 
         // BUG: The key returned by Get is "spaceBefore" but Set only accepts "spacebefore".
         // Attempting to use the Get key in a Set call should work but may not because
@@ -183,7 +183,7 @@ public class BugHuntPart53 : IDisposable
         var node = handler.Get("/body/p[1]");
 
         node.Format.Should().ContainKey("spaceAfter");
-        node.Format["spaceAfter"].Should().Be("120");
+        node.Format["spaceAfter"].Should().Be("6pt");
 
         var getKey = node.Format.Keys.FirstOrDefault(k => k.Equals("spaceAfter", StringComparison.Ordinal));
         var addKey = "spaceAfter";
@@ -212,7 +212,7 @@ public class BugHuntPart53 : IDisposable
         var node = handler.Get("/body/p[1]");
 
         node.Format.Should().ContainKey("lineSpacing");
-        node.Format["lineSpacing"].Should().Be("360");
+        node.Format["lineSpacing"].Should().Be("1.5x");
 
         var getKey = node.Format.Keys.FirstOrDefault(k => k.Equals("lineSpacing", StringComparison.Ordinal));
         var addKey = "lineSpacing";
@@ -340,7 +340,7 @@ public class BugHuntPart53 : IDisposable
         var shdValue = node.Format["shd"].ToString()!;
 
         // For a simple solid color shading, the round-trip value should match input
-        shdValue.Should().Be("FF0000",
+        shdValue.Should().Be("#FF0000",
             "Setting shd='FF0000' and reading back should return 'FF0000', " +
             "but the read-back includes the pattern value creating 'clear;FF0000'");
     }
@@ -994,7 +994,7 @@ public class BugHuntPart53 : IDisposable
         {
             var node = handler.Get("/body/p[1]");
             node.Format.Should().ContainKey("spaceBefore");
-            node.Format["spaceBefore"].Should().Be("480");
+            node.Format["spaceBefore"].Should().Be("24pt");
         }
     }
 
@@ -1028,8 +1028,8 @@ public class BugHuntPart53 : IDisposable
             // After reopen, the gradient format should be stable
             // If the double-read produces different results on different runs,
             // that's a reproducibility bug
-            gradient.Should().Contain("FF0000");
-            gradient.Should().Contain("00FF00");
+            gradient.Should().Contain("#FF0000");
+            gradient.Should().Contain("#00FF00");
         }
     }
 

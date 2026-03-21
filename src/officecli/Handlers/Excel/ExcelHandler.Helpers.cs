@@ -262,13 +262,7 @@ public partial class ExcelHandler
                             if (font.Underline != null)
                                 node.Format["font.underline"] = font.Underline.Val?.InnerText == "double" ? "double" : "single";
                             if (font.Color?.Rgb?.Value != null)
-                            {
-                                var rgbVal = font.Color.Rgb.Value;
-                                // Strip ARGB alpha prefix (e.g. "FFFF0000" → "FF0000") for consistency with Word/PPTX
-                                if (rgbVal.Length == 8 && rgbVal.StartsWith("FF", StringComparison.OrdinalIgnoreCase))
-                                    rgbVal = rgbVal[2..];
-                                node.Format["font.color"] = rgbVal;
-                            }
+                                node.Format["font.color"] = ParseHelpers.FormatHexColor(font.Color.Rgb.Value);
                             if (font.FontSize?.Val?.Value != null)
                                 node.Format["font.size"] = $"{font.FontSize.Val.Value:0.##}pt";
                             if (font.FontName?.Val?.Value != null) node.Format["font.name"] = font.FontName.Val.Value;
@@ -292,23 +286,15 @@ public partial class ExcelHandler
                                 {
                                     var c1 = stops[0].Color?.Rgb?.Value ?? "";
                                     var c2 = stops[^1].Color?.Rgb?.Value ?? "";
-                                    // Strip FF alpha prefix
-                                    if (c1.Length == 8 && c1.StartsWith("FF", StringComparison.OrdinalIgnoreCase)) c1 = c1[2..];
-                                    if (c2.Length == 8 && c2.StartsWith("FF", StringComparison.OrdinalIgnoreCase)) c2 = c2[2..];
                                     int deg = (int)(gf.Degree?.Value ?? 0);
-                                    node.Format["fill"] = $"gradient;{c1};{c2};{deg}";
+                                    node.Format["fill"] = $"gradient;{ParseHelpers.FormatHexColor(c1)};{ParseHelpers.FormatHexColor(c2)};{deg}";
                                 }
                             }
                             else
                             {
                                 var pf = fill.PatternFill;
                                 if (pf?.ForegroundColor?.Rgb?.Value != null)
-                                {
-                                    var fillRgb = pf.ForegroundColor.Rgb.Value;
-                                    if (fillRgb.Length == 8 && fillRgb.StartsWith("FF", StringComparison.OrdinalIgnoreCase))
-                                        fillRgb = fillRgb[2..];
-                                    node.Format["fill"] = fillRgb;
-                                }
+                                    node.Format["fill"] = ParseHelpers.FormatHexColor(pf.ForegroundColor.Rgb.Value);
                             }
                         }
                     }
@@ -330,12 +316,7 @@ public partial class ExcelHandler
                                 {
                                     node.Format[$"border.{side}"] = b.Style.InnerText;
                                     if (b.Color?.Rgb?.Value != null)
-                                    {
-                                        var borderRgb = b.Color.Rgb.Value!;
-                                        if (borderRgb.Length == 8 && borderRgb.StartsWith("FF", StringComparison.OrdinalIgnoreCase))
-                                            borderRgb = borderRgb[2..];
-                                        node.Format[$"border.{side}.color"] = borderRgb;
-                                    }
+                                        node.Format[$"border.{side}.color"] = ParseHelpers.FormatHexColor(b.Color.Rgb.Value!);
                                 }
                             }
                             // Diagonal border readback
@@ -344,12 +325,7 @@ public partial class ExcelHandler
                             {
                                 node.Format["border.diagonal"] = diag.Style.InnerText;
                                 if (diag.Color?.Rgb?.Value != null)
-                                {
-                                    var diagRgb = diag.Color.Rgb.Value!;
-                                    if (diagRgb.Length == 8 && diagRgb.StartsWith("FF", StringComparison.OrdinalIgnoreCase))
-                                        diagRgb = diagRgb[2..];
-                                    node.Format["border.diagonal.color"] = diagRgb;
-                                }
+                                    node.Format["border.diagonal.color"] = ParseHelpers.FormatHexColor(diag.Color.Rgb.Value!);
                             }
                             if (border.DiagonalUp?.Value == true)
                                 node.Format["border.diagonalUp"] = true;
@@ -725,22 +701,7 @@ public partial class ExcelHandler
                 node.Format["name"] = nvProps.Name.Value;
         }
 
-        var from = anchor.FromMarker;
-        var to = anchor.ToMarker;
-        if (from != null)
-        {
-            node.Format["x"] = from.ColumnId?.Text ?? "0";
-            node.Format["y"] = from.RowId?.Text ?? "0";
-        }
-        if (to != null && from != null)
-        {
-            var fromCol = int.TryParse(from.ColumnId?.Text, out var fc) ? fc : 0;
-            var toCol = int.TryParse(to.ColumnId?.Text, out var tc) ? tc : 0;
-            var fromRow = int.TryParse(from.RowId?.Text, out var fr) ? fr : 0;
-            var toRow = int.TryParse(to.RowId?.Text, out var tr2) ? tr2 : 0;
-            node.Format["width"] = (toCol - fromCol).ToString();
-            node.Format["height"] = (toRow - fromRow).ToString();
-        }
+        ReadAnchorPosition(anchor, node);
 
         return node;
     }
@@ -774,22 +735,7 @@ public partial class ExcelHandler
             node.Text = string.Join("", textRuns.Select(r => r.Text?.Text ?? ""));
 
         // Position/size
-        var from = anchor.FromMarker;
-        var to = anchor.ToMarker;
-        if (from != null)
-        {
-            node.Format["x"] = from.ColumnId?.Text ?? "0";
-            node.Format["y"] = from.RowId?.Text ?? "0";
-        }
-        if (to != null && from != null)
-        {
-            var fromCol = int.TryParse(from.ColumnId?.Text, out var fc) ? fc : 0;
-            var toCol = int.TryParse(to.ColumnId?.Text, out var tc) ? tc : 0;
-            var fromRow = int.TryParse(from.RowId?.Text, out var fr) ? fr : 0;
-            var toRow = int.TryParse(to.RowId?.Text, out var tr2) ? tr2 : 0;
-            node.Format["width"] = (toCol - fromCol).ToString();
-            node.Format["height"] = (toRow - fromRow).ToString();
-        }
+        ReadAnchorPosition(anchor, node);
 
         // Font properties from first run
         var firstRun = textRuns?.FirstOrDefault();
@@ -806,7 +752,7 @@ public partial class ExcelHandler
             var solidFill = rPr.GetFirstChild<Drawing.SolidFill>();
             var colorHex = solidFill?.GetFirstChild<Drawing.RgbColorModelHex>();
             if (colorHex?.Val?.Value != null)
-                node.Format["color"] = colorHex.Val.Value;
+                node.Format["color"] = ParseHelpers.FormatHexColor(colorHex.Val.Value);
 
             var latin = rPr.GetFirstChild<Drawing.LatinFont>();
             if (latin?.Typeface?.Value != null)
@@ -822,7 +768,7 @@ public partial class ExcelHandler
             var shapeFill = spPr?.GetFirstChild<Drawing.SolidFill>();
             var fillColor = shapeFill?.GetFirstChild<Drawing.RgbColorModelHex>();
             if (fillColor?.Val?.Value != null)
-                node.Format["fill"] = fillColor.Val.Value;
+                node.Format["fill"] = ParseHelpers.FormatHexColor(fillColor.Val.Value);
         }
 
         // Effects — check shape-level then text-level
@@ -836,18 +782,178 @@ public partial class ExcelHandler
             var shadow = activeEffects.GetFirstChild<Drawing.OuterShadow>();
             if (shadow != null)
             {
-                var sColor = shadow.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "000000";
+                var sColor = ParseHelpers.FormatHexColor(shadow.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "000000");
                 node.Format["shadow"] = sColor;
             }
             var glow = activeEffects.GetFirstChild<Drawing.Glow>();
             if (glow != null)
             {
-                var gColor = glow.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "000000";
+                var gColor = ParseHelpers.FormatHexColor(glow.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "000000");
                 var gRadius = glow.Radius?.HasValue == true ? $"{glow.Radius.Value / 12700.0:0.##}" : "8";
                 node.Format["glow"] = $"{gColor}-{gRadius}";
             }
         }
 
         return node;
+    }
+
+    // ==================== Shared Anchor Helpers ====================
+
+    /// <summary>
+    /// Set position/size properties (x, y, width, height) on a TwoCellAnchor.
+    /// Returns true if the key was handled, false otherwise.
+    /// </summary>
+    private static bool TrySetAnchorPosition(XDR.TwoCellAnchor anchor, string key, string value)
+    {
+        switch (key)
+        {
+            case "x":
+                if (anchor.FromMarker != null)
+                {
+                    var xVal = ParseHelpers.SafeParseInt(value, "x");
+                    if (xVal < 0) throw new ArgumentException($"Invalid 'x' value: '{value}'. Column index must be >= 0.");
+                    anchor.FromMarker.ColumnId!.Text = xVal.ToString();
+                }
+                return true;
+            case "y":
+                if (anchor.FromMarker != null)
+                {
+                    var yVal = ParseHelpers.SafeParseInt(value, "y");
+                    if (yVal < 0) throw new ArgumentException($"Invalid 'y' value: '{value}'. Row index must be >= 0.");
+                    anchor.FromMarker.RowId!.Text = yVal.ToString();
+                }
+                return true;
+            case "width":
+                if (anchor.FromMarker != null && anchor.ToMarker != null)
+                {
+                    var fromCol = int.TryParse(anchor.FromMarker.ColumnId?.Text, out var fc) ? fc : 0;
+                    anchor.ToMarker.ColumnId!.Text = (fromCol + ParseHelpers.SafeParseInt(value, "width")).ToString();
+                }
+                return true;
+            case "height":
+                if (anchor.FromMarker != null && anchor.ToMarker != null)
+                {
+                    var fromRow = int.TryParse(anchor.FromMarker.RowId?.Text, out var fr) ? fr : 0;
+                    anchor.ToMarker.RowId!.Text = (fromRow + ParseHelpers.SafeParseInt(value, "height")).ToString();
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Read position/size from a TwoCellAnchor into a DocumentNode's Format dictionary.
+    /// </summary>
+    private static void ReadAnchorPosition(XDR.TwoCellAnchor anchor, DocumentNode node)
+    {
+        var from = anchor.FromMarker;
+        var to = anchor.ToMarker;
+        if (from != null)
+        {
+            node.Format["x"] = from.ColumnId?.Text ?? "0";
+            node.Format["y"] = from.RowId?.Text ?? "0";
+        }
+        if (to != null && from != null)
+        {
+            var fromCol = int.TryParse(from.ColumnId?.Text, out var fc) ? fc : 0;
+            var toCol = int.TryParse(to.ColumnId?.Text, out var tc) ? tc : 0;
+            var fromRow = int.TryParse(from.RowId?.Text, out var fr) ? fr : 0;
+            var toRow = int.TryParse(to.RowId?.Text, out var tr2) ? tr2 : 0;
+            node.Format["width"] = (toCol - fromCol).ToString();
+            node.Format["height"] = (toRow - fromRow).ToString();
+        }
+    }
+
+    /// <summary>
+    /// Set rotation on a ShapeProperties element.
+    /// Returns true if the key was handled.
+    /// </summary>
+    private static bool TrySetRotation(XDR.ShapeProperties? spPr, string key, string value)
+    {
+        if (key is not ("rotation" or "rot")) return false;
+        if (spPr == null) return true;
+
+        var xfrm = spPr.GetFirstChild<Drawing.Transform2D>();
+        if (xfrm == null)
+        {
+            xfrm = new Drawing.Transform2D(
+                new Drawing.Offset { X = 0, Y = 0 },
+                new Drawing.Extents { Cx = 0, Cy = 0 }
+            );
+            spPr.InsertAt(xfrm, 0);
+        }
+        if (!double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var degrees))
+            throw new ArgumentException($"Invalid 'rotation' value: '{value}'. Expected a number in degrees (e.g. 45, -90, 180.5).");
+        xfrm.Rotation = (int)(degrees * 60000);
+        return true;
+    }
+
+    /// <summary>
+    /// Apply shape-level effects (shadow, glow, reflection, softedge) on a ShapeProperties element.
+    /// Returns true if the key was handled.
+    /// </summary>
+    private static bool TrySetShapeEffect(XDR.ShapeProperties? spPr, string key, string value)
+    {
+        if (key is not ("shadow" or "glow" or "reflection" or "softedge")) return false;
+        if (spPr == null) return true;
+
+        var effectList = spPr.GetFirstChild<Drawing.EffectList>();
+        var normalizedVal = value.Replace(':', '-');
+        if (normalizedVal == "true") normalizedVal = key == "shadow" ? "000000" : key == "glow" ? "4472C4" : "half";
+
+        if (normalizedVal.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            normalizedVal.Equals("false", StringComparison.OrdinalIgnoreCase))
+        {
+            if (effectList != null)
+            {
+                switch (key)
+                {
+                    case "shadow": effectList.RemoveAllChildren<Drawing.OuterShadow>(); break;
+                    case "glow": effectList.RemoveAllChildren<Drawing.Glow>(); break;
+                    case "reflection": effectList.RemoveAllChildren<Drawing.Reflection>(); break;
+                    case "softedge": effectList.RemoveAllChildren<Drawing.SoftEdge>(); break;
+                }
+                if (!effectList.HasChildren) spPr.RemoveChild(effectList);
+            }
+        }
+        else
+        {
+            if (effectList == null) { effectList = new Drawing.EffectList(); spPr.AppendChild(effectList); }
+            switch (key)
+            {
+                case "shadow":
+                    effectList.RemoveAllChildren<Drawing.OuterShadow>();
+                    effectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildOuterShadow(normalizedVal, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
+                    break;
+                case "glow":
+                    effectList.RemoveAllChildren<Drawing.Glow>();
+                    effectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildGlow(normalizedVal, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
+                    break;
+                case "reflection":
+                    effectList.RemoveAllChildren<Drawing.Reflection>();
+                    effectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildReflection(normalizedVal));
+                    break;
+                case "softedge":
+                    effectList.RemoveAllChildren<Drawing.SoftEdge>();
+                    effectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildSoftEdge(normalizedVal));
+                    break;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Parse x, y, width, height from properties with given defaults. Used by both picture Add and shape Add.
+    /// </summary>
+    private static (int x, int y, int width, int height) ParseAnchorBounds(
+        Dictionary<string, string> properties, string defX, string defY, string defW, string defH)
+    {
+        return (
+            ParseHelpers.SafeParseInt(properties.GetValueOrDefault("x", defX) ?? defX, "x"),
+            ParseHelpers.SafeParseInt(properties.GetValueOrDefault("y", defY) ?? defY, "y"),
+            ParseHelpers.SafeParseInt(properties.GetValueOrDefault("width", defW) ?? defW, "width"),
+            ParseHelpers.SafeParseInt(properties.GetValueOrDefault("height", defH) ?? defH, "height")
+        );
     }
 }

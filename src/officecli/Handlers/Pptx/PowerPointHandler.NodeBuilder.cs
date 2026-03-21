@@ -179,8 +179,8 @@ public partial class PowerPointHandler
                             var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>().ToList();
                             if (stops != null && stops.Count >= 2)
                             {
-                                var gc1 = stops[0].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "";
-                                var gc2 = stops[^1].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "";
+                                var gc1 = ParseHelpers.FormatHexColor(stops[0].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "");
+                                var gc2 = ParseHelpers.FormatHexColor(stops[^1].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "");
                                 var lin = gradFill.GetFirstChild<Drawing.LinearGradientFill>();
                                 int deg = lin?.Angle?.Value != null ? lin.Angle.Value / 60000 : 0;
                                 var gradient = $"linear;{gc1};{gc2};{deg}";
@@ -191,7 +191,7 @@ public partial class PowerPointHandler
                         else
                         {
                             var cellFillHex = tcPr?.GetFirstChild<Drawing.SolidFill>()?.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-                            if (cellFillHex != null) cellNode.Format["fill"] = cellFillHex;
+                            if (cellFillHex != null) cellNode.Format["fill"] = ParseHelpers.FormatHexColor(cellFillHex);
                         }
 
                         // Cell borders (including diagonal tl2br/tr2bl)
@@ -318,8 +318,8 @@ public partial class PowerPointHandler
             var stops = shapeGradFill.GradientStopList?.Elements<Drawing.GradientStop>().ToList();
             if (stops != null && stops.Count >= 2)
             {
-                var gc1 = stops[0].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "";
-                var gc2 = stops[^1].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "";
+                var gc1 = ParseHelpers.FormatHexColor(stops[0].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "");
+                var gc2 = ParseHelpers.FormatHexColor(stops[^1].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value ?? "");
                 var lin = shapeGradFill.GetFirstChild<Drawing.LinearGradientFill>();
                 int deg = lin?.Angle?.Value != null ? lin.Angle.Value / 60000 : 0;
 
@@ -611,12 +611,14 @@ public partial class PowerPointHandler
         var pProps = firstPara?.ParagraphProperties;
         if (pProps != null)
         {
-            var ls = pProps.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPercent>()?.Val?.Value;
-            if (ls.HasValue) node.Format["lineSpacing"] = $"{ls.Value / 100000.0:0.##}";
+            var lsPct = pProps.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPercent>()?.Val?.Value;
+            if (lsPct.HasValue) node.Format["lineSpacing"] = SpacingConverter.FormatPptLineSpacingPercent(lsPct.Value);
+            var lsPts = pProps.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
+            if (lsPts.HasValue) node.Format["lineSpacing"] = SpacingConverter.FormatPptLineSpacingPoints(lsPts.Value);
             var sb = pProps.GetFirstChild<Drawing.SpaceBefore>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
-            if (sb.HasValue) node.Format["spaceBefore"] = $"{sb.Value / 100.0:0.##}";
+            if (sb.HasValue) node.Format["spaceBefore"] = SpacingConverter.FormatPptSpacing(sb.Value);
             var sa = pProps.GetFirstChild<Drawing.SpaceAfter>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
-            if (sa.HasValue) node.Format["spaceAfter"] = $"{sa.Value / 100.0:0.##}";
+            if (sa.HasValue) node.Format["spaceAfter"] = SpacingConverter.FormatPptSpacing(sa.Value);
             if (pProps.Indent?.HasValue == true) node.Format["indent"] = FormatEmu(pProps.Indent.Value);
             if (pProps.LeftMargin?.HasValue == true) node.Format["marginLeft"] = FormatEmu(pProps.LeftMargin.Value);
             if (pProps.RightMargin?.HasValue == true) node.Format["marginRight"] = FormatEmu(pProps.RightMargin.Value);
@@ -652,12 +654,14 @@ public partial class PowerPointHandler
                     if (paraPProps?.Indent?.HasValue == true) paraNode.Format["indent"] = FormatEmu(paraPProps.Indent.Value);
                     if (paraPProps?.LeftMargin?.HasValue == true) paraNode.Format["marginLeft"] = FormatEmu(paraPProps.LeftMargin.Value);
                     if (paraPProps?.RightMargin?.HasValue == true) paraNode.Format["marginRight"] = FormatEmu(paraPProps.RightMargin.Value);
-                    var pLs = paraPProps?.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPercent>()?.Val?.Value;
-                    if (pLs.HasValue) paraNode.Format["lineSpacing"] = $"{pLs.Value / 100000.0:0.##}";
+                    var pLsPct = paraPProps?.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPercent>()?.Val?.Value;
+                    if (pLsPct.HasValue) paraNode.Format["lineSpacing"] = SpacingConverter.FormatPptLineSpacingPercent(pLsPct.Value);
+                    var pLsPts = paraPProps?.GetFirstChild<Drawing.LineSpacing>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
+                    if (pLsPts.HasValue) paraNode.Format["lineSpacing"] = SpacingConverter.FormatPptLineSpacingPoints(pLsPts.Value);
                     var pSb = paraPProps?.GetFirstChild<Drawing.SpaceBefore>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
-                    if (pSb.HasValue) paraNode.Format["spaceBefore"] = $"{pSb.Value / 100.0:0.##}";
+                    if (pSb.HasValue) paraNode.Format["spaceBefore"] = SpacingConverter.FormatPptSpacing(pSb.Value);
                     var pSa = paraPProps?.GetFirstChild<Drawing.SpaceAfter>()?.GetFirstChild<Drawing.SpacingPoints>()?.Val?.Value;
-                    if (pSa.HasValue) paraNode.Format["spaceAfter"] = $"{pSa.Value / 100.0:0.##}";
+                    if (pSa.HasValue) paraNode.Format["spaceAfter"] = SpacingConverter.FormatPptSpacing(pSa.Value);
 
                     // Include runs at depth > 1
                     if (depth > 1)
@@ -940,7 +944,7 @@ public partial class PowerPointHandler
         var solidFill = ln?.GetFirstChild<Drawing.SolidFill>();
         var rgb = solidFill?.GetFirstChild<Drawing.RgbColorModelHex>();
         if (rgb?.Val?.HasValue == true)
-            node.Format["lineColor"] = rgb.Val.Value;
+            node.Format["lineColor"] = ParseHelpers.FormatHexColor(rgb.Val.Value);
 
         // Line opacity
         var cxnColorEl = rgb as OpenXmlElement ?? solidFill?.GetFirstChild<Drawing.SchemeColor>();

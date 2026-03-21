@@ -243,14 +243,14 @@ public class BtBugRegressionTests : IDisposable
 
         var node = _excel.Get("/Sheet1/A1");
 
-        // Check that border color values are 6-char RGB, not 8-char ARGB
+        // Check that border color values are #RRGGBB (7-char with # prefix), not 8-char ARGB
         foreach (var key in node.Format.Keys.Where(k => k.Contains("border") && k.Contains("color")))
         {
             var colorVal = node.Format[key]?.ToString();
             if (colorVal != null && colorVal.Length > 0)
             {
-                colorVal.Length.Should().BeLessOrEqualTo(6,
-                    $"{key} should be 6-char RGB (got '{colorVal}'), not 8-char ARGB");
+                colorVal.Length.Should().BeLessOrEqualTo(7,
+                    $"{key} should be #RRGGBB format (got '{colorVal}'), not 8-char ARGB");
             }
         }
     }

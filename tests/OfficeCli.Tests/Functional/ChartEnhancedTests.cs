@@ -160,11 +160,11 @@ public class ChartEnhancedTests : IDisposable
         _excel.Set(chartPath, new() { ["plotFill"] = "F0F0F0" });
 
         var node = _excel.Get(chartPath, depth: 0);
-        node.Format["plotFill"].Should().Be("F0F0F0");
+        node.Format["plotFill"].Should().Be("#F0F0F0");
 
         ReopenExcel();
         var node2 = _excel.Get(chartPath, depth: 0);
-        node2.Format["plotFill"].Should().Be("F0F0F0");
+        node2.Format["plotFill"].Should().Be("#F0F0F0");
     }
 
     [Fact]
@@ -391,7 +391,7 @@ public class ChartEnhancedTests : IDisposable
         node.Format["labelPos"].Should().Be("t");
         node.Format["gridlines"].Should().Be("true");
         node.Format.Should().ContainKey("plotFill");
-        node.Format["plotFill"].Should().Be("FAFAFA");
+        node.Format["plotFill"].Should().Be("#FAFAFA");
         node.Format["style"].Should().Be((byte)10);
         node.Children[0].Format["lineWidth"].Should().Be(2.0);
         node.Children[0].Format["marker"].Should().Be("circle");

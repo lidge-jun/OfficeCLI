@@ -278,7 +278,7 @@ public class BugHuntPart32 : IDisposable
         node.Children.Should().HaveCountGreaterThan(0);
         var run = node.Children[0];
         run.Format.Should().ContainKey("color");
-        run.Format["color"].ToString().Should().Be("FF0000");
+        run.Format["color"].ToString().Should().Be("#FF0000");
 
         // 3. Set (modify color to a different value with #)
         _wordHandler.Set("/body/p[1]", new() { ["color"] = "#00FF00" });
@@ -286,13 +286,13 @@ public class BugHuntPart32 : IDisposable
         // 4. Get + Verify modification
         var node2 = _wordHandler.Get("/body/p[1]", 1);
         var run2 = node2.Children[0];
-        run2.Format["color"].ToString().Should().Be("00FF00");
+        run2.Format["color"].ToString().Should().Be("#00FF00");
 
         // 5. Reopen + Verify persistence
         ReopenWord();
         var node3 = _wordHandler.Get("/body/p[1]", 1);
         var run3 = node3.Children[0];
-        run3.Format["color"].ToString().Should().Be("00FF00");
+        run3.Format["color"].ToString().Should().Be("#00FF00");
     }
 
     // =================================================================
@@ -520,7 +520,7 @@ public class BugHuntPart32 : IDisposable
         var initial = _pptxHandler.Get("/slide[1]/shape[1]");
         initial.Should().NotBeNull();
         initial.Text.Should().Be("Beveled shape");
-        initial.Format["fill"].ToString().Should().Be("4472C4");
+        initial.Format["fill"].ToString().Should().Be("#4472C4");
 
         // 3. Set (modify — add bevel)
         _pptxHandler.Set("/slide[1]/shape[1]", new()
@@ -902,25 +902,25 @@ public class BugHuntPart32 : IDisposable
         var node1 = _pptxHandler.Get("/slide[1]");
         var node2 = _pptxHandler.Get("/slide[2]");
         var node3 = _pptxHandler.Get("/slide[3]");
-        node1.Format["background"].ToString().Should().Contain("FF0000");
-        node2.Format["background"].ToString().Should().Contain("00FF00");
-        node3.Format["background"].ToString().Should().Contain("0000FF");
+        node1.Format["background"].ToString().Should().Contain("#FF0000");
+        node2.Format["background"].ToString().Should().Contain("#00FF00");
+        node3.Format["background"].ToString().Should().Contain("#0000FF");
 
         // 3. Set (modify — change slide[2] background)
         _pptxHandler.Set("/slide[2]", new() { ["background"] = "FFFF00" });
 
         // 4. Get + Verify modification
         var modified = _pptxHandler.Get("/slide[2]");
-        modified.Format["background"].ToString().Should().Contain("FFFF00");
+        modified.Format["background"].ToString().Should().Contain("#FFFF00");
 
         // 5. Reopen + Verify persistence
         ReopenPptx();
         var p1 = _pptxHandler.Get("/slide[1]");
         var p2 = _pptxHandler.Get("/slide[2]");
         var p3 = _pptxHandler.Get("/slide[3]");
-        p1.Format["background"].ToString().Should().Contain("FF0000");
-        p2.Format["background"].ToString().Should().Contain("FFFF00");
-        p3.Format["background"].ToString().Should().Contain("0000FF");
+        p1.Format["background"].ToString().Should().Contain("#FF0000");
+        p2.Format["background"].ToString().Should().Contain("#FFFF00");
+        p3.Format["background"].ToString().Should().Contain("#0000FF");
     }
 
     // =================================================================
@@ -952,7 +952,7 @@ public class BugHuntPart32 : IDisposable
         node.Format["size"].ToString().Should().Be("24pt");
         node.Format["bold"].Should().Be(true);
         node.Format["italic"].Should().Be(true);
-        node.Format["color"].ToString().Should().Be("FF0000");
+        node.Format["color"].ToString().Should().Be("#FF0000");
         node.Format["underline"].ToString().Should().Be("single");
         node.Format["align"].ToString().Should().Be("center");
         node.Format["valign"].ToString().Should().Be("center");
@@ -977,7 +977,7 @@ public class BugHuntPart32 : IDisposable
         persisted.Format["font"].ToString().Should().Be("Calibri");
         persisted.Format["size"].ToString().Should().Be("18pt");
         persisted.Format["italic"].Should().Be(true);
-        persisted.Format["color"].ToString().Should().Be("FF0000");
+        persisted.Format["color"].ToString().Should().Be("#FF0000");
         persisted.Format["underline"].ToString().Should().Be("single");
         persisted.Format["align"].ToString().Should().Be("center");
         persisted.Format["valign"].ToString().Should().Be("center");
@@ -998,13 +998,13 @@ public class BugHuntPart32 : IDisposable
             { ["text"] = "Semi-transparent", ["fill"] = "88333333" });
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["fill"].ToString().Should().Be("333333");
+        node.Format["fill"].ToString().Should().Be("#333333");
         node.Format.Should().ContainKey("opacity");
 
         // Verify persistence
         ReopenPptx();
         var persisted = _pptxHandler.Get("/slide[1]/shape[2]");
-        persisted.Format["fill"].ToString().Should().Be("333333");
+        persisted.Format["fill"].ToString().Should().Be("#333333");
         persisted.Format.Should().ContainKey("opacity");
     }
 
@@ -1017,7 +1017,7 @@ public class BugHuntPart32 : IDisposable
             { ["text"] = "Opaque", ["fill"] = "FFFF0000" });
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["fill"].ToString().Should().Be("FF0000");
+        node.Format["fill"].ToString().Should().Be("#FF0000");
         node.Format.ContainsKey("opacity").Should().BeFalse();
     }
 
@@ -1030,7 +1030,7 @@ public class BugHuntPart32 : IDisposable
             { ["text"] = "Opaque", ["fill"] = "FF0000" });
 
         var node = _pptxHandler.Get("/slide[1]/shape[2]");
-        node.Format["fill"].ToString().Should().Be("FF0000");
+        node.Format["fill"].ToString().Should().Be("#FF0000");
         node.Format.ContainsKey("opacity").Should().BeFalse();
     }
 
@@ -1044,13 +1044,13 @@ public class BugHuntPart32 : IDisposable
         var node = _pptxHandler.Get("/slide[1]");
         // Should read back as gradient: "0A0E29-1A2B5E-45"
         node.Format.Should().ContainKey("background");
-        node.Format["background"].ToString().Should().Contain("0A0E29");
-        node.Format["background"].ToString().Should().Contain("1A2B5E");
+        node.Format["background"].ToString().Should().Contain("#0A0E29");
+        node.Format["background"].ToString().Should().Contain("#1A2B5E");
 
         // Verify persistence
         ReopenPptx();
         var persisted = _pptxHandler.Get("/slide[1]");
-        persisted.Format["background"].ToString().Should().Contain("0A0E29");
+        persisted.Format["background"].ToString().Should().Contain("#0A0E29");
     }
 
     [Fact]
@@ -1061,7 +1061,7 @@ public class BugHuntPart32 : IDisposable
         _pptxHandler.Set("/slide[1]", new() { ["background"] = "FF0000-0000FF-90" });
 
         var node = _pptxHandler.Get("/slide[1]");
-        node.Format["background"].ToString().Should().Be("FF0000-0000FF-90");
+        node.Format["background"].ToString().Should().Be("#FF0000-#0000FF-90");
     }
 
     [Fact]
@@ -1090,7 +1090,7 @@ public class BugHuntPart32 : IDisposable
         var node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
         // Should be sanitized to 6-char RGB (strip leading alpha bytes, AARRGGBB → RRGGBB)
         node.Format.Should().ContainKey("shd");
-        node.Format["shd"].ToString().Should().Be("FF0000",
+        node.Format["shd"].ToString().Should().Be("#FF0000",
             "8-char AARRGGBB hex should extract 6-char RGB for OOXML");
 
         ReopenWord();

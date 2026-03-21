@@ -155,7 +155,7 @@ public class BugHuntPart39 : IDisposable
         handler.Set("/slide[1]/connector[1]", new() { ["lineColor"] = "00FF00" });
         var node = handler.Get("/slide[1]/connector[1]");
         node.Format.Should().ContainKey("lineColor");
-        node.Format["lineColor"].Should().Be("00FF00",
+        node.Format["lineColor"].Should().Be("#00FF00",
             because: "lineColor roundtrip should preserve the hex color");
     }
 
@@ -358,7 +358,7 @@ public class BugHuntPart39 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Text.Should().Contain("Line1");
         node.Format.Should().ContainKey("color");
-        node.Format["color"].Should().Be("FF0000",
+        node.Format["color"].Should().Be("#FF0000",
             because: "color should apply to new runs, but stale runs bug means color goes to orphaned runs");
     }
 

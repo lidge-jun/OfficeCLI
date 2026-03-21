@@ -88,11 +88,11 @@ public class ExcelEnhancedTests : IDisposable
         _handler.Set("/Sheet1", new() { ["tabColor"] = "FF0000" });
 
         var node = _handler.Get("/Sheet1");
-        node.Format["tabColor"].Should().Be("FFFF0000");
+        node.Format["tabColor"].Should().Be("#FF0000");
 
         Reopen();
         var node2 = _handler.Get("/Sheet1");
-        node2.Format["tabColor"].Should().Be("FFFF0000");
+        node2.Format["tabColor"].Should().Be("#FF0000");
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class ExcelEnhancedTests : IDisposable
         _handler.Set("/Sheet1", new() { ["tabColor"] = "#4472C4" });
 
         var node = _handler.Get("/Sheet1");
-        node.Format["tabColor"].Should().Be("FF4472C4");
+        node.Format["tabColor"].Should().Be("#4472C4");
     }
 
     [Fact]

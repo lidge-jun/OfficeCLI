@@ -96,7 +96,7 @@ public class BugHuntPart23 : IDisposable
         var key = node.Format.ContainsKey("pbdr.top") ? "pbdr.top"
             : node.Format.ContainsKey("pBdr.top") ? "pBdr.top" : null;
         key.Should().NotBeNull();
-        node.Format[key!]?.ToString().Should().Contain("00CC00",
+        node.Format[key!]?.ToString().Should().Contain("#00CC00",
             "border value should include the color we set");
     }
 
@@ -200,8 +200,8 @@ public class BugHuntPart23 : IDisposable
             ["value"] = "Blue", ["font.color"] = "0000FF"
         });
 
-        _excelHandler.Get("/Sheet1/A1").Format["font.color"]?.ToString().Should().Be("0000FF",
-            "font.color should return 6-char RGB, not 8-char ARGB");
+        _excelHandler.Get("/Sheet1/A1").Format["font.color"]?.ToString().Should().Be("#0000FF",
+            "font.color should return #-prefixed 6-char RGB");
     }
 
     // BUG: fill color same ARGB issue
@@ -217,8 +217,8 @@ public class BugHuntPart23 : IDisposable
         var fillKey = node.Format.ContainsKey("fill") ? "fill"
             : node.Format.ContainsKey("bgcolor") ? "bgcolor" : null;
         fillKey.Should().NotBeNull();
-        node.Format[fillKey!]?.ToString().Should().Be("FF0000",
-            "fill should return 6-char RGB, not 8-char ARGB");
+        node.Format[fillKey!]?.ToString().Should().Be("#FF0000",
+            "fill should return #-prefixed 6-char RGB");
     }
 
     // BUG: Built-in number format ID returned instead of format string

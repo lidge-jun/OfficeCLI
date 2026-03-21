@@ -203,7 +203,7 @@ public class BugHuntPart55 : IDisposable
         h.Set("/theme", new() { ["accent1"] = "FF6B35" });
 
         var theme = h.Get("/theme");
-        theme.Format["accent1"]?.ToString().Should().Be("FF6B35");
+        theme.Format["accent1"]?.ToString().Should().Be("#FF6B35");
     }
 
     [Fact]
@@ -220,10 +220,10 @@ public class BugHuntPart55 : IDisposable
         });
 
         var theme = h.Get("/theme");
-        theme.Format["accent1"]?.ToString().Should().Be("E63946");
-        theme.Format["accent2"]?.ToString().Should().Be("457B9D");
-        theme.Format["accent3"]?.ToString().Should().Be("A8DADC");
-        theme.Format["accent4"]?.ToString().Should().Be("1D3557");
+        theme.Format["accent1"]?.ToString().Should().Be("#E63946");
+        theme.Format["accent2"]?.ToString().Should().Be("#457B9D");
+        theme.Format["accent3"]?.ToString().Should().Be("#A8DADC");
+        theme.Format["accent4"]?.ToString().Should().Be("#1D3557");
     }
 
     [Fact]
@@ -250,7 +250,7 @@ public class BugHuntPart55 : IDisposable
         using (var h2 = new PowerPointHandler(path, editable: false))
         {
             var theme = h2.Get("/theme");
-            theme.Format["accent1"]?.ToString().Should().Be("AABBCC");
+            theme.Format["accent1"]?.ToString().Should().Be("#AABBCC");
         }
     }
 

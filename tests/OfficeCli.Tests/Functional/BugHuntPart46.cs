@@ -105,7 +105,7 @@ public class BugHuntPart46 : IDisposable
         var cellNode = node.Children[0].Children[0];
         cellNode.Format.Should().ContainKey("fill",
             because: "fill should be readable on table cell after Set");
-        cellNode.Format["fill"].ToString().Should().Be("FF0000",
+        cellNode.Format["fill"].ToString().Should().Be("#FF0000",
             because: "fill=FF0000 should roundtrip");
     }
 
@@ -274,7 +274,7 @@ public class BugHuntPart46 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("line",
             because: "lineColor key should set the line property");
-        node.Format["line"].ToString().Should().Be("FF0000",
+        node.Format["line"].ToString().Should().Be("#FF0000",
             because: "lineColor=FF0000 should be readable as line=FF0000");
     }
 
@@ -305,7 +305,7 @@ public class BugHuntPart46 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("line",
             because: "Set with 'line' key should add a border color");
-        node.Format["line"].ToString().Should().Be("0000FF",
+        node.Format["line"].ToString().Should().Be("#0000FF",
             because: "line=0000FF should roundtrip");
     }
 
@@ -328,7 +328,7 @@ public class BugHuntPart46 : IDisposable
         var node = handler.Get("/slide[1]");
         node.Format.Should().ContainKey("background",
             because: "background should be readable after Set");
-        node.Format["background"].ToString().Should().Be("FFFF00",
+        node.Format["background"].ToString().Should().Be("#FFFF00",
             because: "background=FFFF00 should roundtrip");
     }
 
@@ -500,7 +500,7 @@ public class BugHuntPart46 : IDisposable
         var cellNode = node.Children[0].Children[0];
         cellNode.Format.Should().ContainKey("color",
             because: "color should be readable on table cell after Set");
-        cellNode.Format["color"].ToString().Should().Be("FF0000",
+        cellNode.Format["color"].ToString().Should().Be("#FF0000",
             because: "color=FF0000 should roundtrip");
     }
 
@@ -741,7 +741,7 @@ public class BugHuntPart46 : IDisposable
         var node = handler.Get("/slide[1]/shape[1]");
         node.Format.Should().ContainKey("color",
             because: "text color should be readable after Add");
-        node.Format["color"].ToString().Should().Be("FF0000",
+        node.Format["color"].ToString().Should().Be("#FF0000",
             because: "color=FF0000 should roundtrip");
     }
 

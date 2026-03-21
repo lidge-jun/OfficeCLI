@@ -186,11 +186,8 @@ public class BugHuntPart49 : IDisposable
     }
 
     // ==================== Bug4905 ====================
-    // Word watermark Set prepends "#" to color (line 80: `var clr = "#" + SanitizeHex(value)`)
-    // but if the input already has "#", it becomes "##RRGGBB" in the VML XML.
-    // SanitizeHex strips "#" prefix, so this particular issue is avoided,
-    // but the Get returns the raw VML fillcolor which includes "#" prefix,
-    // while other Word properties (like paragraph color) don't include "#".
+    // Word watermark color should now consistently return "#RRGGBB" format
+    // like all other color properties in the system.
     [Fact]
     public void Bug4905_WordWatermarkColorInconsistentHashPrefix()
     {
@@ -209,13 +206,10 @@ public class BugHuntPart49 : IDisposable
         if (node.Format.ContainsKey("color"))
         {
             var colorVal = node.Format["color"]?.ToString() ?? "";
-            // BUG: watermark color Get returns "#FF0000" (with hash prefix from VML)
-            // but paragraph/run color Get returns "FF0000" (without hash)
-            colorVal.Should().NotStartWith("#",
-                because: "Word watermark color should be returned without '#' prefix " +
-                         "for consistency with other Word color properties. " +
-                         "Watermark Get reads raw VML fillcolor attribute which includes '#', " +
-                         "while run/paragraph color returns bare hex");
+            // All color outputs now use "#RRGGBB" format consistently
+            colorVal.Should().StartWith("#",
+                because: "Word watermark color should be returned with '#' prefix " +
+                         "for consistency with all other color properties");
         }
     }
 
@@ -905,7 +899,7 @@ public class BugHuntPart49 : IDisposable
 
         if (node.Format.ContainsKey("lineColor"))
         {
-            node.Format["lineColor"]?.ToString().Should().Be("FF0000",
+            node.Format["lineColor"]?.ToString().Should().Be("#FF0000",
                 because: "Connector lineColor should round-trip: Set 'FF0000' → Get 'FF0000'");
         }
     }

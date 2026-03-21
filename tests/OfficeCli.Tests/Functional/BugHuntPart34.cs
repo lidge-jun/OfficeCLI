@@ -96,7 +96,7 @@ public class BugHuntPart34 : IDisposable
 
         // Color should be applied to the actual runs in the shape
         node.Format.Should().ContainKey("color");
-        node.Format["color"].ToString().Should().Be("FF0000");
+        node.Format["color"].ToString().Should().Be("#FF0000");
     }
 
     // =====================================================================
@@ -468,7 +468,7 @@ public class BugHuntPart34 : IDisposable
 
         var node = handler.Get("/slide[1]/shape[1]");
         node.Text.Should().Be("Updated");
-        node.Format["fill"].ToString().Should().Be("0000FF");
+        node.Format["fill"].ToString().Should().Be("#0000FF");
     }
 
     // =====================================================================

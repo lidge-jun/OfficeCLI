@@ -38,11 +38,11 @@ public class ExcelBorderColorBugTests : IDisposable
 
         // font.color should be 6-char (alpha stripped)
         var fontColor = node.Format.GetValueOrDefault("font.color")?.ToString();
-        fontColor.Should().Be("FF0000", "font.color strips the ARGB alpha prefix");
+        fontColor.Should().Be("#FF0000", "font.color strips the ARGB alpha prefix");
 
         // border.left.color should ALSO be 6-char for consistency
         var borderColor = node.Format.GetValueOrDefault("border.left.color")?.ToString();
-        borderColor.Should().Be("FF0000",
+        borderColor.Should().Be("#FF0000",
             "border.left.color should strip the ARGB alpha prefix like font.color does, " +
             "but it returns the raw 8-char ARGB value 'FFFF0000' instead");
     }

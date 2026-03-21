@@ -89,8 +89,8 @@ public class TableEnhancementTests : IDisposable
         node.Format.Should().ContainKey("shd");
         var shd = node.Format["shd"].ToString()!;
         shd.Should().Contain("gradient");
-        shd.Should().Contain("FF0000");
-        shd.Should().Contain("0000FF");
+        shd.Should().Contain("#FF0000");
+        shd.Should().Contain("#0000FF");
         shd.Should().Contain("90");
 
         // 5. Modify: change gradient to different colors
@@ -99,8 +99,8 @@ public class TableEnhancementTests : IDisposable
         // 6. Get + Verify modification
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
         shd = node.Format["shd"].ToString()!;
-        shd.Should().Contain("00FF00");
-        shd.Should().Contain("FF00FF");
+        shd.Should().Contain("#00FF00");
+        shd.Should().Contain("#FF00FF");
         shd.Should().Contain("180");
 
         // 7. Reopen + Verify persistence
@@ -109,18 +109,18 @@ public class TableEnhancementTests : IDisposable
         node.Text.Should().Be("Gradient Cell");
         shd = node.Format["shd"].ToString()!;
         shd.Should().Contain("gradient");
-        shd.Should().Contain("00FF00");
-        shd.Should().Contain("FF00FF");
+        shd.Should().Contain("#00FF00");
+        shd.Should().Contain("#FF00FF");
 
         // 8. Modify: override gradient with solid fill
         _wordHandler.Set("/body/tbl[1]/tr[1]/tc[1]", new() { ["shd"] = "solid;AABBCC" });
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        node.Format["shd"].ToString().Should().Be("AABBCC");
+        node.Format["shd"].ToString().Should().Be("#AABBCC");
 
         // 9. Verify solid persists
         ReopenWord();
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        node.Format["shd"].ToString().Should().Be("AABBCC");
+        node.Format["shd"].ToString().Should().Be("#AABBCC");
     }
 
     [Fact]
@@ -141,8 +141,8 @@ public class TableEnhancementTests : IDisposable
         node = _pptxHandler.Get("/slide[1]/table[1]/tr[1]/tc[1]");
         node.Format.Should().ContainKey("fill");
         var fill = node.Format["fill"].ToString()!;
-        fill.Should().Contain("FF0000");
-        fill.Should().Contain("0000FF");
+        fill.Should().Contain("#FF0000");
+        fill.Should().Contain("#0000FF");
 
         // 5. Modify: change gradient colors
         _pptxHandler.Set("/slide[1]/table[1]/tr[1]/tc[1]", new() { ["fill"] = "00FF00-FF00FF" });
@@ -150,8 +150,8 @@ public class TableEnhancementTests : IDisposable
         // 6. Get + Verify modification
         node = _pptxHandler.Get("/slide[1]/table[1]/tr[1]/tc[1]");
         fill = node.Format["fill"].ToString()!;
-        fill.Should().Contain("00FF00");
-        fill.Should().Contain("FF00FF");
+        fill.Should().Contain("#00FF00");
+        fill.Should().Contain("#FF00FF");
 
         // 7. Reopen + Verify persistence
         ReopenPptx();
@@ -161,12 +161,12 @@ public class TableEnhancementTests : IDisposable
         // 8. Modify: override with solid fill
         _pptxHandler.Set("/slide[1]/table[1]/tr[1]/tc[1]", new() { ["fill"] = "AABBCC" });
         node = _pptxHandler.Get("/slide[1]/table[1]/tr[1]/tc[1]");
-        node.Format["fill"].ToString().Should().Be("AABBCC");
+        node.Format["fill"].ToString().Should().Be("#AABBCC");
 
         // 9. Verify solid persists
         ReopenPptx();
         node = _pptxHandler.Get("/slide[1]/table[1]/tr[1]/tc[1]");
-        node.Format["fill"].ToString().Should().Be("AABBCC");
+        node.Format["fill"].ToString().Should().Be("#AABBCC");
     }
 
     // ==================== Feature 2: Cell Inline Image ====================
@@ -626,8 +626,8 @@ public class TableEnhancementTests : IDisposable
         node.Format.Should().ContainKey("fill");
         var fill = node.Format["fill"].ToString()!;
         fill.Should().Contain("gradient");
-        fill.Should().Contain("FF0000");
-        fill.Should().Contain("0000FF");
+        fill.Should().Contain("#FF0000");
+        fill.Should().Contain("#0000FF");
 
         // 5. Modify: change gradient
         _excelHandler.Set("/Sheet1/A1", new() { ["fill"] = "00FF00-FF00FF-180" });
@@ -635,8 +635,8 @@ public class TableEnhancementTests : IDisposable
         // 6. Get + Verify modified
         node = _excelHandler.Get("/Sheet1/A1");
         fill = node.Format["fill"].ToString()!;
-        fill.Should().Contain("00FF00");
-        fill.Should().Contain("FF00FF");
+        fill.Should().Contain("#00FF00");
+        fill.Should().Contain("#FF00FF");
 
         // 7. Reopen + Verify persistence
         ReopenExcel();
@@ -644,17 +644,17 @@ public class TableEnhancementTests : IDisposable
         node.Text.Should().Be("Gradient");
         fill = node.Format["fill"].ToString()!;
         fill.Should().Contain("gradient");
-        fill.Should().Contain("00FF00");
+        fill.Should().Contain("#00FF00");
 
         // 8. Override with solid fill
         _excelHandler.Set("/Sheet1/A1", new() { ["fill"] = "AABBCC" });
         node = _excelHandler.Get("/Sheet1/A1");
-        node.Format["fill"].ToString().Should().Be("AABBCC");
+        node.Format["fill"].ToString().Should().Be("#AABBCC");
 
         // 9. Verify solid persists
         ReopenExcel();
         node = _excelHandler.Get("/Sheet1/A1");
-        node.Format["fill"].ToString().Should().Be("AABBCC");
+        node.Format["fill"].ToString().Should().Be("#AABBCC");
     }
 
     // ==================== Feature 9: Excel Diagonal Border ====================
@@ -741,7 +741,7 @@ public class TableEnhancementTests : IDisposable
             // 6. Modify: override with solid fill
             _pptxHandler.Set("/slide[1]/table[1]/tr[1]/tc[1]", new() { ["fill"] = "AABBCC" });
             node = _pptxHandler.Get("/slide[1]/table[1]/tr[1]/tc[1]");
-            node.Format["fill"].ToString().Should().Be("AABBCC");
+            node.Format["fill"].ToString().Should().Be("#AABBCC");
 
             // 7. Set image again
             _pptxHandler.Set("/slide[1]/table[1]/tr[1]/tc[1]", new() { ["image"] = imgPath });

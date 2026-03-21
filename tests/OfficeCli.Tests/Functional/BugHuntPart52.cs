@@ -74,8 +74,8 @@ public class BugHuntPart52 : IDisposable
 
         var gradientVal = node.Format["gradient"].ToString()!;
         // The gradient should be readable and parseable — verify it contains both colors
-        gradientVal.Should().Contain("FF0000", because: "gradient Get should include the first color");
-        gradientVal.Should().Contain("0000FF", because: "gradient Get should include the second color");
+        gradientVal.Should().Contain("#FF0000", because: "gradient Get should include the first color");
+        gradientVal.Should().Contain("#0000FF", because: "gradient Get should include the second color");
 
         // Verify the gradient value can be fed back into Set without error
         // (round-trip: Get output → Set input)
@@ -105,8 +105,8 @@ public class BugHuntPart52 : IDisposable
         node!.Format.Should().ContainKey("gradient");
 
         var gradientVal = node.Format["gradient"].ToString()!;
-        gradientVal.Should().Contain("FF0000");
-        gradientVal.Should().Contain("0000FF");
+        gradientVal.Should().Contain("#FF0000");
+        gradientVal.Should().Contain("#0000FF");
         gradientVal.Should().Contain("tl", because: "radial gradient focus point should be preserved");
     }
 
@@ -201,7 +201,7 @@ public class BugHuntPart52 : IDisposable
         node.Should().NotBeNull();
         node!.Format.Should().ContainKey("shadow");
         var shadow = node.Format["shadow"].ToString()!;
-        shadow.Should().Contain("FF0000", because: "shadow color should be preserved in Get output");
+        shadow.Should().Contain("#FF0000", because: "shadow color should be preserved in Get output");
     }
 
     // ==================== PPTX Glow Round-Trip ====================
@@ -226,7 +226,7 @@ public class BugHuntPart52 : IDisposable
         node!.Format.Should().ContainKey("glow");
 
         var glowVal = node.Format["glow"].ToString()!;
-        glowVal.Should().Contain("0070FF", because: "glow color should be preserved");
+        glowVal.Should().Contain("#0070FF", because: "glow color should be preserved");
 
         // Verify round-trip
         var act = () => handler.Set("/slide[1]/shape[1]", new() { ["glow"] = glowVal });
@@ -467,7 +467,7 @@ public class BugHuntPart52 : IDisposable
             because: "slide background should be readable after being set");
 
         var bgVal = node.Format["background"].ToString()!;
-        bgVal.Should().Be("FF0000",
+        bgVal.Should().Be("#FF0000",
             because: "solid color background should preserve hex color value");
     }
 
@@ -487,8 +487,8 @@ public class BugHuntPart52 : IDisposable
             because: "gradient background should be readable after being set");
 
         var bgVal = node.Format["background"].ToString()!;
-        bgVal.Should().Contain("FF0000");
-        bgVal.Should().Contain("0000FF");
+        bgVal.Should().Contain("#FF0000");
+        bgVal.Should().Contain("#0000FF");
     }
 
     // ==================== PPTX Notes Round-Trip ====================
@@ -612,7 +612,7 @@ public class BugHuntPart52 : IDisposable
         var node = handler.Get("/slide[1]/table[1]/tr[1]/tc[1]");
         node.Should().NotBeNull();
         node!.Format.Should().ContainKey("fill");
-        node.Format["fill"].ToString().Should().Be("FF0000",
+        node.Format["fill"].ToString().Should().Be("#FF0000",
             because: "table cell fill color should be preserved");
     }
 

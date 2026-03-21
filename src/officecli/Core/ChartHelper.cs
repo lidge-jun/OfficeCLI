@@ -1122,7 +1122,7 @@ internal static class ChartHelper
     {
         if (solidFill == null) return null;
         var rgb = solidFill.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-        if (rgb != null) return rgb;
+        if (rgb != null) return ParseHelpers.FormatHexColor(rgb);
         var scheme = solidFill.GetFirstChild<Drawing.SchemeColor>()?.Val;
         if (scheme?.HasValue == true) return scheme.InnerText;
         return null;
@@ -1212,23 +1212,11 @@ internal static class ChartHelper
                                 break;
                             case "glow":
                                 DrawingEffectsHelper.ApplyTextEffect<Drawing.Glow>(run, value,
-                                    () => DrawingEffectsHelper.BuildGlow(value, c =>
-                                    {
-                                        var (rgb, alpha) = ParseHelpers.SanitizeColorForOoxml(c);
-                                        var clr = new Drawing.RgbColorModelHex { Val = rgb };
-                                        if (alpha.HasValue) clr.AppendChild(new Drawing.Alpha { Val = alpha.Value });
-                                        return clr;
-                                    }));
+                                    () => DrawingEffectsHelper.BuildGlow(value, DrawingEffectsHelper.BuildRgbColor));
                                 break;
                             case "shadow":
                                 DrawingEffectsHelper.ApplyTextEffect<Drawing.OuterShadow>(run, value,
-                                    () => DrawingEffectsHelper.BuildOuterShadow(value, c =>
-                                    {
-                                        var (rgb, alpha) = ParseHelpers.SanitizeColorForOoxml(c);
-                                        var clr = new Drawing.RgbColorModelHex { Val = rgb };
-                                        if (alpha.HasValue) clr.AppendChild(new Drawing.Alpha { Val = alpha.Value });
-                                        return clr;
-                                    }));
+                                    () => DrawingEffectsHelper.BuildOuterShadow(value, DrawingEffectsHelper.BuildRgbColor));
                                 break;
                         }
                         // Also update DefaultRunProperties for consistency

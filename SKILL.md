@@ -7,11 +7,7 @@ description: Create, analyze, proofread, and modify Office documents (.docx, .xl
 
 AI-friendly CLI for .docx, .xlsx, .pptx.
 
-**First, check if officecli is available:**
-```bash
-officecli --version
-```
-If the command is not found, install it:
+**First, ensure officecli is installed and up to date (same command for install and upgrade):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
 ```

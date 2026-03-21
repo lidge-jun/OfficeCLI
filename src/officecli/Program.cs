@@ -5,6 +5,24 @@ using System.CommandLine;
 using System.Diagnostics;
 using OfficeCli.Core;
 
+// Internal commands (spawned as separate processes, not user-facing)
+if (args.Length == 1 && args[0] == "__update-check__")
+{
+    OfficeCli.Core.UpdateChecker.RunRefresh();
+    return 0;
+}
+
+// Config command: officecli config <key> [value]
+if (args.Length >= 2 && args[0] == "config")
+{
+    OfficeCli.Core.UpdateChecker.HandleConfigCommand(args.Skip(1).ToArray());
+    return 0;
+}
+
+// Non-blocking update check: spawns background upgrade if stale
+if (Environment.GetEnvironmentVariable("OFFICECLI_SKIP_UPDATE") != "1")
+    OfficeCli.Core.UpdateChecker.CheckInBackground();
+
 var jsonOption = new Option<bool>("--json") { Description = "Output as JSON (AI-friendly)" };
 
 var rootCommand = new RootCommand("""

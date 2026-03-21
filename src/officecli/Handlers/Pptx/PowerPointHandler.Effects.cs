@@ -32,7 +32,7 @@ public partial class PowerPointHandler
         if (string.IsNullOrWhiteSpace(value))
             throw new ArgumentException("Shadow value cannot be empty. Use 'none' to remove shadow.");
 
-        effectList.AppendChild(BuildOuterShadow(value));
+        InsertEffectInOrder(effectList, BuildOuterShadow(value));
     }
 
     /// <summary>
@@ -54,7 +54,7 @@ public partial class PowerPointHandler
             return;
         }
 
-        effectList.AppendChild(BuildGlow(value));
+        InsertEffectInOrder(effectList, BuildGlow(value));
     }
 
     /// <summary>
@@ -129,7 +129,7 @@ public partial class PowerPointHandler
             Alignment       = Drawing.RectangleAlignmentValues.BottomLeft,
             RotateWithShape = false
         };
-        effectList.AppendChild(reflection);
+        InsertEffectInOrder(effectList, reflection);
     }
 
     /// <summary>
@@ -149,7 +149,7 @@ public partial class PowerPointHandler
 
         if (!double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var radiusPt) || double.IsNaN(radiusPt) || double.IsInfinity(radiusPt))
             throw new ArgumentException($"Invalid 'softedge' value '{value}'. Expected a finite numeric radius in points.");
-        effectList.AppendChild(new Drawing.SoftEdge { Radius = (long)(radiusPt * 12700) });
+        InsertEffectInOrder(effectList, new Drawing.SoftEdge { Radius = (long)(radiusPt * 12700) });
     }
 
     private static void ApplyTextReflection(Drawing.Run run, string value)
@@ -308,6 +308,41 @@ public partial class PowerPointHandler
     }
 
     // --- Helper methods ---
+
+    /// <summary>
+    /// Schema order for CT_EffectList children:
+    /// blur → fillOverlay → glow → innerShdw → outerShdw → prstShdw → reflection → softEdge
+    /// </summary>
+    private static readonly Type[] EffectListChildOrder =
+    [
+        typeof(Drawing.Blur),
+        typeof(Drawing.FillOverlay),
+        typeof(Drawing.Glow),
+        typeof(Drawing.InnerShadow),
+        typeof(Drawing.OuterShadow),
+        typeof(Drawing.PresetShadow),
+        typeof(Drawing.Reflection),
+        typeof(Drawing.SoftEdge),
+    ];
+
+    /// <summary>
+    /// Insert an effect element into EffectList at the correct schema position.
+    /// </summary>
+    private static void InsertEffectInOrder(Drawing.EffectList effectList, DocumentFormat.OpenXml.OpenXmlElement element)
+    {
+        var targetIdx = Array.IndexOf(EffectListChildOrder, element.GetType());
+        // Find the first existing child that should come after this element
+        foreach (var child in effectList.ChildElements)
+        {
+            var childIdx = Array.IndexOf(EffectListChildOrder, child.GetType());
+            if (childIdx > targetIdx)
+            {
+                effectList.InsertBefore(element, child);
+                return;
+            }
+        }
+        effectList.AppendChild(element);
+    }
 
     /// <summary>
     /// Get or create EffectList in correct schema position.

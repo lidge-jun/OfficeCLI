@@ -1572,7 +1572,7 @@ internal static class ChartHelper
                     chartSpace!.RemoveAllChildren<C.ChartShapeProperties>();
                     var spPr = new C.ChartShapeProperties();
                     spPr.AppendChild(BuildFillElement(value));
-                    chartSpace.InsertBefore(spPr, chart);
+                    chartSpace.InsertAfter(spPr, chart);
                     break;
                 }
 

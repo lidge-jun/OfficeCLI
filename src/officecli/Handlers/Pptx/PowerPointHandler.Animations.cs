@@ -93,8 +93,8 @@ public partial class PowerPointHandler
             "flash" => new DocumentFormat.OpenXml.Office2010.PowerPoint.FlashTransition(),
             "honeycomb" => new DocumentFormat.OpenXml.Office2010.PowerPoint.HoneycombTransition(),
             "vortex" => new DocumentFormat.OpenXml.Office2010.PowerPoint.VortexTransition { Direction = ParseSlideDir(direction ?? "left") },
-            "switch" => new DocumentFormat.OpenXml.Office2010.PowerPoint.SwitchTransition(),
-            "flip" => new DocumentFormat.OpenXml.Office2010.PowerPoint.FlipTransition(),
+            "switch" => new DocumentFormat.OpenXml.Office2010.PowerPoint.SwitchTransition { Direction = ParseLeftRightDir(direction ?? "left") },
+            "flip" => new DocumentFormat.OpenXml.Office2010.PowerPoint.FlipTransition { Direction = ParseLeftRightDir(direction ?? "left") },
             "ripple" => new DocumentFormat.OpenXml.Office2010.PowerPoint.RippleTransition(),
             "glitter" => new DocumentFormat.OpenXml.Office2010.PowerPoint.GlitterTransition { Direction = ParseSlideDir(direction ?? "left") },
             "prism" => new DocumentFormat.OpenXml.Office2010.PowerPoint.PrismTransition(),
@@ -113,7 +113,6 @@ public partial class PowerPointHandler
         };
 
         // Morph transition: requires mc:AlternateContent wrapper with p159 namespace
-        // PowerPoint ignores bare p159:morph without the mc:Choice/Fallback structure
         if (typeName == "morph")
         {
             var morphOption = (direction ?? "byobject").ToLowerInvariant() switch
@@ -124,67 +123,21 @@ public partial class PowerPointHandler
                 _ => throw new ArgumentException($"Invalid morph option: '{direction}'. Valid values: byObject, byWord, byChar.")
             };
 
-            var mcNs = "http://schemas.openxmlformats.org/markup-compatibility/2006";
-            var pNs = "http://schemas.openxmlformats.org/presentationml/2006/main";
             var p159Ns = "http://schemas.microsoft.com/office/powerpoint/2015/09/main";
-
-            // Build speed/duration attributes
-            var spdAttr = speed.HasValue ? $" spd=\"{((IEnumValue)speed.Value).Value}\"" : "";
-            var durAttr = durationMs != null ? $" dur=\"{durationMs}\"" : "";
-
-            // mc:AlternateContent > mc:Choice[Requires=p159] > p:transition > p159:morph
-            var acElement = new OpenXmlUnknownElement("mc", "AlternateContent", mcNs);
-            var choiceElement = new OpenXmlUnknownElement("mc", "Choice", mcNs);
-            choiceElement.SetAttribute(new OpenXmlAttribute("", "Requires", null!, "p159"));
-
-            var morphTrans = new OpenXmlUnknownElement("p", "transition", pNs);
-            morphTrans.AddNamespaceDeclaration("p159", p159Ns);
-            if (speed.HasValue)
-                morphTrans.SetAttribute(new OpenXmlAttribute("", "spd", null!, ((IEnumValue)speed.Value).Value));
-            if (durationMs != null)
-                morphTrans.SetAttribute(new OpenXmlAttribute("", "dur", null!, durationMs));
             var morphElem = new OpenXmlUnknownElement("p159", "morph", p159Ns);
             morphElem.SetAttribute(new OpenXmlAttribute("", "option", null!, morphOption));
-            morphTrans.AppendChild(morphElem);
-            choiceElement.AppendChild(morphTrans);
 
-            // mc:Fallback > p:transition > p:fade (graceful degradation for older PPT)
-            var fallbackElement = new OpenXmlUnknownElement("mc", "Fallback", mcNs);
-            var fallbackTrans = new OpenXmlUnknownElement("p", "transition", pNs);
-            if (speed.HasValue)
-                fallbackTrans.SetAttribute(new OpenXmlAttribute("", "spd", null!, ((IEnumValue)speed.Value).Value));
-            fallbackTrans.AppendChild(new OpenXmlUnknownElement("p", "fade", pNs));
-            fallbackElement.AppendChild(fallbackTrans);
+            InsertTransitionWithMcWrapper(slide, morphElem, "p159", p159Ns, speed, durationMs);
+            return;
+        }
 
-            acElement.AppendChild(choiceElement);
-            acElement.AppendChild(fallbackElement);
-
-            // Remove existing transition or AlternateContent with transition
-            foreach (var existing in slide.ChildElements
-                .Where(c => c.LocalName == "transition" || c.LocalName == "AlternateContent")
-                .ToList())
-                existing.Remove();
-
-            // Insert after cSld (and after any existing clrMapOvr)
-            var insertAfter = slide.GetFirstChild<ColorMapOverride>() as OpenXmlElement
-                ?? slide.CommonSlideData as OpenXmlElement;
-            if (insertAfter != null)
-                insertAfter.InsertAfterSelf(acElement);
-            else
-                slide.AppendChild(acElement);
-
-            // Declare namespaces and mc:Ignorable on slide root
-            // mc:Ignorable="p159" tells PowerPoint to process p159 via AlternateContent
-            try { slide.AddNamespaceDeclaration("p159", p159Ns); } catch { }
-            try { slide.AddNamespaceDeclaration("mc", mcNs); } catch { }
-            var ignorable = slide.MCAttributes?.Ignorable?.Value;
-            if (ignorable == null || !ignorable.Contains("p159"))
-            {
-                slide.MCAttributes ??= new MarkupCompatibilityAttributes();
-                slide.MCAttributes.Ignorable = string.IsNullOrEmpty(ignorable) ? "p159" : $"{ignorable} p159";
-            }
-
-            slide.Save();
+        // Office 2010+ (p14) transitions: also require mc:AlternateContent wrapper
+        bool isP14Transition = transElem != null &&
+            transElem.GetType().Namespace == "DocumentFormat.OpenXml.Office2010.PowerPoint";
+        if (isP14Transition)
+        {
+            var p14Ns = "http://schemas.microsoft.com/office/powerpoint/2010/main";
+            InsertTransitionWithMcWrapper(slide, transElem!, "p14", p14Ns, speed, durationMs);
             return;
         }
 
@@ -195,7 +148,7 @@ public partial class PowerPointHandler
         // but Save() strips it during serialization. Workaround: inject as raw XML element
         // that the SDK preserves as-is.
         var transXml = trans.OuterXml;
-        // Remove any existing transition from the slide's children (including AlternateContent wrappers for morph)
+        // Remove any existing transition from the slide's children (including AlternateContent wrappers)
         foreach (var existing in slide.ChildElements
             .Where(c => c.LocalName == "transition" || c.LocalName == "AlternateContent")
             .ToList())
@@ -209,6 +162,79 @@ public partial class PowerPointHandler
             csd.InsertAfterSelf(unknownTrans);
         else
             slide.AppendChild(unknownTrans);
+    }
+
+    /// <summary>
+    /// Insert a transition that requires mc:AlternateContent wrapper (morph, p14 transitions).
+    /// Structure: mc:AlternateContent > mc:Choice[Requires=nsPrefix] > p:transition > child
+    ///            mc:AlternateContent > mc:Fallback > p:transition > p:fade
+    /// </summary>
+    private static void InsertTransitionWithMcWrapper(
+        Slide slide, OpenXmlElement transChild, string nsPrefix, string nsUri,
+        TransitionSpeedValues? speed, string? durationMs)
+    {
+        var mcNs = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+        var pNs = "http://schemas.openxmlformats.org/presentationml/2006/main";
+
+        // mc:AlternateContent > mc:Choice[Requires=nsPrefix] > p:transition > transChild
+        var acElement = new OpenXmlUnknownElement("mc", "AlternateContent", mcNs);
+        var choiceElement = new OpenXmlUnknownElement("mc", "Choice", mcNs);
+        choiceElement.SetAttribute(new OpenXmlAttribute("", "Requires", null!, nsPrefix));
+
+        var choiceTrans = new OpenXmlUnknownElement("p", "transition", pNs);
+        choiceTrans.AddNamespaceDeclaration(nsPrefix, nsUri);
+        if (speed.HasValue)
+            choiceTrans.SetAttribute(new OpenXmlAttribute("", "spd", null!, ((IEnumValue)speed.Value).Value));
+        if (durationMs != null)
+            choiceTrans.SetAttribute(new OpenXmlAttribute("p14", "dur", "http://schemas.microsoft.com/office/powerpoint/2010/main", durationMs));
+        // Re-serialize the child element as unknown so SDK preserves it
+        var childUnknown = new OpenXmlUnknownElement(transChild.Prefix, transChild.LocalName, transChild.NamespaceUri);
+        childUnknown.InnerXml = transChild.InnerXml;
+        foreach (var attr in transChild.GetAttributes()) childUnknown.SetAttribute(attr);
+        choiceTrans.AppendChild(childUnknown);
+        choiceElement.AppendChild(choiceTrans);
+
+        // mc:Fallback > p:transition > p:fade (graceful degradation for older PPT)
+        var fallbackElement = new OpenXmlUnknownElement("mc", "Fallback", mcNs);
+        var fallbackTrans = new OpenXmlUnknownElement("p", "transition", pNs);
+        if (speed.HasValue)
+            fallbackTrans.SetAttribute(new OpenXmlAttribute("", "spd", null!, ((IEnumValue)speed.Value).Value));
+        fallbackTrans.AppendChild(new OpenXmlUnknownElement("p", "fade", pNs));
+        fallbackElement.AppendChild(fallbackTrans);
+
+        acElement.AppendChild(choiceElement);
+        acElement.AppendChild(fallbackElement);
+
+        // Remove existing transition or AlternateContent with transition
+        foreach (var existing in slide.ChildElements
+            .Where(c => c.LocalName == "transition" || c.LocalName == "AlternateContent")
+            .ToList())
+            existing.Remove();
+
+        // Insert after cSld (and after any existing clrMapOvr)
+        var insertAfter = slide.GetFirstChild<ColorMapOverride>() as OpenXmlElement
+            ?? slide.CommonSlideData as OpenXmlElement;
+        if (insertAfter != null)
+            insertAfter.InsertAfterSelf(acElement);
+        else
+            slide.AppendChild(acElement);
+
+        // Declare namespaces and mc:Ignorable on slide root
+        try { slide.AddNamespaceDeclaration(nsPrefix, nsUri); } catch { }
+        try { slide.AddNamespaceDeclaration("mc", mcNs); } catch { }
+        // p14:dur also needs p14 declared
+        if (nsPrefix != "p14")
+        {
+            try { slide.AddNamespaceDeclaration("p14", "http://schemas.microsoft.com/office/powerpoint/2010/main"); } catch { }
+        }
+        var ignorable = slide.MCAttributes?.Ignorable?.Value;
+        if (ignorable == null || !ignorable.Contains(nsPrefix))
+        {
+            slide.MCAttributes ??= new MarkupCompatibilityAttributes();
+            slide.MCAttributes.Ignorable = string.IsNullOrEmpty(ignorable) ? nsPrefix : $"{ignorable} {nsPrefix}";
+        }
+
+        slide.Save();
     }
 
     /// <summary>Remove transition from slide by rewriting the part XML.</summary>
@@ -267,6 +293,14 @@ public partial class PowerPointHandler
             "h" or "horiz" or "horizontal" => DirectionValues.Horizontal,
             "v" or "vert" or "vertical" => DirectionValues.Vertical,
             _ => throw new ArgumentException($"Invalid orientation: '{dir}'. Valid values: horizontal, vertical.")
+        };
+
+    private static DocumentFormat.OpenXml.Office2010.PowerPoint.TransitionLeftRightDirectionTypeValues ParseLeftRightDir(string dir) =>
+        dir.ToLowerInvariant() switch
+        {
+            "l" or "left" => DocumentFormat.OpenXml.Office2010.PowerPoint.TransitionLeftRightDirectionTypeValues.Left,
+            "r" or "right" => DocumentFormat.OpenXml.Office2010.PowerPoint.TransitionLeftRightDirectionTypeValues.Right,
+            _ => throw new ArgumentException($"Invalid left/right direction: '{dir}'. Valid values: left, right.")
         };
 
     private static TransitionCornerDirectionValues ParseCornerDir(string dir) =>
@@ -1194,8 +1228,8 @@ public partial class PowerPointHandler
         var attrs = typeMatch.Groups[1].Value;
         var inner = typeMatch.Groups[2].Value;
 
-        // Extract transition type from first child element: <p:fade/> → "fade"
-        var childMatch = System.Text.RegularExpressions.Regex.Match(inner, @"<p:(\w+)[\s/>]");
+        // Extract transition type from first child element: <p:fade/> or <p14:vortex/> → "fade" / "vortex"
+        var childMatch = System.Text.RegularExpressions.Regex.Match(inner, @"<(?:p|p14|p159):(\w+)[\s/>]");
         if (childMatch.Success)
         {
             var typeName = childMatch.Groups[1].Value.ToLowerInvariant();

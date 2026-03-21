@@ -142,10 +142,15 @@ internal static class UpdateChecker
                 CreateNoWindow = true,
                 Environment = { ["OFFICECLI_SKIP_UPDATE"] = "1" }
             });
-            var exited = verify?.WaitForExit(5000) ?? false;
-            if (!exited || verify!.ExitCode != 0)
+            if (verify == null)
             {
-                if (!exited) try { verify!.Kill(); } catch { }
+                try { File.Delete(tempPath); } catch { }
+                return;
+            }
+            var exited = verify.WaitForExit(5000);
+            if (!exited || verify.ExitCode != 0)
+            {
+                if (!exited) try { verify.Kill(); } catch { }
                 try { File.Delete(tempPath); } catch { }
                 return;
             }
@@ -318,7 +323,7 @@ internal static class UpdateChecker
             if (lp[i] > cp[i]) return true;
             if (lp[i] < cp[i]) return false;
         }
-        return false;
+        return lp.Length > cp.Length;
     }
 
     private static UpdateConfig LoadConfig()

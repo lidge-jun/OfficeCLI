@@ -137,7 +137,11 @@ public partial class WordHandler
     }
 
     private OpenXmlElement? NavigateToElement(List<PathSegment> segments)
+        => NavigateToElement(segments, out _);
+
+    private OpenXmlElement? NavigateToElement(List<PathSegment> segments, out string? availableContext)
     {
+        availableContext = null;
         if (segments.Count == 0) return null;
 
         var first = segments[0];
@@ -161,6 +165,8 @@ public partial class WordHandler
             "comments" => _doc.MainDocumentPart?.WordprocessingCommentsPart?.Comments,
             _ => null
         };
+
+        string parentPath = "/" + first.Name + (first.Index.HasValue ? $"[{first.Index}]" : "");
 
         for (int i = 1; i < segments.Count && current != null; i++)
         {
@@ -190,12 +196,42 @@ public partial class WordHandler
                 };
             }
 
-            current = seg.Index.HasValue
-                ? children.ElementAtOrDefault(seg.Index.Value - 1)
-                : children.FirstOrDefault();
+            var childList = children.ToList();
+            var next = seg.Index.HasValue
+                ? childList.ElementAtOrDefault(seg.Index.Value - 1)
+                : childList.FirstOrDefault();
+
+            if (next == null)
+            {
+                availableContext = BuildAvailableContext(current, parentPath, seg.Name, childList.Count);
+                return null;
+            }
+
+            parentPath += "/" + seg.Name + (seg.Index.HasValue ? $"[{seg.Index}]" : "");
+            current = next;
         }
 
         return current;
+    }
+
+    /// <summary>
+    /// Build a context string describing available children when navigation fails.
+    /// </summary>
+    private static string BuildAvailableContext(OpenXmlElement parent, string parentPath, string requestedType, int matchCount)
+    {
+        if (matchCount > 0)
+            return $"Available at {parentPath}: {requestedType}[1]..{requestedType}[{matchCount}]";
+
+        // List distinct child types at this level
+        var childTypes = parent.ChildElements
+            .GroupBy(c => c.LocalName)
+            .Select(g => $"{g.Key}({g.Count()})")
+            .Take(10)
+            .ToList();
+
+        return childTypes.Count > 0
+            ? $"No {requestedType} found at {parentPath}. Available children: {string.Join(", ", childTypes)}"
+            : $"No children at {parentPath}";
     }
 
     private DocumentNode ElementToNode(OpenXmlElement element, string path, int depth)

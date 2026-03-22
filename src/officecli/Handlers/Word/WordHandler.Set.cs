@@ -553,9 +553,9 @@ public partial class WordHandler
         }
 
         var parts = ParsePath(path);
-        var element = NavigateToElement(parts);
+        var element = NavigateToElement(parts, out var ctx);
         if (element == null)
-            throw new ArgumentException($"Path not found: {path}");
+            throw new ArgumentException($"Path not found: {path}" + (ctx != null ? $". {ctx}" : ""));
 
         // Clone element for rollback on failure (atomic: no partial modifications)
         var elementBackup = element.CloneNode(true);

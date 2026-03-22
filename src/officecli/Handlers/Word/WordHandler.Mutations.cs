@@ -26,8 +26,8 @@ public partial class WordHandler
         }
 
         var parts = ParsePath(path);
-        var element = NavigateToElement(parts)
-            ?? throw new ArgumentException($"Path not found: {path}");
+        var element = NavigateToElement(parts, out var ctx)
+            ?? throw new ArgumentException($"Path not found: {path}" + (ctx != null ? $". {ctx}" : ""));
 
         element.Remove();
         _doc.MainDocumentPart?.Document?.Save();

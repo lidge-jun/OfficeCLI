@@ -37,8 +37,8 @@ public partial class WordHandler
         else
         {
             var parts = ParsePath(parentPath);
-            parent = NavigateToElement(parts)
-                ?? throw new ArgumentException($"Path not found: {parentPath}");
+            parent = NavigateToElement(parts, out var ctx)
+                ?? throw new ArgumentException($"Path not found: {parentPath}" + (ctx != null ? $". {ctx}" : ""));
         }
 
         var resultPath = type.ToLowerInvariant() switch

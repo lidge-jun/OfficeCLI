@@ -352,7 +352,7 @@ static class CommandBuilder
             }
             else
             {
-                foreach (var w in warnings) { Console.WriteLine(w); Console.Error.WriteLine(w); }
+                foreach (var w in warnings) Console.Error.WriteLine(w);
                 Console.WriteLine(OutputFormatter.FormatNodes(results, OutputFormat.Text));
             }
         }, json); });
@@ -419,11 +419,7 @@ static class CommandBuilder
             {
                 Console.WriteLine(message);
                 if (unsupported.Count > 0)
-                {
-                    var warn = FormatUnsupported(unsupported);
-                    Console.WriteLine(warn);
-                    Console.Error.WriteLine(warn);
-                }
+                    Console.Error.WriteLine(FormatUnsupported(unsupported));
             }
             WatchNotifier.NotifyIfWatching(file.FullName, path);
         }, json); });
@@ -966,10 +962,7 @@ static class CommandBuilder
         }
         else
         {
-            // Write to both stdout and stderr so AI agents that only read stdout still see errors
-            var msg = $"Error: {ex.Message}";
-            Console.WriteLine(msg);
-            Console.Error.WriteLine(msg);
+            Console.Error.WriteLine($"Error: {ex.Message}");
         }
     }
 

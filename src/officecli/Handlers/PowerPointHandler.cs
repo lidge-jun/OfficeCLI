@@ -112,7 +112,7 @@ public partial class PowerPointHandler : IDocumentHandler
                 var segments = GenericXmlQuery.ParsePathSegments(rest);
                 var target = GenericXmlQuery.NavigateByPath(current, segments);
                 if (target != null) current = target;
-                else throw new ArgumentException($"Element not found: {path}");
+                else throw new ArgumentException($"Element not found: {path}. Resolved table[{tblIdx}] on slide[{slideIdx}] but sub-path '{rest}' does not exist. Available children: {DescribeChildren(current)}");
             }
             return (slidePart, current);
         }
@@ -136,12 +136,43 @@ public partial class PowerPointHandler : IDocumentHandler
                 var segments = GenericXmlQuery.ParsePathSegments(rest);
                 var target = GenericXmlQuery.NavigateByPath(current, segments);
                 if (target != null) current = target;
-                else throw new ArgumentException($"Element not found: {path}");
+                else throw new ArgumentException($"Element not found: {path}. Resolved placeholder[{phId}] on slide[{slideIdx}] but sub-path '{rest}' does not exist. Available children: {DescribeChildren(current)}");
             }
             return (slidePart, current);
         }
 
         return null;
+    }
+
+    /// <summary>Summarize child element types for error messages.</summary>
+    private static string DescribeChildren(OpenXmlElement parent)
+    {
+        var groups = parent.ChildElements
+            .GroupBy(e => e.LocalName)
+            .Select(g => g.Count() > 1 ? $"{g.Key}[1..{g.Count()}]" : g.Key)
+            .Take(10)
+            .ToList();
+        return groups.Count > 0 ? string.Join(", ", groups) : "(empty)";
+    }
+
+    /// <summary>Summarize slide contents for error messages (e.g. "3 shapes, 1 table, 2 pictures").</summary>
+    private static string DescribeSlideInventory(ShapeTree? shapeTree)
+    {
+        if (shapeTree == null) return "(empty slide)";
+        var parts = new List<string>();
+        var shapes = shapeTree.Elements<Shape>().Count();
+        var tables = shapeTree.Elements<GraphicFrame>().Count(gf => gf.Descendants<Drawing.Table>().Any());
+        var charts = shapeTree.Elements<GraphicFrame>().Count(gf => gf.Descendants<DocumentFormat.OpenXml.Drawing.Charts.ChartReference>().Any());
+        var pics = shapeTree.Elements<Picture>().Count();
+        var connectors = shapeTree.Elements<ConnectionShape>().Count();
+        var groups = shapeTree.Elements<GroupShape>().Count();
+        if (shapes > 0) parts.Add($"{shapes} shape(s)");
+        if (tables > 0) parts.Add($"{tables} table(s)");
+        if (charts > 0) parts.Add($"{charts} chart(s)");
+        if (pics > 0) parts.Add($"{pics} picture(s)");
+        if (connectors > 0) parts.Add($"{connectors} connector(s)");
+        if (groups > 0) parts.Add($"{groups} group(s)");
+        return parts.Count > 0 ? string.Join(", ", parts) : "(empty slide)";
     }
 
     private static PlaceholderValues? ParsePlaceholderType(string name)

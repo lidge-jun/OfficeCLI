@@ -198,7 +198,7 @@ viewCommand.Add(limitOpt);
 viewCommand.Add(colsOpt);
 viewCommand.Add(jsonOption);
 
-viewCommand.SetAction(result => SafeRun(() =>
+viewCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
 {
     var file = result.GetValue(viewFileArg)!;
     var mode = result.GetValue(viewModeArg)!;
@@ -208,7 +208,6 @@ viewCommand.SetAction(result => SafeRun(() =>
     var issueType = result.GetValue(issueTypeOpt);
     var limit = result.GetValue(limitOpt);
     var colsStr = result.GetValue(colsOpt);
-    var json = result.GetValue(jsonOption);
 
     // Try resident first
     if (TryResident(file.FullName, req =>
@@ -256,7 +255,12 @@ viewCommand.SetAction(result => SafeRun(() =>
         }
         else
         {
-            Console.Error.WriteLine("HTML preview is only supported for .pptx files.");
+            throw new OfficeCli.Core.CliException("HTML preview is only supported for .pptx files.")
+            {
+                Code = "unsupported_type",
+                Suggestion = "Use a .pptx file, or use mode 'text' or 'annotated' for other formats.",
+                ValidValues = ["text", "annotated", "outline", "stats", "issues"]
+            };
         }
         return;
     }
@@ -268,18 +272,26 @@ viewCommand.SetAction(result => SafeRun(() =>
         "outline" or "o" => handler.ViewAsOutline(),
         "stats" or "s" => handler.ViewAsStats(),
         "issues" or "i" => OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), format),
-        _ => throw new ArgumentException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html")
+        _ => throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html")
+        {
+            Code = "invalid_value",
+            ValidValues = ["text", "annotated", "outline", "stats", "issues", "html"]
+        }
     };
 
-    if (json && mode is not ("issues" or "i"))
+    if (json)
     {
-        Console.WriteLine(OutputFormatter.FormatView(mode, output, format));
+        if (mode is "issues" or "i")
+            Console.WriteLine(OutputFormatter.WrapEnvelope(output)); // already JSON
+        else
+            Console.WriteLine(OutputFormatter.WrapEnvelope(
+                OutputFormatter.FormatView(mode, output, OutputFormat.Json)));
     }
     else
     {
         Console.WriteLine(output);
     }
-}));
+}, json); });
 
 rootCommand.Add(viewCommand);
 
@@ -296,12 +308,11 @@ getCommand.Add(pathArg);
 getCommand.Add(depthOpt);
 getCommand.Add(jsonOption);
 
-getCommand.SetAction(result => SafeRun(() =>
+getCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
 {
     var file = result.GetValue(getFileArg)!;
     var path = result.GetValue(pathArg)!;
     var depth = result.GetValue(depthOpt);
-    var json = result.GetValue(jsonOption);
 
     if (TryResident(file.FullName, req =>
     {
@@ -311,12 +322,14 @@ getCommand.SetAction(result => SafeRun(() =>
         req.Args["depth"] = depth.ToString();
     })) return;
 
-    var format = json ? OutputFormat.Json : OutputFormat.Text;
-
     using var handler = DocumentHandlerFactory.Open(file.FullName);
     var node = handler.Get(path, depth);
-    Console.WriteLine(OutputFormatter.FormatNode(node, format));
-}));
+    if (json)
+        Console.WriteLine(OutputFormatter.WrapEnvelope(
+            OutputFormatter.FormatNode(node, OutputFormat.Json)));
+    else
+        Console.WriteLine(OutputFormatter.FormatNode(node, OutputFormat.Text));
+}, json); });
 
 rootCommand.Add(getCommand);
 
@@ -329,11 +342,10 @@ queryCommand.Add(queryFileArg);
 queryCommand.Add(selectorArg);
 queryCommand.Add(jsonOption);
 
-queryCommand.SetAction(result => SafeRun(() =>
+queryCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
 {
     var file = result.GetValue(queryFileArg)!;
     var selector = result.GetValue(selectorArg)!;
-    var json = result.GetValue(jsonOption);
 
     if (TryResident(file.FullName, req =>
     {
@@ -347,9 +359,19 @@ queryCommand.SetAction(result => SafeRun(() =>
     using var handler = DocumentHandlerFactory.Open(file.FullName);
     var filters = OfficeCli.Core.AttributeFilter.Parse(selector);
     var (results, warnings) = OfficeCli.Core.AttributeFilter.ApplyWithWarnings(handler.Query(selector), filters);
-    foreach (var w in warnings) Console.Error.WriteLine(w);
-    Console.WriteLine(OutputFormatter.FormatNodes(results, format));
-}));
+    if (json)
+    {
+        var cliWarnings = warnings.Select(w => new OfficeCli.Core.CliWarning { Message = w, Code = "filter_warning" }).ToList();
+        Console.WriteLine(OutputFormatter.WrapEnvelope(
+            OutputFormatter.FormatNodes(results, OutputFormat.Json),
+            cliWarnings.Count > 0 ? cliWarnings : null));
+    }
+    else
+    {
+        foreach (var w in warnings) Console.Error.WriteLine(w);
+        Console.WriteLine(OutputFormatter.FormatNodes(results, OutputFormat.Text));
+    }
+}, json); });
 
 rootCommand.Add(queryCommand);
 
@@ -362,8 +384,9 @@ var setCommand = new Command("set", "Modify a document node's properties");
 setCommand.Add(setFileArg);
 setCommand.Add(setPathArg);
 setCommand.Add(propsOpt);
+setCommand.Add(jsonOption);
 
-setCommand.SetAction(result => SafeRun(() =>
+setCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
 {
     var file = result.GetValue(setFileArg)!;
     var path = result.GetValue(setPathArg)!;
@@ -389,12 +412,33 @@ setCommand.SetAction(result => SafeRun(() =>
     using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
     var unsupported = handler.Set(path, properties);
     var applied = properties.Where(kv => !unsupported.Contains(kv.Key)).ToList();
-    if (applied.Count > 0)
-        Console.WriteLine($"Updated {path}: {string.Join(", ", applied.Select(kv => $"{kv.Key}={kv.Value}"))}");
-    if (unsupported.Count > 0)
-        Console.Error.WriteLine(FormatUnsupported(unsupported));
+    var message = applied.Count > 0
+        ? $"Updated {path}: {string.Join(", ", applied.Select(kv => $"{kv.Key}={kv.Value}"))}"
+        : $"No properties applied to {path}";
+    if (json)
+    {
+        var warnings = unsupported.Count > 0
+            ? unsupported.Select(p =>
+            {
+                var suggestion = SuggestProperty(p);
+                return new OfficeCli.Core.CliWarning
+                {
+                    Message = suggestion != null ? $"Unsupported property: {p} (did you mean: {suggestion}?)" : $"Unsupported property: {p}",
+                    Code = "unsupported_property",
+                    Suggestion = suggestion
+                };
+            }).ToList()
+            : null;
+        Console.WriteLine(OutputFormatter.WrapEnvelopeText(message, warnings));
+    }
+    else
+    {
+        Console.WriteLine(message);
+        if (unsupported.Count > 0)
+            Console.Error.WriteLine(FormatUnsupported(unsupported));
+    }
     WatchNotifier.NotifyIfWatching(file.FullName, path);
-}));
+}, json); });
 
 rootCommand.Add(setCommand);
 
@@ -413,8 +457,9 @@ addCommand.Add(addTypeOpt);
 addCommand.Add(addFromOpt);
 addCommand.Add(addIndexOpt);
 addCommand.Add(addPropsOpt);
+addCommand.Add(jsonOption);
 
-addCommand.SetAction(result => SafeRun(() =>
+addCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
 {
     var file = result.GetValue(addFileArg)!;
     var parentPath = result.GetValue(addParentPathArg)!;
@@ -425,8 +470,12 @@ addCommand.SetAction(result => SafeRun(() =>
 
     if (string.IsNullOrEmpty(type) && string.IsNullOrEmpty(from))
     {
-        Console.Error.WriteLine("Error: Either --type or --from must be specified.");
-        return;
+        throw new OfficeCli.Core.CliException("Either --type or --from must be specified.")
+        {
+            Code = "missing_argument",
+            Suggestion = "Use --type to specify element type, or --from to copy an existing element.",
+            Help = "officecli add <file> <parent> --type <type> --prop key=value"
+        };
     }
 
     if (!string.IsNullOrEmpty(from))
@@ -442,7 +491,9 @@ addCommand.SetAction(result => SafeRun(() =>
 
         using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
         var resultPath = handler.CopyFrom(from, parentPath, index);
-        Console.WriteLine($"Copied to {resultPath}");
+        var message = $"Copied to {resultPath}";
+        if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message));
+        else Console.WriteLine(message);
         WatchNotifier.NotifyIfWatching(file.FullName, parentPath);
     }
     else
@@ -468,10 +519,12 @@ addCommand.SetAction(result => SafeRun(() =>
 
         using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
         var resultPath = handler.Add(parentPath, type!, index, properties);
-        Console.WriteLine($"Added {type} at {resultPath}");
+        var message = $"Added {type} at {resultPath}";
+        if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message));
+        else Console.WriteLine(message);
         WatchNotifier.NotifyIfWatching(file.FullName, parentPath);
     }
-}));
+}, json); });
 
 rootCommand.Add(addCommand);
 
@@ -693,12 +746,11 @@ batchCommand.Add(batchInputOpt);
 batchCommand.Add(batchStopOnErrorOpt);
 batchCommand.Add(jsonOption);
 
-batchCommand.SetAction(result => SafeRun(() =>
+batchCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
 {
     var file = result.GetValue(batchFileArg)!;
     var inputFile = result.GetValue(batchInputOpt);
     var stopOnError = result.GetValue(batchStopOnErrorOpt);
-    var json = result.GetValue(jsonOption);
 
     string jsonText;
     if (inputFile != null)
@@ -765,7 +817,7 @@ batchCommand.SetAction(result => SafeRun(() =>
     PrintBatchResults(batchResults, json);
     if (batchResults.Any(r => !r.Success))
         throw new InvalidOperationException($"Batch completed with {batchResults.Count(r => !r.Success)} error(s)");
-}));
+}, json); });
 
 rootCommand.Add(batchCommand);
 
@@ -835,7 +887,7 @@ static bool TryResident(string filePath, Action<ResidentRequest> configure)
     return true;
 }
 
-static int SafeRun(Action action)
+static int SafeRun(Action action, bool json = false)
 {
     if (!OfficeCli.Core.CliLogger.Enabled)
     {
@@ -846,7 +898,7 @@ static int SafeRun(Action action)
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            WriteError(ex, json);
             return 1;
         }
     }
@@ -867,7 +919,7 @@ static int SafeRun(Action action)
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine($"Error: {ex.Message}");
+        WriteError(ex, json);
         var stderr = stderrWriter.ToString().TrimEnd('\r', '\n');
         OfficeCli.Core.CliLogger.LogError(stderr);
         return 1;
@@ -876,6 +928,20 @@ static int SafeRun(Action action)
     {
         Console.SetOut(origOut);
         Console.SetError(origErr);
+    }
+}
+
+static void WriteError(Exception ex, bool json)
+{
+    if (json)
+    {
+        // JSON mode: structured error envelope to stdout so AI agents get it in the same stream
+        WarningContext.End(); // discard any partial warnings
+        Console.WriteLine(OutputFormatter.WrapErrorEnvelope(ex));
+    }
+    else
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
     }
 }
 

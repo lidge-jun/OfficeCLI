@@ -1850,7 +1850,7 @@ public partial class PowerPointHandler
     {
         var slideMatch = Regex.Match(path, @"^/slide\[(\d+)\](?:/(\w+)\[(\d+)\])?$");
         if (!slideMatch.Success)
-            throw new ArgumentException($"Invalid path: {path}");
+            throw new ArgumentException($"Invalid path: {path}. Expected format: /slide[N] or /slide[N]/element[M] (e.g. /slide[1], /slide[1]/shape[2])");
 
         var slideIdx = int.Parse(slideMatch.Groups[1].Value);
 

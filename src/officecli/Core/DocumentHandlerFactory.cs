@@ -10,7 +10,12 @@ public static class DocumentHandlerFactory
     public static IDocumentHandler Open(string filePath, bool editable = false)
     {
         if (!File.Exists(filePath))
-            throw new FileNotFoundException($"File not found: {filePath}");
+            throw new CliException($"File not found: {filePath}")
+            {
+                Code = "file_not_found",
+                Suggestion = "Check the file path. Use an absolute path or a path relative to the current directory.",
+                Help = "officecli create <path> --type docx|xlsx|pptx"
+            };
 
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         try
@@ -20,7 +25,11 @@ public static class DocumentHandlerFactory
                 ".docx" => new WordHandler(filePath, editable),
                 ".xlsx" => new ExcelHandler(filePath, editable),
                 ".pptx" => new PowerPointHandler(filePath, editable),
-                _ => throw new NotSupportedException($"Unsupported file type: {ext}. Supported: .docx, .xlsx, .pptx")
+                _ => throw new CliException($"Unsupported file type: {ext}. Supported: .docx, .xlsx, .pptx")
+                {
+                    Code = "unsupported_type",
+                    ValidValues = [".docx", ".xlsx", ".pptx"]
+                }
             };
         }
         catch (DocumentFormat.OpenXml.Packaging.OpenXmlPackageException ex)

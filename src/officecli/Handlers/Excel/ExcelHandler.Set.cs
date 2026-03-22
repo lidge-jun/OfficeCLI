@@ -125,7 +125,7 @@ public partial class ExcelHandler
                             "time" => DataValidationValues.Time,
                             "textlength" => DataValidationValues.TextLength,
                             "custom" => DataValidationValues.Custom,
-                            _ => throw new ArgumentException($"Unknown validation type: {value}")
+                            _ => throw new ArgumentException($"Unknown validation type: '{value}'. Valid types: list, whole, decimal, date, time, textLength, custom.")
                         };
                         break;
                     case "formula1":

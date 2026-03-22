@@ -145,7 +145,7 @@ public partial class PowerPointHandler
                 return unsupported;
             }
 
-            throw new ArgumentException($"Unsupported element type: {elType}");
+            throw new ArgumentException($"Unsupported element type: '{elType}' for master/layout. Valid types: shape.");
         }
 
         // Try notes path: /slide[N]/notes

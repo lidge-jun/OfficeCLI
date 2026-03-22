@@ -541,7 +541,7 @@ public partial class PowerPointHandler
             var shapes2 = shapeTreeEl.ChildElements
                 .Where(e => e.LocalName.Equals(elementType, StringComparison.OrdinalIgnoreCase)).ToList();
             if (elementIdx < 1 || elementIdx > shapes2.Count)
-                throw new ArgumentException($"{elementType} {elementIdx} not found (total: {shapes2.Count})");
+                throw new ArgumentException($"{elementType} {elementIdx} not found (total: {shapes2.Count}). Slide {slideIdx} contains: {DescribeSlideInventory(shapeTreeEl)}");
             return GenericXmlQuery.ElementToNode(shapes2[elementIdx - 1], path, depth);
         }
     }

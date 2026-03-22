@@ -195,9 +195,10 @@ public class ResidentServer : IDisposable
 
     private string ProcessRequest(string requestLine)
     {
+        ResidentRequest? request = null;
         try
         {
-            var request = System.Text.Json.JsonSerializer.Deserialize<ResidentRequest>(requestLine, ResidentJsonContext.Default.ResidentRequest);
+            request = System.Text.Json.JsonSerializer.Deserialize<ResidentRequest>(requestLine, ResidentJsonContext.Default.ResidentRequest);
             if (request == null)
                 return MakeResponse(1, "", "Invalid request");
 
@@ -223,6 +224,9 @@ public class ResidentServer : IDisposable
         }
         catch (Exception ex)
         {
+            // When JSON mode is active, return structured error in stdout for AI agents
+            if (request?.Json == true)
+                return MakeResponse(1, OutputFormatter.FormatError(ex), "");
             return MakeResponse(1, "", ex.Message);
         }
     }

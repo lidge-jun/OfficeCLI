@@ -23,17 +23,43 @@ public static class AttributeFilter
         @"\[([\w.]+)\s*(~=|>=|<=|\\?!=|=)\s*([^\]]*)\]",
         RegexOptions.Compiled);
 
+    // Regex to find any [...] block (for validation)
+    private static readonly Regex BracketBlockRegex = new(
+        @"\[([^\]]*)\]",
+        RegexOptions.Compiled);
+
     /// <summary>
     /// Parse all [key op value] conditions from a selector string.
+    /// Throws CliException for malformed selectors.
     /// </summary>
     public static List<Condition> Parse(string selector)
     {
+        // Check for unclosed brackets
+        var openCount = selector.Count(c => c == '[');
+        var closeCount = selector.Count(c => c == ']');
+        if (openCount != closeCount)
+            throw new CliException($"Malformed selector: unclosed bracket in \"{selector}\"")
+            {
+                Code = "invalid_selector",
+                Suggestion = "Ensure every '[' has a matching ']'. Example: paragraph[style=Heading 1]"
+            };
+
         var conditions = new List<Condition>();
+        var matchedSpans = new HashSet<(int Start, int End)>();
+
         foreach (Match m in AttrRegex.Matches(selector))
         {
             var key = m.Groups[1].Value;
             var opStr = m.Groups[2].Value.Replace("\\", "");
             var val = m.Groups[3].Value.Trim('\'', '"');
+
+            // Detect corrupted values from mis-parsed operators (e.g. === parsed as = with value ==X)
+            if (val.StartsWith("=") || val.StartsWith("~") || val.StartsWith("!"))
+                throw new CliException($"Malformed selector: invalid operator in \"[{m.Groups[0].Value.Trim('[', ']')}]\". Supported operators: =, !=, ~=, >=, <=")
+                {
+                    Code = "invalid_selector",
+                    Suggestion = $"Did you mean [{key}={val.TrimStart('=', '~', '!')}]?"
+                };
 
             var op = opStr switch
             {
@@ -45,7 +71,30 @@ public static class AttributeFilter
             };
 
             conditions.Add(new Condition(key, op, val));
+            matchedSpans.Add((m.Index, m.Index + m.Length));
         }
+
+        // Find [...] blocks that weren't matched by the attribute regex
+        foreach (Match block in BracketBlockRegex.Matches(selector))
+        {
+            if (matchedSpans.Any(s => s.Start == block.Index)) continue;
+            var content = block.Groups[1].Value;
+            if (string.IsNullOrWhiteSpace(content))
+                throw new CliException($"Malformed selector: empty brackets \"[]\" in \"{selector}\"")
+                {
+                    Code = "invalid_selector",
+                    Suggestion = "Use [key=value] syntax. Example: paragraph[style=Heading 1]"
+                };
+            // Could be an index like [1] — that's valid path syntax, skip it
+            if (int.TryParse(content, out _)) continue;
+            // Unrecognized bracket content
+            throw new CliException($"Malformed selector: cannot parse \"[{content}]\". Expected [key=value] with operator =, !=, ~=, >=, or <=")
+            {
+                Code = "invalid_selector",
+                Suggestion = "Example: paragraph[style=Heading 1], shape[fill!=#FF0000], run[size>=24pt]"
+            };
+        }
+
         return conditions;
     }
 

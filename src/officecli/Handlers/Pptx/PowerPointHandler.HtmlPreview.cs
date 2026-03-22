@@ -1314,7 +1314,7 @@ public partial class PowerPointHandler
             sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy}\" x2=\"{ox}\" y2=\"{oy + ph}\" stroke=\"#555\" stroke-width=\"1\"/>");
             sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy + ph}\" x2=\"{ox + pw}\" y2=\"{oy + ph}\" stroke=\"#555\" stroke-width=\"1\"/>");
 
-            // Bars
+            // Bars + value labels
             for (int c = 0; c < catCount; c++)
             {
                 double stackY = 0;
@@ -1327,6 +1327,12 @@ public partial class PowerPointHandler
                         var bx = ox + c * groupW + gap;
                         var by = oy + ph - (stackY / maxVal) * ph - barH;
                         sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                        // Value label inside stacked segment
+                        if (barH > 12)
+                        {
+                            var vlabel = val % 1 == 0 ? $"{(int)val}" : $"{val:0.#}";
+                            sb.AppendLine($"        <text x=\"{bx + barW / 2:0.#}\" y=\"{by + barH / 2:0.#}\" fill=\"white\" font-size=\"7\" text-anchor=\"middle\" dominant-baseline=\"middle\">{vlabel}</text>");
+                        }
                         stackY += val;
                     }
                     else
@@ -1334,6 +1340,9 @@ public partial class PowerPointHandler
                         var bx = ox + c * groupW + gap + s * barW;
                         var by = oy + ph - barH;
                         sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                        // Value label above bar
+                        var vlabel = val % 1 == 0 ? $"{(int)val}" : $"{val:0.#}";
+                        sb.AppendLine($"        <text x=\"{bx + barW / 2:0.#}\" y=\"{by - 3:0.#}\" fill=\"#aaa\" font-size=\"7\" text-anchor=\"middle\">{vlabel}</text>");
                     }
                 }
             }
@@ -1389,11 +1398,14 @@ public partial class PowerPointHandler
             if (points.Count > 0)
             {
                 sb.AppendLine($"        <polyline points=\"{string.Join(" ", points)}\" fill=\"none\" stroke=\"{colors[s]}\" stroke-width=\"2\"/>");
-                // Dots
-                foreach (var pt in points)
+                // Dots + value labels
+                for (int p = 0; p < points.Count; p++)
                 {
-                    var parts = pt.Split(',');
+                    var parts = points[p].Split(',');
                     sb.AppendLine($"        <circle cx=\"{parts[0]}\" cy=\"{parts[1]}\" r=\"3\" fill=\"{colors[s]}\"/>");
+                    var val = series[s].values[p];
+                    var vlabel = val % 1 == 0 ? $"{(int)val}" : $"{val:0.#}";
+                    sb.AppendLine($"        <text x=\"{parts[0]}\" y=\"{double.Parse(parts[1]) - 6:0.#}\" fill=\"#aaa\" font-size=\"7\" text-anchor=\"middle\">{vlabel}</text>");
                 }
             }
         }
@@ -1423,7 +1435,7 @@ public partial class PowerPointHandler
         var startAngle = -Math.PI / 2;
 
         // Render all slices first
-        var labels = new List<(double x, double y, string text)>();
+        var labels = new List<(double x, double y, string text, string anchor, string fill)>();
         for (int i = 0; i < values.Length; i++)
         {
             var sliceAngle = 2 * Math.PI * values[i] / total;
@@ -1457,21 +1469,31 @@ public partial class PowerPointHandler
                 sb.AppendLine($"        <path d=\"M {cx:0.#},{cy:0.#} L {x1:0.#},{y1:0.#} A {r:0.#},{r:0.#} 0 {largeArc},1 {x2:0.#},{y2:0.#} Z\" fill=\"{color}\" opacity=\"0.85\"/>");
             }
 
-            // Collect label for rendering after all slices
+            // Collect label — small slices get labels outside, large slices inside
             var midAngle = startAngle + sliceAngle / 2;
-            var labelR = holeRatio > 0 ? (r + innerR) / 2 : r * 0.6;
-            var lx = cx + labelR * Math.Cos(midAngle);
-            var ly = cy + labelR * Math.Sin(midAngle);
             var label = i < categories.Length ? categories[i] : "";
             if (!string.IsNullOrEmpty(label))
-                labels.Add((lx, ly, label));
+            {
+                var slicePct = values[i] / total;
+                bool outside = slicePct < 0.08; // < 8% of total → label outside
+                double labelR;
+                if (holeRatio > 0)
+                    labelR = outside ? r + 12 : (r + innerR) / 2;
+                else
+                    labelR = outside ? r + 12 : r * 0.55;
+                var lx = cx + labelR * Math.Cos(midAngle);
+                var ly = cy + labelR * Math.Sin(midAngle);
+                var anchor = outside ? (Math.Cos(midAngle) >= 0 ? "start" : "end") : "middle";
+                var fill = outside ? "#ccc" : "white";
+                labels.Add((lx, ly, label, anchor, fill));
+            }
 
             startAngle = endAngle;
         }
 
         // Render labels on top of all slices
-        foreach (var (lx, ly, label) in labels)
-            sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{ly:0.#}\" fill=\"white\" font-size=\"9\" font-weight=\"bold\" text-anchor=\"middle\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
+        foreach (var (lx, ly, label, anchor, fill) in labels)
+            sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{ly:0.#}\" fill=\"{fill}\" font-size=\"9\" font-weight=\"bold\" text-anchor=\"{anchor}\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
     }
 
     private static void RenderAreaChartSvg(StringBuilder sb, List<(string name, double[] values)> series,

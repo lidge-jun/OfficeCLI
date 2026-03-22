@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text;
+using System.Text.Json.Nodes;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
@@ -214,6 +215,132 @@ public partial class PowerPointHandler
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    public JsonNode ViewAsStatsJson()
+    {
+        var slideParts = GetSlideParts().ToList();
+
+        int totalShapes = 0, totalPictures = 0, totalTextBoxes = 0;
+        int slidesWithoutTitle = 0, picturesWithoutAlt = 0;
+        var fontCounts = new Dictionary<string, int>();
+
+        foreach (var slidePart in slideParts)
+        {
+            var shapeTree = GetSlide(slidePart).CommonSlideData?.ShapeTree;
+            if (shapeTree == null) continue;
+
+            var shapes = shapeTree.Elements<Shape>().ToList();
+            var pictures = shapeTree.Elements<Picture>().ToList();
+            totalShapes += shapes.Count;
+            totalPictures += pictures.Count;
+            totalTextBoxes += shapes.Count(s => !IsTitle(s));
+
+            if (!shapes.Any(IsTitle)) slidesWithoutTitle++;
+            picturesWithoutAlt += pictures.Count(p =>
+                string.IsNullOrEmpty(p.NonVisualPictureProperties?.NonVisualDrawingProperties?.Description?.Value));
+
+            foreach (var shape in shapes)
+                foreach (var run in shape.Descendants<Drawing.Run>())
+                {
+                    var font = run.RunProperties?.GetFirstChild<Drawing.LatinFont>()?.Typeface
+                        ?? run.RunProperties?.GetFirstChild<Drawing.EastAsianFont>()?.Typeface;
+                    if (font != null)
+                        fontCounts[font!] = fontCounts.GetValueOrDefault(font!) + 1;
+                }
+        }
+
+        var result = new JsonObject
+        {
+            ["slides"] = slideParts.Count,
+            ["totalShapes"] = totalShapes,
+            ["textBoxes"] = totalTextBoxes,
+            ["pictures"] = totalPictures,
+            ["slidesWithoutTitle"] = slidesWithoutTitle,
+            ["picturesWithoutAlt"] = picturesWithoutAlt
+        };
+
+        if (fontCounts.Count > 0)
+        {
+            var fonts = new JsonObject();
+            foreach (var (font, count) in fontCounts.OrderByDescending(kv => kv.Value))
+                fonts[font] = count;
+            result["fontUsage"] = fonts;
+        }
+
+        return result;
+    }
+
+    public JsonNode ViewAsOutlineJson()
+    {
+        var slideParts = GetSlideParts().ToList();
+        var slidesArray = new JsonArray();
+
+        int slideNum = 0;
+        foreach (var slidePart in slideParts)
+        {
+            slideNum++;
+            var shapes = GetSlide(slidePart).CommonSlideData?.ShapeTree?.Elements<Shape>() ?? Enumerable.Empty<Shape>();
+            var title = shapes.Where(IsTitle).Select(GetShapeText).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+            int textBoxes = shapes.Count(s => !IsTitle(s) && !string.IsNullOrWhiteSpace(GetShapeText(s)));
+            int pictures = GetSlide(slidePart).CommonSlideData?.ShapeTree?.Elements<Picture>().Count() ?? 0;
+
+            var slide = new JsonObject
+            {
+                ["index"] = slideNum,
+                ["title"] = title,
+                ["textBoxes"] = textBoxes,
+                ["pictures"] = pictures
+            };
+            slidesArray.Add((JsonNode)slide);
+        }
+
+        return new JsonObject
+        {
+            ["fileName"] = Path.GetFileName(_filePath),
+            ["totalSlides"] = slideParts.Count,
+            ["slides"] = slidesArray
+        };
+    }
+
+    public JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null)
+    {
+        var slidesArray = new JsonArray();
+        int slideNum = 0;
+        int totalSlides = GetSlideParts().Count();
+
+        foreach (var slidePart in GetSlideParts())
+        {
+            slideNum++;
+            if (startLine.HasValue && slideNum < startLine.Value) continue;
+            if (endLine.HasValue && slideNum > endLine.Value) break;
+
+            if (maxLines.HasValue && slidesArray.Count >= maxLines.Value)
+                break;
+
+            var textsArray = new JsonArray();
+            var shapes = GetSlide(slidePart).CommonSlideData?.ShapeTree?.Elements<Shape>() ?? Enumerable.Empty<Shape>();
+            foreach (var shape in shapes)
+            {
+                var text = GetShapeText(shape);
+                if (!string.IsNullOrWhiteSpace(text))
+                    textsArray.Add((JsonNode)text);
+            }
+
+            var slide = new JsonObject
+            {
+                ["index"] = slideNum,
+                ["path"] = $"/slide[{slideNum}]",
+                ["texts"] = textsArray
+            };
+            slidesArray.Add((JsonNode)slide);
+        }
+
+        return new JsonObject
+        {
+            ["totalSlides"] = totalSlides,
+            ["slides"] = slidesArray
+        };
     }
 
     public List<DocumentIssue> ViewAsIssues(string? issueType = null, int? limit = null)

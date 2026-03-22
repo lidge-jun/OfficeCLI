@@ -358,20 +358,35 @@ public class ResidentServer : IDisposable
             return;
         }
 
-        var output = mode!.ToLowerInvariant() switch
+        if (req.Json)
         {
-            "text" or "t" => _handler.ViewAsText(start, end, maxLines, cols),
-            "annotated" or "a" => _handler.ViewAsAnnotated(start, end, maxLines, cols),
-            "outline" or "o" => _handler.ViewAsOutline(),
-            "stats" or "s" => _handler.ViewAsStats(),
-            "issues" or "i" => OutputFormatter.FormatIssues(_handler.ViewAsIssues(issueType, limit), format),
-            _ => $"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html"
-        };
-
-        if (req.Json && mode is not ("issues" or "i"))
-            Console.WriteLine(OutputFormatter.FormatView(mode, output, format));
+            var modeKey = mode!.ToLowerInvariant();
+            if (modeKey is "stats" or "s")
+                Console.WriteLine(_handler.ViewAsStatsJson().ToJsonString(OutputFormatter.PublicJsonOptions));
+            else if (modeKey is "outline" or "o")
+                Console.WriteLine(_handler.ViewAsOutlineJson().ToJsonString(OutputFormatter.PublicJsonOptions));
+            else if (modeKey is "text" or "t")
+                Console.WriteLine(_handler.ViewAsTextJson(start, end, maxLines, cols).ToJsonString(OutputFormatter.PublicJsonOptions));
+            else if (modeKey is "annotated" or "a")
+                Console.WriteLine(OutputFormatter.FormatView(mode, _handler.ViewAsAnnotated(start, end, maxLines, cols), format));
+            else if (modeKey is "issues" or "i")
+                Console.WriteLine(OutputFormatter.FormatIssues(_handler.ViewAsIssues(issueType, limit), format));
+            else
+                Console.WriteLine($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html");
+        }
         else
+        {
+            var output = mode!.ToLowerInvariant() switch
+            {
+                "text" or "t" => _handler.ViewAsText(start, end, maxLines, cols),
+                "annotated" or "a" => _handler.ViewAsAnnotated(start, end, maxLines, cols),
+                "outline" or "o" => _handler.ViewAsOutline(),
+                "stats" or "s" => _handler.ViewAsStats(),
+                "issues" or "i" => OutputFormatter.FormatIssues(_handler.ViewAsIssues(issueType, limit), format),
+                _ => $"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html"
+            };
             Console.WriteLine(output);
+        }
     }
 
     private void ExecuteGet(ResidentRequest req, OutputFormat format)

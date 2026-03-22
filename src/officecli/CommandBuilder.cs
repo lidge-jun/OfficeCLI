@@ -249,30 +249,44 @@ static class CommandBuilder
                 return;
             }
 
-            var output = mode.ToLowerInvariant() switch
-            {
-                "text" or "t" => handler.ViewAsText(start, end, maxLines, cols),
-                "annotated" or "a" => handler.ViewAsAnnotated(start, end, maxLines, cols),
-                "outline" or "o" => handler.ViewAsOutline(),
-                "stats" or "s" => handler.ViewAsStats(),
-                "issues" or "i" => OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), format),
-                _ => throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html")
-                {
-                    Code = "invalid_value",
-                    ValidValues = ["text", "annotated", "outline", "stats", "issues", "html"]
-                }
-            };
-
             if (json)
             {
-                if (mode is "issues" or "i")
-                    Console.WriteLine(OutputFormatter.WrapEnvelope(output)); // already JSON
-                else
+                // Structured JSON output — no Content string wrapping
+                var modeKey = mode.ToLowerInvariant();
+                if (modeKey is "stats" or "s")
+                    Console.WriteLine(OutputFormatter.WrapEnvelope(handler.ViewAsStatsJson().ToJsonString(OutputFormatter.PublicJsonOptions)));
+                else if (modeKey is "outline" or "o")
+                    Console.WriteLine(OutputFormatter.WrapEnvelope(handler.ViewAsOutlineJson().ToJsonString(OutputFormatter.PublicJsonOptions)));
+                else if (modeKey is "text" or "t")
+                    Console.WriteLine(OutputFormatter.WrapEnvelope(handler.ViewAsTextJson(start, end, maxLines, cols).ToJsonString(OutputFormatter.PublicJsonOptions)));
+                else if (modeKey is "annotated" or "a")
                     Console.WriteLine(OutputFormatter.WrapEnvelope(
-                        OutputFormatter.FormatView(mode, output, OutputFormat.Json)));
+                        OutputFormatter.FormatView(mode, handler.ViewAsAnnotated(start, end, maxLines, cols), OutputFormat.Json)));
+                else if (modeKey is "issues" or "i")
+                    Console.WriteLine(OutputFormatter.WrapEnvelope(
+                        OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), OutputFormat.Json)));
+                else
+                    throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html")
+                    {
+                        Code = "invalid_value",
+                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html"]
+                    };
             }
             else
             {
+                var output = mode.ToLowerInvariant() switch
+                {
+                    "text" or "t" => handler.ViewAsText(start, end, maxLines, cols),
+                    "annotated" or "a" => handler.ViewAsAnnotated(start, end, maxLines, cols),
+                    "outline" or "o" => handler.ViewAsOutline(),
+                    "stats" or "s" => handler.ViewAsStats(),
+                    "issues" or "i" => OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), OutputFormat.Text),
+                    _ => throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html")
+                    {
+                        Code = "invalid_value",
+                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html"]
+                    }
+                };
                 Console.WriteLine(output);
             }
         }, json); });

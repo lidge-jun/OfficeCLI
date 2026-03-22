@@ -98,6 +98,13 @@ internal partial class AppJsonContext : JsonSerializerContext;
 
 public static class OutputFormatter
 {
+    public static readonly JsonSerializerOptions PublicJsonOptions = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,

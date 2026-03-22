@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text;
+using System.Text.Json.Nodes;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
 using OfficeCli.Core;
@@ -359,6 +360,211 @@ public partial class WordHandler
         sb.AppendLine($"Consecutive Spaces: {doubleSpaces}");
 
         return sb.ToString().TrimEnd();
+    }
+
+    public JsonNode ViewAsStatsJson()
+    {
+        var body = _doc.MainDocumentPart?.Document?.Body;
+        if (body == null) return new JsonObject();
+
+        var paragraphs = GetBodyElements(body).OfType<Paragraph>().ToList();
+        var styleCounts = new Dictionary<string, int>();
+        var fontCounts = new Dictionary<string, int>();
+        var sizeCounts = new Dictionary<string, int>();
+        int emptyParagraphs = 0, doubleSpaces = 0, totalChars = 0;
+
+        foreach (var para in paragraphs)
+        {
+            var style = GetStyleName(para);
+            styleCounts[style] = styleCounts.GetValueOrDefault(style) + 1;
+
+            var runs = GetAllRuns(para);
+            if (runs.Count == 0 && string.IsNullOrWhiteSpace(GetParagraphText(para)))
+            {
+                emptyParagraphs++;
+                continue;
+            }
+
+            foreach (var run in runs)
+            {
+                var text = GetRunText(run);
+                totalChars += text.Length;
+                if (text.Contains("  ")) doubleSpaces++;
+
+                var resolved = ResolveEffectiveRunProperties(run, para);
+                var font = GetFontFromProperties(resolved) ?? "(default)";
+                fontCounts[font] = fontCounts.GetValueOrDefault(font) + 1;
+                var size = GetSizeFromProperties(resolved) ?? "(default)";
+                sizeCounts[size] = sizeCounts.GetValueOrDefault(size) + 1;
+            }
+        }
+
+        var result = new JsonObject
+        {
+            ["paragraphs"] = paragraphs.Count,
+            ["totalCharacters"] = totalChars,
+            ["emptyParagraphs"] = emptyParagraphs,
+            ["consecutiveSpaces"] = doubleSpaces
+        };
+
+        var styles = new JsonObject();
+        foreach (var (style, count) in styleCounts.OrderByDescending(kv => kv.Value))
+            styles[style] = count;
+        result["styleDistribution"] = styles;
+
+        var fonts = new JsonObject();
+        foreach (var (font, count) in fontCounts.OrderByDescending(kv => kv.Value))
+            fonts[font] = count;
+        result["fontUsage"] = fonts;
+
+        var sizes = new JsonObject();
+        foreach (var (size, count) in sizeCounts.OrderByDescending(kv => kv.Value))
+            sizes[size] = count;
+        result["fontSizeUsage"] = sizes;
+
+        return result;
+    }
+
+    public JsonNode ViewAsOutlineJson()
+    {
+        var body = _doc.MainDocumentPart?.Document?.Body;
+        if (body == null) return new JsonObject();
+
+        var paragraphs = GetBodyElements(body).OfType<Paragraph>().ToList();
+        var tables = GetBodyElements(body).OfType<Table>().ToList();
+        var imageCount = body.Descendants<Drawing>().Count();
+        var equationCount = body.Descendants().Count(e => e.LocalName == "oMathPara" || e is M.Paragraph);
+
+        var result = new JsonObject
+        {
+            ["fileName"] = Path.GetFileName(_filePath),
+            ["paragraphs"] = paragraphs.Count,
+            ["tables"] = tables.Count,
+            ["images"] = imageCount,
+            ["equations"] = equationCount
+        };
+
+        var watermark = FindWatermark();
+        if (watermark != null) result["watermark"] = watermark;
+
+        var headers = GetHeaderTexts();
+        if (headers.Count > 0) result["headers"] = new JsonArray(headers.Select(h => (JsonNode)JsonValue.Create(h)!).ToArray());
+
+        var footers = GetFooterTexts();
+        if (footers.Count > 0) result["footers"] = new JsonArray(footers.Select(f => (JsonNode)JsonValue.Create(f)!).ToArray());
+
+        var headingsArray = new JsonArray();
+        int lineNum = 0;
+        foreach (var para in paragraphs)
+        {
+            lineNum++;
+            var styleName = GetStyleName(para);
+            var text = GetParagraphText(para);
+
+            if (styleName.Contains("Heading") || styleName.Contains("标题")
+                || styleName.StartsWith("heading", StringComparison.OrdinalIgnoreCase)
+                || styleName == "Title" || styleName == "Subtitle")
+            {
+                headingsArray.Add((JsonNode)new JsonObject
+                {
+                    ["line"] = lineNum,
+                    ["text"] = text,
+                    ["style"] = styleName,
+                    ["level"] = GetHeadingLevel(styleName)
+                });
+            }
+        }
+        result["headings"] = headingsArray;
+
+        return result;
+    }
+
+    public JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null)
+    {
+        var body = _doc.MainDocumentPart?.Document?.Body;
+        if (body == null) return new JsonObject { ["elements"] = new JsonArray() };
+
+        var elementsArray = new JsonArray();
+        int lineNum = 0;
+        int pIdx = 0, tblIdx = 0, eqIdx = 0;
+        int emitted = 0;
+        var bodyElements = GetBodyElements(body).ToList();
+
+        foreach (var element in bodyElements)
+        {
+            lineNum++;
+            string path;
+            string type;
+
+            if (element.LocalName == "oMathPara" || element is M.Paragraph)
+            {
+                eqIdx++;
+                path = $"/body/oMathPara[{eqIdx}]";
+                type = "equation";
+            }
+            else if (element is Paragraph)
+            {
+                pIdx++;
+                path = $"/body/p[{pIdx}]";
+                type = "paragraph";
+            }
+            else if (element is Table)
+            {
+                tblIdx++;
+                path = $"/body/tbl[{tblIdx}]";
+                type = "table";
+            }
+            else if (IsStructuralElement(element))
+            {
+                path = $"/body/{element.LocalName}";
+                type = element.LocalName;
+            }
+            else continue;
+
+            if (startLine.HasValue && lineNum < startLine.Value) continue;
+            if (endLine.HasValue && lineNum > endLine.Value) break;
+            if (maxLines.HasValue && emitted >= maxLines.Value) break;
+
+            string? text = null;
+            if (element is Paragraph para)
+            {
+                var oMathParaChild = para.ChildElements.FirstOrDefault(e => e.LocalName == "oMathPara" || e is M.Paragraph);
+                if (oMathParaChild != null)
+                {
+                    text = FormulaParser.ToReadableText(oMathParaChild);
+                    type = "equation";
+                }
+                else
+                {
+                    var mathElements = FindMathElements(para);
+                    if (mathElements.Count > 0 && string.IsNullOrWhiteSpace(GetParagraphText(para)))
+                        text = string.Concat(mathElements.Select(FormulaParser.ToReadableText));
+                    else if (mathElements.Count > 0)
+                        text = GetParagraphTextWithMath(para);
+                    else
+                        text = GetListPrefix(para) + GetParagraphText(para);
+                }
+            }
+            else if (element.LocalName == "oMathPara" || element is M.Paragraph)
+                text = FormulaParser.ToReadableText(element);
+            else if (element is Table table)
+                text = $"[Table: {table.Elements<TableRow>().Count()} rows]";
+
+            var obj = new JsonObject
+            {
+                ["path"] = path,
+                ["type"] = type
+            };
+            if (text != null) obj["text"] = text;
+            elementsArray.Add((JsonNode)obj);
+            emitted++;
+        }
+
+        return new JsonObject
+        {
+            ["totalElements"] = bodyElements.Count,
+            ["elements"] = elementsArray
+        };
     }
 
     public List<DocumentIssue> ViewAsIssues(string? issueType = null, int? limit = null)

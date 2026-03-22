@@ -17,6 +17,11 @@ public interface IDocumentHandler : IDisposable
     string ViewAsAnnotated(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null);
     string ViewAsOutline();
     string ViewAsStats();
+
+    // === Structured JSON variants (for --json mode) ===
+    System.Text.Json.Nodes.JsonNode ViewAsStatsJson();
+    System.Text.Json.Nodes.JsonNode ViewAsOutlineJson();
+    System.Text.Json.Nodes.JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null);
     List<DocumentIssue> ViewAsIssues(string? issueType = null, int? limit = null);
 
     // === Query Layer ===

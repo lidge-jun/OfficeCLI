@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Text;
+using System.Text.Json.Nodes;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using OfficeCli.Core;
@@ -191,6 +192,137 @@ public partial class ExcelHandler
             sb.AppendLine($"  {type}: {count}");
 
         return sb.ToString().TrimEnd();
+    }
+
+    public JsonNode ViewAsStatsJson()
+    {
+        var sheets = GetWorksheets();
+        int totalCells = 0, emptyCells = 0, formulaCells = 0, errorCells = 0;
+        var typeCounts = new Dictionary<string, int>();
+
+        foreach (var (sheetName, worksheetPart) in sheets)
+        {
+            var sheetData = GetSheet(worksheetPart).GetFirstChild<SheetData>();
+            if (sheetData == null) continue;
+
+            foreach (var row in sheetData.Elements<Row>())
+                foreach (var cell in row.Elements<Cell>())
+                {
+                    totalCells++;
+                    var value = GetCellDisplayValue(cell);
+                    if (string.IsNullOrEmpty(value)) emptyCells++;
+                    if (cell.CellFormula != null) formulaCells++;
+                    if (value is "#REF!" or "#VALUE!" or "#NAME?" or "#DIV/0!") errorCells++;
+                    var type = cell.DataType?.InnerText ?? "Number";
+                    typeCounts[type] = typeCounts.GetValueOrDefault(type) + 1;
+                }
+        }
+
+        var result = new JsonObject
+        {
+            ["sheets"] = sheets.Count,
+            ["totalCells"] = totalCells,
+            ["emptyCells"] = emptyCells,
+            ["formulaCells"] = formulaCells,
+            ["errorCells"] = errorCells
+        };
+
+        var types = new JsonObject();
+        foreach (var (type, count) in typeCounts.OrderByDescending(kv => kv.Value))
+            types[type] = count;
+        result["dataTypeDistribution"] = types;
+
+        return result;
+    }
+
+    public JsonNode ViewAsOutlineJson()
+    {
+        var workbook = _doc.WorkbookPart?.Workbook;
+        if (workbook == null) return new JsonObject();
+
+        var sheetsEl = workbook.GetFirstChild<Sheets>();
+        if (sheetsEl == null) return new JsonObject { ["fileName"] = Path.GetFileName(_filePath), ["sheets"] = new JsonArray() };
+
+        var sheetsArray = new JsonArray();
+        foreach (var sheet in sheetsEl.Elements<Sheet>())
+        {
+            var name = sheet.Name?.Value ?? "?";
+            var sheetId = sheet.Id?.Value;
+            if (sheetId == null) continue;
+
+            var worksheetPart = (WorksheetPart)_doc.WorkbookPart!.GetPartById(sheetId);
+            var sheetData = GetSheet(worksheetPart).GetFirstChild<SheetData>();
+            int rowCount = sheetData?.Elements<Row>().Count() ?? 0;
+            int colCount = sheetData?.Elements<Row>().FirstOrDefault()?.Elements<Cell>().Count() ?? 0;
+            int formulaCount = sheetData?.Descendants<CellFormula>().Count() ?? 0;
+
+            var sheetObj = new JsonObject
+            {
+                ["name"] = name,
+                ["rows"] = rowCount,
+                ["cols"] = colCount,
+                ["formulas"] = formulaCount
+            };
+            sheetsArray.Add((JsonNode)sheetObj);
+        }
+
+        return new JsonObject
+        {
+            ["fileName"] = Path.GetFileName(_filePath),
+            ["sheets"] = sheetsArray
+        };
+    }
+
+    public JsonNode ViewAsTextJson(int? startLine = null, int? endLine = null, int? maxLines = null, HashSet<string>? cols = null)
+    {
+        var sheetsArray = new JsonArray();
+        var worksheets = GetWorksheets();
+        int emitted = 0;
+        bool truncated = false;
+
+        foreach (var (sheetName, worksheetPart) in worksheets)
+        {
+            if (truncated) break;
+            var sheetData = GetSheet(worksheetPart).GetFirstChild<SheetData>();
+            if (sheetData == null) continue;
+
+            var rowsArray = new JsonArray();
+            int lineNum = 0;
+            foreach (var row in sheetData.Elements<Row>())
+            {
+                lineNum++;
+                if (startLine.HasValue && lineNum < startLine.Value) continue;
+                if (endLine.HasValue && lineNum > endLine.Value) break;
+                if (maxLines.HasValue && emitted >= maxLines.Value) { truncated = true; break; }
+
+                var cellElements = row.Elements<Cell>();
+                if (cols != null)
+                    cellElements = cellElements.Where(c => cols.Contains(ParseCellReference(c.CellReference?.Value ?? "A1").Column));
+
+                var cellsObj = new JsonObject();
+                foreach (var cell in cellElements)
+                {
+                    var cellRef = cell.CellReference?.Value ?? "?";
+                    cellsObj[cellRef] = GetCellDisplayValue(cell);
+                }
+
+                var rowRef = row.RowIndex?.Value ?? (uint)lineNum;
+                rowsArray.Add((JsonNode)new JsonObject
+                {
+                    ["row"] = (int)rowRef,
+                    ["cells"] = cellsObj
+                });
+                emitted++;
+            }
+
+            sheetsArray.Add((JsonNode)new JsonObject
+            {
+                ["name"] = sheetName,
+                ["rows"] = rowsArray
+            });
+        }
+
+        return new JsonObject { ["sheets"] = sheetsArray };
     }
 
     public List<DocumentIssue> ViewAsIssues(string? issueType = null, int? limit = null)

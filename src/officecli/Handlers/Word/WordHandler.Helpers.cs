@@ -796,8 +796,8 @@ public partial class WordHandler
                     var widthPt = widthEmu / 12700.0;
                     var colorMatch = System.Text.RegularExpressions.Regex.Match(
                         child.InnerXml, @"val=""([0-9A-Fa-f]{6})""");
-                    var color = ParseHelpers.FormatHexColor(colorMatch.Success ? colorMatch.Groups[1].Value : "000000");
-                    node.Format["textOutline"] = $"{widthPt:0.##}pt;{color}";
+                    var color = colorMatch.Success ? ParseHelpers.FormatHexColor(colorMatch.Groups[1].Value) : "";
+                    node.Format["textOutline"] = string.IsNullOrEmpty(color) ? $"{widthPt:0.##}pt" : $"{widthPt:0.##}pt;{color}";
                     break;
                 }
                 case "textFill":
@@ -840,7 +840,7 @@ public partial class WordHandler
                     var attrs = child.GetAttributes().ToDictionary(a => a.LocalName, a => a.Value);
                     var colorMatch = System.Text.RegularExpressions.Regex.Match(
                         child.InnerXml, @"val=""([0-9A-Fa-f]{6})""");
-                    var color = ParseHelpers.FormatHexColor(colorMatch.Success ? colorMatch.Groups[1].Value : "000000");
+                    var color = colorMatch.Success ? ParseHelpers.FormatHexColor(colorMatch.Groups[1].Value) : "#000000";
                     node.Format["w14shadow"] = color;
                     break;
                 }
@@ -851,7 +851,7 @@ public partial class WordHandler
                     var radiusPt = radiusEmu / 12700.0;
                     var colorMatch = System.Text.RegularExpressions.Regex.Match(
                         child.InnerXml, @"val=""([0-9A-Fa-f]{6})""");
-                    var color = ParseHelpers.FormatHexColor(colorMatch.Success ? colorMatch.Groups[1].Value : "000000");
+                    var color = colorMatch.Success ? ParseHelpers.FormatHexColor(colorMatch.Groups[1].Value) : "#000000";
                     node.Format["w14glow"] = $"{color};{radiusPt:0.##}";
                     break;
                 }

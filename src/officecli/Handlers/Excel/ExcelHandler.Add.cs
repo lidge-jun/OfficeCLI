@@ -52,7 +52,7 @@ public partial class ExcelHandler
                 // Create cells if cols specified
                 if (properties.TryGetValue("cols", out var colsStr))
                 {
-                    if (!int.TryParse(colsStr, out var cols))
+                    if (!int.TryParse(colsStr, out var cols) || cols <= 0)
                         throw new ArgumentException($"Invalid 'cols' value: '{colsStr}'. Expected a positive integer (number of columns to create).");
                     for (int c = 0; c < cols; c++)
                     {
@@ -168,7 +168,7 @@ public partial class ExcelHandler
                 {
                     var nrSheets = workbook.GetFirstChild<Sheets>()?.Elements<Sheet>().ToList();
                     var nrSheetIdx = nrSheets?.FindIndex(s =>
-                        s.Name?.Value?.Equals(scope, StringComparison.OrdinalIgnoreCase) == true);
+                        s.Name?.Value?.Equals(scope, StringComparison.OrdinalIgnoreCase) == true) ?? -1;
                     if (nrSheetIdx >= 0) dn.LocalSheetId = (uint)nrSheetIdx;
                 }
                 if (properties.TryGetValue("comment", out var nrComment))

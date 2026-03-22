@@ -917,7 +917,12 @@ public partial class WordHandler
                 if (properties.TryGetValue("color", out var hlColor))
                     hlRProps.Color = new Color { Val = SanitizeHex(hlColor) };
                 else
-                    hlRProps.Color = new Color { Val = "0563C1" };
+                {
+                    // Read hyperlink color from document theme, fallback to Word default
+                    var themeHlink = _doc.MainDocumentPart?.ThemePart?.Theme?.ThemeElements
+                        ?.ColorScheme?.Hyperlink?.RgbColorModelHex?.Val?.Value;
+                    hlRProps.Color = new Color { Val = themeHlink ?? "0563C1", ThemeColor = ThemeColorValues.Hyperlink };
+                }
                 hlRProps.Underline = new Underline { Val = UnderlineValues.Single };
                 if (properties.TryGetValue("font", out var hlFont))
                     hlRProps.RunFonts = new RunFonts { Ascii = hlFont, HighAnsi = hlFont };

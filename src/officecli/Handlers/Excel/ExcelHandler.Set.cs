@@ -60,7 +60,7 @@ public partial class ExcelHandler
                         {
                             var nrSheets = workbook.GetFirstChild<Sheets>()?.Elements<Sheet>().ToList();
                             var nrSheetIdx = nrSheets?.FindIndex(s =>
-                                s.Name?.Value?.Equals(value, StringComparison.OrdinalIgnoreCase) == true);
+                                s.Name?.Value?.Equals(value, StringComparison.OrdinalIgnoreCase) == true) ?? -1;
                             if (nrSheetIdx >= 0)
                                 dn.LocalSheetId = (uint)nrSheetIdx;
                             else

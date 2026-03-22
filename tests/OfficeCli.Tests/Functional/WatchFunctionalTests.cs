@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.IO.Pipes;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using FluentAssertions;
@@ -39,6 +40,16 @@ public class WatchFunctionalTests : IDisposable
         _handler.Dispose();
         _handler = new PowerPointHandler(_path, editable: true);
         return _handler;
+    }
+
+    /// <summary>Find a free TCP port by binding to port 0 and reading the assigned port.</summary>
+    private static int GetFreePort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
     }
 
     // ==================== Pipe name generation ====================
@@ -238,7 +249,7 @@ public class WatchFunctionalTests : IDisposable
         _handler.Add("/slide[1]", "shape", null, new() { ["text"] = "HttpTest", ["x"] = "1cm", ["y"] = "1cm", ["width"] = "10cm", ["height"] = "3cm" });
         _handler.Dispose();
 
-        var port = 18090 + Random.Shared.Next(100);
+        var port = GetFreePort();
         using var watch = new WatchServer(_path, port);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
@@ -277,7 +288,7 @@ public class WatchFunctionalTests : IDisposable
         _handler.Add("/", "slide", null, new());
         _handler.Dispose();
 
-        var port = 18090 + Random.Shared.Next(100);
+        var port = GetFreePort();
         using var watch = new WatchServer(_path, port);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 

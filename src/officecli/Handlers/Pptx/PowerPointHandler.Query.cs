@@ -291,6 +291,16 @@ public partial class PowerPointHandler
                 Text = cellText
             };
 
+            // GridSpan / RowSpan
+            if (cell.GridSpan?.HasValue == true && cell.GridSpan.Value > 1)
+                cellNode.Format["gridSpan"] = cell.GridSpan.Value;
+            if (cell.RowSpan?.HasValue == true && cell.RowSpan.Value > 1)
+                cellNode.Format["rowSpan"] = cell.RowSpan.Value;
+            if (cell.HorizontalMerge?.HasValue == true && cell.HorizontalMerge.Value)
+                cellNode.Format["hmerge"] = true;
+            if (cell.VerticalMerge?.HasValue == true && cell.VerticalMerge.Value)
+                cellNode.Format["vmerge"] = true;
+
             // Cell fill (blip, gradient, or solid)
             var tcPr = cell.TableCellProperties ?? cell.GetFirstChild<Drawing.TableCellProperties>();
             var cellBlipFill = tcPr?.GetFirstChild<Drawing.BlipFill>();

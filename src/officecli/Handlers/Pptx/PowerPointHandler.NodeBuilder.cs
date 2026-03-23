@@ -959,6 +959,14 @@ public partial class PowerPointHandler
         var cxnAlpha = cxnColorEl?.GetFirstChild<Drawing.Alpha>()?.Val?.Value;
         if (cxnAlpha.HasValue) node.Format["lineOpacity"] = $"{cxnAlpha.Value / 100000.0:0.##}";
 
+        // Head/tail end arrows
+        var headEnd = ln?.GetFirstChild<Drawing.HeadEnd>();
+        if (headEnd?.Type?.HasValue == true)
+            node.Format["headEnd"] = headEnd.Type.InnerText;
+        var tailEnd = ln?.GetFirstChild<Drawing.TailEnd>();
+        if (tailEnd?.Type?.HasValue == true)
+            node.Format["tailEnd"] = tailEnd.Type.InnerText;
+
         // Rotation
         if (xfrm?.Rotation?.HasValue == true && xfrm.Rotation.Value != 0)
             node.Format["rotation"] = $"{xfrm.Rotation.Value / 60000.0:0.##}";

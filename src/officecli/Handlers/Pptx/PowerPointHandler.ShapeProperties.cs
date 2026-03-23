@@ -897,7 +897,18 @@ public partial class PowerPointHandler
                     tcPr.RemoveAllChildren<Drawing.NoFill>();
                     tcPr.RemoveAllChildren<Drawing.GradientFill>();
                     tcPr.RemoveAllChildren<Drawing.BlipFill>();
-                    tcPr.Append(newCellFill);
+                    // Insert fill after border line elements to maintain CT_TableCellProperties schema order
+                    var lastBorder = tcPr.ChildElements.LastOrDefault(c =>
+                        c is Drawing.LeftBorderLineProperties
+                        or Drawing.RightBorderLineProperties
+                        or Drawing.TopBorderLineProperties
+                        or Drawing.BottomBorderLineProperties
+                        or Drawing.TopLeftToBottomRightBorderLineProperties
+                        or Drawing.BottomLeftToTopRightBorderLineProperties);
+                    if (lastBorder != null)
+                        lastBorder.InsertAfterSelf(newCellFill);
+                    else
+                        tcPr.Append(newCellFill);
                     break;
                 }
                 case "align" or "alignment":

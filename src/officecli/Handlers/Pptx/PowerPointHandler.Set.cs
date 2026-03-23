@@ -529,6 +529,11 @@ public partial class PowerPointHandler
                                 ?? txBody.AppendChild(new Drawing.Paragraph());
                             para.RemoveAllChildren<Drawing.Run>();
                             para.RemoveAllChildren<Drawing.Break>();
+                            // Remove EndParagraphRunProperties before appending Run,
+                            // then re-add after — schema requires Run before EndParagraphRunProperties
+                            var savedEndParaRPr = para.Elements<Drawing.EndParagraphRunProperties>().FirstOrDefault();
+                            if (savedEndParaRPr != null)
+                                savedEndParaRPr.Remove();
                             if (!string.IsNullOrEmpty(value))
                             {
                                 var newRun = new Drawing.Run(
@@ -536,6 +541,8 @@ public partial class PowerPointHandler
                                     new Drawing.Text(value));
                                 para.AppendChild(newRun);
                             }
+                            if (savedEndParaRPr != null)
+                                para.AppendChild(savedEndParaRPr);
                         }
                         else
                         {
@@ -1221,7 +1228,7 @@ public partial class PowerPointHandler
                         outline.Width = Core.EmuConverter.ParseLineWidth(value);
                         break;
                     }
-                    case "linecolor" or "line.color":
+                    case "linecolor" or "line.color" or "line" or "color":
                     {
                         var spPr = cxn.ShapeProperties ?? (cxn.ShapeProperties = new ShapeProperties());
                         var outline = spPr.GetFirstChild<Drawing.Outline>()

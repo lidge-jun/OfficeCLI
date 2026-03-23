@@ -24,6 +24,28 @@ internal static partial class ChartHelper
         var titleText = titleEl?.Descendants<Drawing.Text>().FirstOrDefault()?.Text;
         if (titleText != null) node.Format["title"] = titleText;
 
+        // Title formatting: font, size, color, bold from RunProperties
+        if (titleEl != null)
+        {
+            var titleRun = titleEl.Descendants<Drawing.Run>().FirstOrDefault();
+            var titleRp = titleRun?.RunProperties;
+            if (titleRp != null)
+            {
+                var titleFont = titleRp.GetFirstChild<Drawing.LatinFont>()?.Typeface?.Value;
+                if (titleFont != null) node.Format["title.font"] = titleFont;
+                if (titleRp.FontSize?.HasValue == true)
+                    node.Format["title.size"] = $"{titleRp.FontSize.Value / 100.0:0.##}pt";
+                var titleFill = titleRp.GetFirstChild<Drawing.SolidFill>();
+                if (titleFill != null)
+                {
+                    var tColor = ReadColorFromFill(titleFill);
+                    if (tColor != null) node.Format["title.color"] = tColor;
+                }
+                if (titleRp.Bold?.HasValue == true && titleRp.Bold.Value)
+                    node.Format["title.bold"] = "true";
+            }
+        }
+
         var legend = chart.GetFirstChild<C.Legend>();
         if (legend != null)
         {
@@ -58,10 +80,59 @@ internal static partial class ChartHelper
             if (pColor != null) node.Format["plotFill"] = pColor;
         }
 
-        // Gridlines
+        // Chart area fill (ChartSpace > spPr, NOT PlotArea)
+        // Note: The SDK serializes ChartShapeProperties but deserializes it as C.ShapeProperties
+        // after round-trip. Check both types, plus in-memory ChartShapeProperties.
+        {
+            Drawing.SolidFill? chartAreaFill = null;
+            var csSpPr = chart.Parent?.GetFirstChild<C.ShapeProperties>();
+            if (csSpPr != null)
+                chartAreaFill = csSpPr.GetFirstChild<Drawing.SolidFill>();
+            if (chartAreaFill == null)
+            {
+                var csCSpPr = chart.Parent?.GetFirstChild<C.ChartShapeProperties>();
+                if (csCSpPr != null)
+                    chartAreaFill = csCSpPr.GetFirstChild<Drawing.SolidFill>();
+            }
+            if (chartAreaFill != null)
+            {
+                var cColor = ReadColorFromFill(chartAreaFill);
+                if (cColor != null) node.Format["chartFill"] = cColor;
+            }
+        }
+
+        // Gridlines (with detail when custom color/width/dash is present)
         var valAxisForGrid = plotArea.GetFirstChild<C.ValueAxis>();
-        if (valAxisForGrid?.GetFirstChild<C.MajorGridlines>() != null) node.Format["gridlines"] = "true";
-        if (valAxisForGrid?.GetFirstChild<C.MinorGridlines>() != null) node.Format["minorGridlines"] = "true";
+        var majorGL = valAxisForGrid?.GetFirstChild<C.MajorGridlines>();
+        if (majorGL != null) node.Format["gridlines"] = ReadGridlineDetail(majorGL);
+        var minorGL = valAxisForGrid?.GetFirstChild<C.MinorGridlines>();
+        if (minorGL != null) node.Format["minorGridlines"] = ReadGridlineDetail(minorGL);
+
+        // GapWidth / Overlap from bar/column chart
+        var barChart = plotArea.GetFirstChild<C.BarChart>();
+        var gapWidthEl = barChart?.GetFirstChild<C.GapWidth>();
+        if (gapWidthEl?.Val?.HasValue == true) node.Format["gapwidth"] = gapWidthEl.Val.Value.ToString();
+        var overlapEl = barChart?.GetFirstChild<C.Overlap>();
+        if (overlapEl?.Val?.HasValue == true) node.Format["overlap"] = overlapEl.Val.Value.ToString();
+
+        // Legend font (TextProperties on Legend element)
+        if (legend != null)
+        {
+            var legendTp = legend.GetFirstChild<C.TextProperties>();
+            if (legendTp != null)
+            {
+                var legendFontStr = ReadFontSpec(legendTp);
+                if (legendFontStr != null) node.Format["legendFont"] = legendFontStr;
+            }
+        }
+
+        // Axis font (TextProperties on value axis)
+        var valAxisTp = valAxisForGrid?.GetFirstChild<C.TextProperties>();
+        if (valAxisTp != null)
+        {
+            var axisFontStr = ReadFontSpec(valAxisTp);
+            if (axisFontStr != null) node.Format["axisFont"] = axisFontStr;
+        }
 
         // Secondary axis
         var valAxes = plotArea.Elements<C.ValueAxis>().ToList();
@@ -135,6 +206,17 @@ internal static partial class ChartHelper
                 var prstDash = outline?.GetFirstChild<Drawing.PresetDash>();
                 if (prstDash?.Val?.HasValue == true)
                     seriesNode.Format["lineDash"] = prstDash.Val.InnerText;
+                // Outline color
+                var outlineFill = outline?.GetFirstChild<Drawing.SolidFill>();
+                if (outlineFill != null)
+                {
+                    var outColor = ReadColorFromFill(outlineFill);
+                    if (outColor != null) seriesNode.Format["outlineColor"] = outColor;
+                }
+                // Shadow (from EffectList)
+                var effectList = serSpPr?.GetFirstChild<Drawing.EffectList>();
+                var outerShadow = effectList?.GetFirstChild<Drawing.OuterShadow>();
+                if (outerShadow != null) seriesNode.Format["shadow"] = "true";
                 // Marker
                 var marker = serEl?.GetFirstChild<C.Marker>();
                 var markerSymbol = marker?.GetFirstChild<C.Symbol>()?.Val;
@@ -273,6 +355,59 @@ internal static partial class ChartHelper
         var scheme = solidFill.GetFirstChild<Drawing.SchemeColor>()?.Val;
         if (scheme?.HasValue == true) return scheme.InnerText;
         return null;
+    }
+
+    /// <summary>
+    /// Read gridline detail: returns "COLOR:WIDTH:DASH" if custom spPr is present, otherwise "true".
+    /// </summary>
+    private static string ReadGridlineDetail(OpenXmlCompositeElement gridlines)
+    {
+        var spPr = gridlines.GetFirstChild<C.ChartShapeProperties>();
+        var outline = spPr?.GetFirstChild<Drawing.Outline>();
+        if (outline == null) return "true";
+
+        var parts = new List<string>();
+        var fill = outline.GetFirstChild<Drawing.SolidFill>();
+        var color = ReadColorFromFill(fill);
+        parts.Add(color ?? "");
+
+        if (outline.Width?.HasValue == true)
+            parts.Add(Math.Round(outline.Width.Value / 12700.0, 2).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        else
+            parts.Add("");
+
+        var dash = outline.GetFirstChild<Drawing.PresetDash>()?.Val;
+        if (dash?.HasValue == true)
+            parts.Add(dash.InnerText);
+
+        var result = string.Join(":", parts).TrimEnd(':');
+        return string.IsNullOrEmpty(result) ? "true" : result;
+    }
+
+    /// <summary>
+    /// Read font spec from TextProperties: returns "SIZE:COLOR:FONTNAME" format or null.
+    /// </summary>
+    private static string? ReadFontSpec(C.TextProperties textProperties)
+    {
+        var defRp = textProperties.Descendants<Drawing.DefaultRunProperties>().FirstOrDefault();
+        if (defRp == null) return null;
+
+        var parts = new List<string>();
+        if (defRp.FontSize?.HasValue == true)
+            parts.Add((defRp.FontSize.Value / 100.0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        else
+            parts.Add("");
+
+        var fill = defRp.GetFirstChild<Drawing.SolidFill>();
+        var color = ReadColorFromFill(fill);
+        parts.Add(color?.TrimStart('#') ?? "");
+
+        var font = defRp.GetFirstChild<Drawing.LatinFont>()?.Typeface?.Value;
+        if (font != null)
+            parts.Add(font);
+
+        var result = string.Join(":", parts).TrimEnd(':');
+        return string.IsNullOrEmpty(result) ? null : result;
     }
 
     // ==================== Chart Set ====================

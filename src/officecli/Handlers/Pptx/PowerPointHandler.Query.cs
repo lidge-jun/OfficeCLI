@@ -140,7 +140,7 @@ public partial class PowerPointHandler
                 Text = paraText
             };
             var qParaPProps = para.ParagraphProperties;
-            if (qParaPProps?.Alignment?.HasValue == true) paraNode.Format["align"] = qParaPProps.Alignment.InnerText;
+            if (qParaPProps?.Alignment?.HasValue == true) paraNode.Format["align"] = NormalizeAlignment(qParaPProps.Alignment.InnerText);
             if (qParaPProps?.Indent?.HasValue == true) paraNode.Format["indent"] = FormatEmu(qParaPProps.Indent.Value);
             if (qParaPProps?.LeftMargin?.HasValue == true) paraNode.Format["marginLeft"] = FormatEmu(qParaPProps.LeftMargin.Value);
             if (qParaPProps?.RightMargin?.HasValue == true) paraNode.Format["marginRight"] = FormatEmu(qParaPProps.RightMargin.Value);
@@ -349,11 +349,7 @@ public partial class PowerPointHandler
             var cellParaAlign = cellFirstPara?.ParagraphProperties?.Alignment;
             if (cellParaAlign?.HasValue == true)
             {
-                var align = cellParaAlign.InnerText switch
-                {
-                    "ctr" => "center",
-                    _ => cellParaAlign.InnerText
-                };
+                var align = NormalizeAlignment(cellParaAlign.InnerText);
                 cellNode.Format["alignment"] = align;
                 cellNode.Format["align"] = align;
             }

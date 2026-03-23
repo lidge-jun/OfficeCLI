@@ -280,6 +280,20 @@ public partial class PowerPointHandler
     private static string FormatEmu(long emu) => Core.EmuConverter.FormatEmu(emu);
 
     /// <summary>
+    /// Normalize DrawingML alignment abbreviations to human-readable values.
+    /// OOXML stores "l", "r", "ctr", "just" etc. — we return "left", "right", "center", "justify".
+    /// </summary>
+    private static string NormalizeAlignment(string innerText) => innerText switch
+    {
+        "l" => "left",
+        "r" => "right",
+        "ctr" => "center",
+        "just" => "justify",
+        "dist" => "distributed",
+        _ => innerText
+    };
+
+    /// <summary>
     /// Generate a minimal 1x1 light-gray PNG for use as a zoom placeholder.
     /// PowerPoint regenerates the actual slide thumbnail when the file is opened.
     /// </summary>

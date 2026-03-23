@@ -593,7 +593,7 @@ public partial class PowerPointHandler
             // AutoFit
             if (bodyPr.GetFirstChild<Drawing.NormalAutoFit>() != null) node.Format["autoFit"] = "normal";
             else if (bodyPr.GetFirstChild<Drawing.ShapeAutoFit>() != null) node.Format["autoFit"] = "shape";
-            else if (bodyPr.GetFirstChild<Drawing.NoAutoFit>() != null) node.Format["autoFit"] = "none";
+            else node.Format["autoFit"] = "none";
         }
 
         // Text alignment (from first paragraph)

@@ -16,6 +16,22 @@ public partial class PowerPointHandler
 {
     public string? Remove(string path)
     {
+        // Handle /slide[N]/notes path (no index bracket)
+        var notesMatch = Regex.Match(path, @"^/slide\[(\d+)\]/notes$");
+        if (notesMatch.Success)
+        {
+            var notesSlideIdx = int.Parse(notesMatch.Groups[1].Value);
+            var notesSlideParts = GetSlideParts().ToList();
+            if (notesSlideIdx < 1 || notesSlideIdx > notesSlideParts.Count)
+                throw new ArgumentException($"Slide {notesSlideIdx} not found (total: {notesSlideParts.Count})");
+            var notesSlidePart = notesSlideParts[notesSlideIdx - 1];
+            if (notesSlidePart.NotesSlidePart != null)
+            {
+                notesSlidePart.DeletePart(notesSlidePart.NotesSlidePart);
+            }
+            return null;
+        }
+
         var slideMatch = Regex.Match(path, @"^/slide\[(\d+)\](?:/(\w+)\[(\d+)\])?$");
         if (!slideMatch.Success)
             throw new ArgumentException($"Invalid path: {path}. Expected format: /slide[N] or /slide[N]/element[M] (e.g. /slide[1], /slide[1]/shape[2])");

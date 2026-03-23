@@ -174,8 +174,8 @@ public partial class PowerPointHandler
         if (themePart != null)
         {
             var fontScheme = themePart.Theme?.ThemeElements?.FontScheme;
-            var majorLatin = fontScheme?.MajorFont?.GetFirstChild<Drawing.LatinFont>()?.Typeface;
-            var minorLatin = fontScheme?.MinorFont?.GetFirstChild<Drawing.LatinFont>()?.Typeface;
+            var majorLatin = fontScheme?.MajorFont?.GetFirstChild<Drawing.LatinFont>()?.Typeface?.Value;
+            var minorLatin = fontScheme?.MinorFont?.GetFirstChild<Drawing.LatinFont>()?.Typeface?.Value;
             if (!string.IsNullOrEmpty(majorLatin)) node.Format["headingFont"] = majorLatin;
             if (!string.IsNullOrEmpty(minorLatin)) node.Format["bodyFont"] = minorLatin;
             if (scheme.Name?.Value != null) node.Format["name"] = scheme.Name.Value;

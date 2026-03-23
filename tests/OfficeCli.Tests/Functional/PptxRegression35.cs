@@ -209,10 +209,10 @@ public class PptxRegression35 : IDisposable
         // Set unknown slidesize — should report as unsupported
         var unsupported = handler.Set("/", new()
         {
-            ["slidesize"] = "letter"
+            ["slidesize"] = "nonexistent_size"
         });
 
-        // "letter" is not a recognized slide size value
+        // "nonexistent_size" is not a recognized slide size value
         unsupported.Should().Contain("slidesize",
             "Unknown slidesize values should be reported as unsupported");
     }

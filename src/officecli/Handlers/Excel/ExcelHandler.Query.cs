@@ -334,7 +334,7 @@ public partial class ExcelHandler
             var cfIdx = int.Parse(cfMatch.Groups[1].Value);
             var cfElements = GetSheet(worksheet).Elements<ConditionalFormatting>().ToList();
             if (cfIdx < 1 || cfIdx > cfElements.Count)
-                return new DocumentNode { Path = path, Type = "error", Text = $"CF {cfIdx} not found (total: {cfElements.Count})" };
+                throw new ArgumentException($"Conditional formatting index {cfIdx} out of range (1-{cfElements.Count})");
 
             var cf = cfElements[cfIdx - 1];
             var cfNode = new DocumentNode { Path = path, Type = "conditionalFormatting" };
@@ -460,11 +460,11 @@ public partial class ExcelHandler
             var chartIdx = int.Parse(chartMatch.Groups[1].Value);
             var drawingsPart = worksheet.DrawingsPart;
             if (drawingsPart == null)
-                return new DocumentNode { Path = path, Type = "error", Text = "No charts in this sheet" };
+                throw new ArgumentException($"No charts found in sheet");
 
             var chartParts = drawingsPart.ChartParts.ToList();
             if (chartIdx < 1 || chartIdx > chartParts.Count)
-                return new DocumentNode { Path = path, Type = "error", Text = $"Chart {chartIdx} not found" };
+                throw new ArgumentException($"Chart index {chartIdx} out of range (1-{chartParts.Count})");
 
             var chartPart = chartParts[chartIdx - 1];
             var chart = chartPart.ChartSpace?.GetFirstChild<DocumentFormat.OpenXml.Drawing.Charts.Chart>();
@@ -481,7 +481,7 @@ public partial class ExcelHandler
             var ptIdx = int.Parse(pivotMatch.Groups[1].Value);
             var pivotParts = worksheet.PivotTableParts.ToList();
             if (ptIdx < 1 || ptIdx > pivotParts.Count)
-                return new DocumentNode { Path = path, Type = "error", Text = $"PivotTable {ptIdx} not found" };
+                throw new ArgumentException($"PivotTable index {ptIdx} out of range (1-{pivotParts.Count})");
 
             var pivotPart = pivotParts[ptIdx - 1];
             var ptNode = new DocumentNode { Path = path, Type = "pivottable" };
@@ -681,6 +681,24 @@ public partial class ExcelHandler
                     }
                     results.Add(node);
                 }
+            }
+            return results;
+        }
+
+        // Handle sheet queries
+        if (elementName == "sheet")
+        {
+            foreach (var (sheetName, worksheetPart) in GetWorksheets())
+            {
+                if (parsed.Sheet != null && !sheetName.Equals(parsed.Sheet, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var sheetNode = new DocumentNode { Path = $"/{sheetName}", Type = "sheet", Preview = sheetName };
+                var sheetData = GetSheet(worksheetPart).GetFirstChild<SheetData>();
+                var rowCount = sheetData?.Elements<Row>().Count() ?? 0;
+                var chartCount = worksheetPart.DrawingsPart?.ChartParts.Count() ?? 0;
+                sheetNode.ChildCount = rowCount + chartCount;
+                results.Add(sheetNode);
             }
             return results;
         }

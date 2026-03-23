@@ -16,6 +16,10 @@ public partial class ExcelHandler
 {
     public List<string> Set(string path, Dictionary<string, string> properties)
     {
+        // Normalize to case-insensitive lookup so camelCase keys match lowercase lookups
+        if (properties != null && properties.Comparer != StringComparer.OrdinalIgnoreCase)
+            properties = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
+
         path = NormalizeExcelPath(path);
         // Handle /namedrange[N] or /namedrange[Name]
         var namedRangeMatch = Regex.Match(path.TrimStart('/'), @"^namedrange\[(.+?)\]$", RegexOptions.IgnoreCase);

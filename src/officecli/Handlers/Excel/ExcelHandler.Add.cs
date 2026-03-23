@@ -16,6 +16,10 @@ public partial class ExcelHandler
 {
     public string Add(string parentPath, string type, int? index, Dictionary<string, string> properties)
     {
+        // Normalize to case-insensitive lookup so camelCase keys (e.g. minColor) match lowercase lookups
+        if (properties != null && properties.Comparer != StringComparer.OrdinalIgnoreCase)
+            properties = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
+
         parentPath = NormalizeExcelPath(parentPath);
         switch (type.ToLowerInvariant())
         {

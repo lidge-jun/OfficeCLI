@@ -378,7 +378,7 @@ internal static partial class ChartHelper
 
         var dash = outline.GetFirstChild<Drawing.PresetDash>()?.Val;
         if (dash?.HasValue == true)
-            parts.Add(dash.InnerText);
+            parts.Add(dash.InnerText!);
 
         var result = string.Join(":", parts).TrimEnd(':');
         return string.IsNullOrEmpty(result) ? "true" : result;

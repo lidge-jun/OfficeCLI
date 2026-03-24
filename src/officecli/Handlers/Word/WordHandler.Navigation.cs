@@ -267,7 +267,6 @@ public partial class WordHandler
                     var alignText = pProps.Justification.Val.InnerText;
                     var alignValue = alignText == "both" ? "justify" : alignText;
                     node.Format["alignment"] = alignValue;
-                    node.Format["align"] = alignValue;
                 }
                 if (pProps.SpacingBetweenLines != null)
                 {
@@ -287,21 +286,19 @@ public partial class WordHandler
                     }
                 }
                 if (pProps.Indentation?.FirstLine?.Value != null)
-                    node.Format["firstlineindent"] = pProps.Indentation.FirstLine.Value;
+                    node.Format["firstLineIndent"] = pProps.Indentation.FirstLine.Value;
                 if (pProps.Indentation?.Left?.Value != null)
-                    node.Format["leftindent"] = pProps.Indentation.Left.Value;
+                    node.Format["leftIndent"] = pProps.Indentation.Left.Value;
                 if (pProps.Indentation?.Right?.Value != null)
-                    node.Format["rightindent"] = pProps.Indentation.Right.Value;
+                    node.Format["rightIndent"] = pProps.Indentation.Right.Value;
                 if (pProps.Indentation?.Hanging?.Value != null)
-                    node.Format["hangingindent"] = pProps.Indentation.Hanging.Value;
+                    node.Format["hangingIndent"] = pProps.Indentation.Hanging.Value;
                 if (pProps.KeepNext != null)
                 {
-                    node.Format["keepnext"] = true;
                     node.Format["keepNext"] = true;
                 }
                 if (pProps.KeepLines != null)
                 {
-                    node.Format["keeplines"] = true;
                     node.Format["keepLines"] = true;
                 }
                 if (pProps.PageBreakBefore != null)
@@ -422,7 +419,6 @@ public partial class WordHandler
             if (run.RunProperties?.Shading?.Fill?.Value != null)
             {
                 node.Format["shading"] = ParseHelpers.FormatHexColor(run.RunProperties.Shading.Fill.Value);
-                node.Format["shd"] = ParseHelpers.FormatHexColor(run.RunProperties.Shading.Fill.Value);
             }
             // w14 text effects
             ReadW14TextEffects(run.RunProperties, node);
@@ -754,12 +750,10 @@ public partial class WordHandler
                 var angle = angleMatch.Success ? int.Parse(angleMatch.Groups[1].Value) / 60000 : 0;
                 if (colors.Count >= 2)
                 {
-                    node.Format["shd"] = $"gradient;{ParseHelpers.FormatHexColor(colors[0])};{ParseHelpers.FormatHexColor(colors[1])};{angle}";
-                    node.Format["fill"] = node.Format["shd"];
+                    node.Format["fill"] = $"gradient;{ParseHelpers.FormatHexColor(colors[0])};{ParseHelpers.FormatHexColor(colors[1])};{angle}";
                 }
                 else if (colors.Count == 1)
                 {
-                    node.Format["shd"] = ParseHelpers.FormatHexColor(colors[0]);
                     node.Format["fill"] = ParseHelpers.FormatHexColor(colors[0]);
                 }
             }
@@ -768,7 +762,6 @@ public partial class WordHandler
                 var shd = tcPr.Shading;
                 if (shd?.Fill?.Value != null)
                 {
-                    node.Format["shd"] = ParseHelpers.FormatHexColor(shd.Fill.Value);
                     node.Format["fill"] = ParseHelpers.FormatHexColor(shd.Fill.Value);
                 }
             }

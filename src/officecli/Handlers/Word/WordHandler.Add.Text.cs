@@ -25,7 +25,7 @@ public partial class WordHandler
             pProps.ParagraphStyleId = new ParagraphStyleId { Val = style };
         if (properties.TryGetValue("alignment", out var alignment) || properties.TryGetValue("align", out alignment))
             pProps.Justification = new Justification { Val = ParseJustification(alignment) };
-        if (properties.TryGetValue("firstlineindent", out var indent))
+        if (properties.TryGetValue("firstlineindent", out var indent) || properties.TryGetValue("firstLineIndent", out indent))
         {
             // Validate range — OOXML stores as StringValue but must fit within reasonable twip range
             if (long.TryParse(indent, out var indentLong) && (indentLong < 0 || indentLong > 31680))
@@ -78,17 +78,17 @@ public partial class WordHandler
             }
             pProps.Shading = shd;
         }
-        if (properties.TryGetValue("leftindent", out var addLI) || properties.TryGetValue("indentleft", out addLI))
+        if (properties.TryGetValue("leftindent", out var addLI) || properties.TryGetValue("leftIndent", out addLI) || properties.TryGetValue("indentleft", out addLI))
         {
             var ind = pProps.Indentation ?? (pProps.Indentation = new Indentation());
             ind.Left = ParseHelpers.SafeParseUint(addLI, "leftindent").ToString();
         }
-        if (properties.TryGetValue("rightindent", out var addRI) || properties.TryGetValue("indentright", out addRI))
+        if (properties.TryGetValue("rightindent", out var addRI) || properties.TryGetValue("rightIndent", out addRI) || properties.TryGetValue("indentright", out addRI))
         {
             var ind = pProps.Indentation ?? (pProps.Indentation = new Indentation());
             ind.Right = ParseHelpers.SafeParseUint(addRI, "rightindent").ToString();
         }
-        if (properties.TryGetValue("hangingindent", out var addHI) || properties.TryGetValue("hanging", out addHI))
+        if (properties.TryGetValue("hangingindent", out var addHI) || properties.TryGetValue("hangingIndent", out addHI) || properties.TryGetValue("hanging", out addHI))
         {
             var ind = pProps.Indentation ?? (pProps.Indentation = new Indentation());
             ind.Hanging = ParseHelpers.SafeParseUint(addHI, "hangingindent").ToString();
@@ -108,7 +108,7 @@ public partial class WordHandler
             if (pk.StartsWith("pbdr", StringComparison.OrdinalIgnoreCase))
                 ApplyParagraphBorders(pProps, pk, pv);
         }
-        if (properties.TryGetValue("liststyle", out var listStyle))
+        if (properties.TryGetValue("liststyle", out var listStyle) || properties.TryGetValue("listStyle", out listStyle))
         {
             para.AppendChild(pProps);
             int? startVal = null;
@@ -151,10 +151,24 @@ public partial class WordHandler
                 rProps.Highlight = new Highlight { Val = ParseHighlightColor(pHighlight) };
             if (properties.TryGetValue("caps", out var pCaps) && IsTruthy(pCaps))
                 rProps.Caps = new Caps();
-            if (properties.TryGetValue("smallcaps", out var pSmallCaps) && IsTruthy(pSmallCaps))
-                rProps.SmallCaps = new SmallCaps();
+            if (properties.TryGetValue("smallcaps", out var pSmallCaps) || properties.TryGetValue("smallCaps", out pSmallCaps))
+            {
+                if (IsTruthy(pSmallCaps)) rProps.SmallCaps = new SmallCaps();
+            }
             if (properties.TryGetValue("dstrike", out var pDstrike) && IsTruthy(pDstrike))
                 rProps.DoubleStrike = new DoubleStrike();
+            if (properties.TryGetValue("vertAlign", out var pVertAlign) || properties.TryGetValue("vertalign", out pVertAlign))
+            {
+                rProps.VerticalTextAlignment = new VerticalTextAlignment
+                {
+                    Val = pVertAlign.ToLowerInvariant() switch
+                    {
+                        "superscript" or "super" => VerticalPositionValues.Superscript,
+                        "subscript" or "sub" => VerticalPositionValues.Subscript,
+                        _ => VerticalPositionValues.Baseline
+                    }
+                };
+            }
             if (properties.TryGetValue("superscript", out var pSup) && IsTruthy(pSup))
                 rProps.VerticalTextAlignment = new VerticalTextAlignment { Val = VerticalPositionValues.Superscript };
             if (properties.TryGetValue("subscript", out var pSub) && IsTruthy(pSub))
@@ -289,8 +303,10 @@ public partial class WordHandler
             newRProps.Highlight = new Highlight { Val = ParseHighlightColor(rHighlight) };
         if (properties.TryGetValue("caps", out var rCaps) && IsTruthy(rCaps))
             newRProps.Caps = new Caps();
-        if (properties.TryGetValue("smallcaps", out var rSmallCaps) && IsTruthy(rSmallCaps))
-            newRProps.SmallCaps = new SmallCaps();
+        if (properties.TryGetValue("smallcaps", out var rSmallCaps) || properties.TryGetValue("smallCaps", out rSmallCaps))
+        {
+            if (IsTruthy(rSmallCaps)) newRProps.SmallCaps = new SmallCaps();
+        }
         if (properties.TryGetValue("dstrike", out var rDstrike) && IsTruthy(rDstrike))
             newRProps.DoubleStrike = new DoubleStrike();
         if (properties.TryGetValue("vanish", out var rVanish) && IsTruthy(rVanish))
@@ -307,6 +323,18 @@ public partial class WordHandler
             newRProps.NoProof = new NoProof();
         if (properties.TryGetValue("rtl", out var rRtl) && IsTruthy(rRtl))
             newRProps.RightToLeftText = new RightToLeftText();
+        if (properties.TryGetValue("vertAlign", out var rVertAlign) || properties.TryGetValue("vertalign", out rVertAlign))
+        {
+            newRProps.VerticalTextAlignment = new VerticalTextAlignment
+            {
+                Val = rVertAlign.ToLowerInvariant() switch
+                {
+                    "superscript" or "super" => VerticalPositionValues.Superscript,
+                    "subscript" or "sub" => VerticalPositionValues.Subscript,
+                    _ => VerticalPositionValues.Baseline
+                }
+            };
+        }
         if (properties.TryGetValue("superscript", out var rSup) && IsTruthy(rSup))
             newRProps.VerticalTextAlignment = new VerticalTextAlignment { Val = VerticalPositionValues.Superscript };
         if (properties.TryGetValue("subscript", out var rSub) && IsTruthy(rSub))

@@ -19,6 +19,7 @@ public partial class ExcelHandler
         // Normalize to case-insensitive lookup so camelCase keys (e.g. minColor) match lowercase lookups
         if (properties != null && properties.Comparer != StringComparer.OrdinalIgnoreCase)
             properties = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
+        properties ??= new Dictionary<string, string>();
 
         parentPath = NormalizeExcelPath(parentPath);
         switch (type.ToLowerInvariant())

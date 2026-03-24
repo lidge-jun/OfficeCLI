@@ -19,6 +19,7 @@ public partial class ExcelHandler
         // Normalize to case-insensitive lookup so camelCase keys match lowercase lookups
         if (properties != null && properties.Comparer != StringComparer.OrdinalIgnoreCase)
             properties = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
+        properties ??= new Dictionary<string, string>();
 
         path = NormalizeExcelPath(path);
         // Handle /namedrange[N] or /namedrange[Name]
@@ -690,7 +691,7 @@ public partial class ExcelHandler
                 }
             }
 
-            sstPart!.SharedStringTable.Save();
+            sstPart!.SharedStringTable!.Save();
             SaveWorksheet(worksheet);
             return unsupported;
         }

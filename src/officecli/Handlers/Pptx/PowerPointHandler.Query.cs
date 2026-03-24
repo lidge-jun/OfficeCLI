@@ -104,7 +104,7 @@ public partial class PowerPointHandler
                 throw new ArgumentException($"Slide {notesSlideIdx} not found (total: {slidePartsN.Count})");
             var slidePartN = slidePartsN[notesSlideIdx - 1];
             if (slidePartN.NotesSlidePart == null)
-                return null;
+                return null!;
             var notesText = GetNotesText(slidePartN.NotesSlidePart);
             return new DocumentNode { Path = path, Type = "notes", Text = notesText };
         }
@@ -157,7 +157,7 @@ public partial class PowerPointHandler
                 Text = paraText
             };
             var qParaPProps = para.ParagraphProperties;
-            if (qParaPProps?.Alignment?.HasValue == true) paraNode.Format["align"] = NormalizeAlignment(qParaPProps.Alignment.InnerText);
+            if (qParaPProps?.Alignment?.HasValue == true) paraNode.Format["align"] = NormalizeAlignment(qParaPProps.Alignment.InnerText!);
             if (qParaPProps?.Indent?.HasValue == true) paraNode.Format["indent"] = FormatEmu(qParaPProps.Indent.Value);
             if (qParaPProps?.LeftMargin?.HasValue == true) paraNode.Format["marginLeft"] = FormatEmu(qParaPProps.LeftMargin.Value);
             if (qParaPProps?.RightMargin?.HasValue == true) paraNode.Format["marginRight"] = FormatEmu(qParaPProps.RightMargin.Value);
@@ -378,7 +378,7 @@ public partial class PowerPointHandler
             var cellParaAlign = cellFirstPara?.ParagraphProperties?.Alignment;
             if (cellParaAlign?.HasValue == true)
             {
-                var align = NormalizeAlignment(cellParaAlign.InnerText);
+                var align = NormalizeAlignment(cellParaAlign.InnerText!);
                 cellNode.Format["alignment"] = align;
                 cellNode.Format["align"] = align;
             }

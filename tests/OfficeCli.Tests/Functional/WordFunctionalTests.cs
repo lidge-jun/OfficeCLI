@@ -873,7 +873,7 @@ public class WordFunctionalTests : IDisposable
         // 3. Get + Verify all properties returned
         var cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
         cell.Text.Should().Be("Full");
-        cell.Format["shd"].Should().Be("#FF0000");
+        cell.Format["fill"].Should().Be("#FF0000");
         cell.Format["alignment"].Should().Be("center");
         cell.Format["valign"].Should().Be("center");
 
@@ -890,7 +890,7 @@ public class WordFunctionalTests : IDisposable
         // 5. Persistence
         Reopen();
         cell = _handler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        cell.Format["shd"].Should().Be("#FF0000");
+        cell.Format["fill"].Should().Be("#FF0000");
         cell.Format["vmerge"].Should().Be("restart");
     }
 
@@ -952,23 +952,23 @@ public class WordFunctionalTests : IDisposable
 
         // 2. Get + Verify
         var node = _handler.Get("/body/p[1]");
-        ((string)node.Format["leftindent"]).Should().Be("720");
+        ((string)node.Format["leftIndent"]).Should().Be("720");
 
         // 3. Set (modify + add right indent and hanging)
         _handler.Set("/body/p[1]", new() { ["leftindent"] = "1440", ["rightindent"] = "720", ["hanging"] = "360" });
 
         // 4. Get + Verify
         node = _handler.Get("/body/p[1]");
-        ((string)node.Format["leftindent"]).Should().Be("1440");
-        ((string)node.Format["rightindent"]).Should().Be("720");
-        ((string)node.Format["hangingindent"]).Should().Be("360");
+        ((string)node.Format["leftIndent"]).Should().Be("1440");
+        ((string)node.Format["rightIndent"]).Should().Be("720");
+        ((string)node.Format["hangingIndent"]).Should().Be("360");
 
         // 5. Persistence
         Reopen();
         node = _handler.Get("/body/p[1]");
-        ((string)node.Format["leftindent"]).Should().Be("1440");
-        ((string)node.Format["rightindent"]).Should().Be("720");
-        ((string)node.Format["hangingindent"]).Should().Be("360");
+        ((string)node.Format["leftIndent"]).Should().Be("1440");
+        ((string)node.Format["rightIndent"]).Should().Be("720");
+        ((string)node.Format["hangingIndent"]).Should().Be("360");
     }
 
     // ==================== Superscript/Subscript Lifecycle ====================
@@ -1009,15 +1009,15 @@ public class WordFunctionalTests : IDisposable
 
         // 2. Get + Verify
         var node = _handler.Get("/body/p[1]");
-        ((bool)node.Format["keepnext"]).Should().BeTrue();
+        ((bool)node.Format["keepNext"]).Should().BeTrue();
 
         // 3. Set (add more flow controls)
         _handler.Set("/body/p[1]", new() { ["keeplines"] = "true", ["pagebreakbefore"] = "true", ["widowcontrol"] = "true" });
 
         // 4. Get + Verify
         node = _handler.Get("/body/p[1]");
-        ((bool)node.Format["keepnext"]).Should().BeTrue();
-        ((bool)node.Format["keeplines"]).Should().BeTrue();
+        ((bool)node.Format["keepNext"]).Should().BeTrue();
+        ((bool)node.Format["keepLines"]).Should().BeTrue();
         ((bool)node.Format["pagebreakbefore"]).Should().BeTrue();
         ((bool)node.Format["widowcontrol"]).Should().BeTrue();
 
@@ -1026,12 +1026,12 @@ public class WordFunctionalTests : IDisposable
 
         // 6. Verify removed
         node = _handler.Get("/body/p[1]");
-        node.Format.Should().NotContainKey("keepnext");
+        node.Format.Should().NotContainKey("keepNext");
 
         // 7. Persistence
         Reopen();
         node = _handler.Get("/body/p[1]");
-        ((bool)node.Format["keeplines"]).Should().BeTrue();
+        ((bool)node.Format["keepLines"]).Should().BeTrue();
         ((bool)node.Format["pagebreakbefore"]).Should().BeTrue();
     }
 

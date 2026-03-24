@@ -118,13 +118,13 @@ public class MixedRegression23 : IDisposable
     {
         _wordHandler.Add("/body", "paragraph", null, new() { ["text"] = "Indent test" });
         _wordHandler.Set("/body/p[1]", new() { ["firstlineindent"] = "2" });
-        var val1 = _wordHandler.Get("/body/p[1]").Format["firstlineindent"]?.ToString();
+        var val1 = _wordHandler.Get("/body/p[1]").Format["firstLineIndent"]?.ToString();
 
         _wordHandler.Set("/body/p[1]", new() { ["firstlineindent"] = val1! });
-        var val2 = _wordHandler.Get("/body/p[1]").Format["firstlineindent"]?.ToString();
+        var val2 = _wordHandler.Get("/body/p[1]").Format["firstLineIndent"]?.ToString();
 
         _wordHandler.Set("/body/p[1]", new() { ["firstlineindent"] = val2! });
-        var val3 = _wordHandler.Get("/body/p[1]").Format["firstlineindent"]?.ToString();
+        var val3 = _wordHandler.Get("/body/p[1]").Format["firstLineIndent"]?.ToString();
 
         val2.Should().Be(val3, "setting Get result back should stabilize (be idempotent)");
     }
@@ -137,11 +137,11 @@ public class MixedRegression23 : IDisposable
         {
             ["text"] = "Via Add", ["firstlineindent"] = "1"
         });
-        var addVal = _wordHandler.Get("/body/p[1]").Format["firstlineindent"]?.ToString();
+        var addVal = _wordHandler.Get("/body/p[1]").Format["firstLineIndent"]?.ToString();
 
         _wordHandler.Add("/body", "paragraph", null, new() { ["text"] = "Via Set" });
         _wordHandler.Set("/body/p[2]", new() { ["firstlineindent"] = "1" });
-        var setVal = _wordHandler.Get("/body/p[2]").Format["firstlineindent"]?.ToString();
+        var setVal = _wordHandler.Get("/body/p[2]").Format["firstLineIndent"]?.ToString();
 
         addVal.Should().Be(setVal,
             "Add and Set should produce identical results for firstlineindent='1'");

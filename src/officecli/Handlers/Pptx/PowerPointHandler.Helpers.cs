@@ -452,9 +452,9 @@ public partial class PowerPointHandler
             var rot = model3d.Descendants().FirstOrDefault(d => d.LocalName == "rot");
             if (rot != null)
             {
-                var ax = rot.GetAttribute("ax", "").Value;
-                var ay = rot.GetAttribute("ay", "").Value;
-                var az = rot.GetAttribute("az", "").Value;
+                var ax = rot.GetAttribute("ax", "").Value ?? "";
+                var ay = rot.GetAttribute("ay", "").Value ?? "";
+                var az = rot.GetAttribute("az", "").Value ?? "";
                 if (!string.IsNullOrEmpty(ax) || !string.IsNullOrEmpty(ay) || !string.IsNullOrEmpty(az))
                 {
                     static string ToDeg(string val) =>

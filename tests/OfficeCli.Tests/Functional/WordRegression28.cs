@@ -298,7 +298,7 @@ public class WordRegression28 : IDisposable
         });
 
         var node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        node.Format["shd"]?.ToString().Should().Be("#FF9900");
+        node.Format["fill"]?.ToString().Should().Be("#FF9900");
         node.Format["valign"]?.ToString().Should().Be("center");
         int.Parse(node.Format["gridspan"]!.ToString()!).Should().Be(2);
         node.Format.Should().ContainKey("nowrap");
@@ -373,11 +373,11 @@ public class WordRegression28 : IDisposable
         node.Format["lineSpacing"]?.ToString().Should().Be("1.5x");
         node.Format.Should().ContainKey("spaceBefore");
         node.Format.Should().ContainKey("spaceAfter");
-        node.Format["leftindent"]?.ToString().Should().Be("720");
-        node.Format["rightindent"]?.ToString().Should().Be("360");
-        node.Format["hangingindent"]?.ToString().Should().Be("480");
-        node.Format.Should().ContainKey("keepnext");
-        node.Format.Should().ContainKey("keeplines");
+        node.Format["leftIndent"]?.ToString().Should().Be("720");
+        node.Format["rightIndent"]?.ToString().Should().Be("360");
+        node.Format["hangingIndent"]?.ToString().Should().Be("480");
+        node.Format.Should().ContainKey("keepNext");
+        node.Format.Should().ContainKey("keepLines");
         node.Format.Should().ContainKey("pagebreakbefore");
         node.Format.Should().ContainKey("widowcontrol");
 

@@ -370,7 +370,7 @@ public class PptxRegression46 : IDisposable
 
         var node = handler.Get("/body/p[1]");
         // Does NodeBuilder report keepNext?
-        node.Format.Should().ContainKey("keepnext",
+        node.Format.Should().ContainKey("keepNext",
             because: "keepNext should be readable after Add");
     }
 
@@ -412,7 +412,7 @@ public class PptxRegression46 : IDisposable
 
         var node = handler.Get("/body/p[1]");
         // Does NodeBuilder report firstLineIndent?
-        node.Format.Should().ContainKey("firstlineindent",
+        node.Format.Should().ContainKey("firstLineIndent",
             because: "firstLineIndent should be readable after Add");
     }
 

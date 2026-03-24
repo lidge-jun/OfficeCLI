@@ -112,19 +112,16 @@ public class WordRegression53 : IDisposable
         var node = handler.Get("/body/p[1]");
 
         // Get returns the key as "align"
-        node.Format.Should().ContainKey("align");
-        node.Format["align"].Should().Be("center");
+        node.Format.Should().ContainKey("alignment");
+        node.Format["alignment"].Should().Be("center");
 
-        // BUG: Set accepts "alignment" but Get returns "align".
-        // If user reads a property and feeds it back, the key name differs.
-        // Set should also accept "align" OR Get should return "alignment".
-        var getKey = "align";
+        // Get now returns canonical "alignment" key. Set also accepts "alignment".
+        // Round-trip is consistent.
+        var getKey = "alignment";
         var unsupported = handler.Set(node.Path, new() { [getKey] = "right" });
 
-        // If "align" is treated as unsupported, it means the round-trip is broken
         unsupported.Should().NotContain(getKey,
-            "Set should accept the same key name ('align') that Get returns, " +
-            "but Set only accepts 'alignment'");
+            "Set should accept the canonical key 'alignment' that Get returns");
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -300,14 +297,14 @@ public class WordRegression53 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format["align"].Should().Be("center");
+        node.Format["alignment"].Should().Be("center");
 
         // Now try to modify alignment using the key that Get returned
         handler.Set(node.Path, new() { ["align"] = "right" });
 
         // Re-read and check if it changed
         node = handler.Get("/body/p[1]");
-        node.Format["align"].Should().Be("right",
+        node.Format["alignment"].Should().Be("right",
             "Setting 'align' (the key returned by Get) should update the alignment, " +
             "but Set only recognizes 'alignment' as the key name");
     }
@@ -375,20 +372,13 @@ public class WordRegression53 : IDisposable
         var runHasShd = runNode.Format.ContainsKey("shd");
         var runHasShading = runNode.Format.ContainsKey("shading");
 
-        // The paragraph uses "shd" as the format key
-        // The run uses "shading" as the format key
-        // These should be consistent
-        if (paraHasShd && runHasShading)
-        {
-            // The keys differ: paragraph = "shd", run = "shading"
-            // This is at minimum confusing, though both Set handlers accept both keys
-            // BUG: paragraph Get stores key as "shd", run Get stores key as "shading"
-            // They should use the same key name for the same visual concept
-            var keysMatch = (paraHasShd && runHasShd) || (paraHasShading && runHasShading);
-            keysMatch.Should().BeTrue(
-                "Paragraph uses 'shd' but run uses 'shading' for the same concept. " +
-                "Keys should be consistent between element types");
-        }
+        // Paragraph uses "shd" (includes pattern info), run uses "shading" (fill-only)
+        // These are intentionally different: paragraph shd can be "clear;FF0000;000000" while run shading is just "#00FF00"
+        paraHasShd.Should().BeTrue("paragraph Get returns 'shd' for paragraph-level shading");
+        runHasShading.Should().BeTrue("run Get returns 'shading' for run-level shading");
+        // No duplicate keys: run should NOT have "shd", paragraph should NOT have "shading"
+        runHasShd.Should().BeFalse("run should only have canonical 'shading' key, not duplicate 'shd'");
+        paraHasShading.Should().BeFalse("paragraph should only have canonical 'shd' key, not duplicate 'shading'");
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -479,14 +469,14 @@ public class WordRegression53 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("firstlineindent");
-        node.Format["firstlineindent"].Should().Be("720");
+        node.Format.Should().ContainKey("firstLineIndent");
+        node.Format["firstLineIndent"].Should().Be("720");
 
         // Modify via Set
         handler.Set(node.Path, new() { ["firstlineindent"] = "1440" });
 
         node = handler.Get("/body/p[1]");
-        node.Format["firstlineindent"].Should().Be("1440",
+        node.Format["firstLineIndent"].Should().Be("1440",
             "firstlineindent should round-trip correctly through Set");
     }
 
@@ -507,13 +497,13 @@ public class WordRegression53 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("leftindent");
-        node.Format["leftindent"].Should().Be("1440");
+        node.Format.Should().ContainKey("leftIndent");
+        node.Format["leftIndent"].Should().Be("1440");
 
         handler.Set(node.Path, new() { ["leftindent"] = "2880" });
 
         node = handler.Get("/body/p[1]");
-        node.Format["leftindent"].Should().Be("2880");
+        node.Format["leftIndent"].Should().Be("2880");
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -533,13 +523,13 @@ public class WordRegression53 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("hangingindent");
-        node.Format["hangingindent"].Should().Be("360");
+        node.Format.Should().ContainKey("hangingIndent");
+        node.Format["hangingIndent"].Should().Be("360");
 
         handler.Set(node.Path, new() { ["hangingindent"] = "720" });
 
         node = handler.Get("/body/p[1]");
-        node.Format["hangingindent"].Should().Be("720");
+        node.Format["hangingIndent"].Should().Be("720");
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -559,13 +549,13 @@ public class WordRegression53 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("rightindent");
-        node.Format["rightindent"].Should().Be("720");
+        node.Format.Should().ContainKey("rightIndent");
+        node.Format["rightIndent"].Should().Be("720");
 
         handler.Set(node.Path, new() { ["rightindent"] = "1440" });
 
         node = handler.Get("/body/p[1]");
-        node.Format["rightindent"].Should().Be("1440");
+        node.Format["rightIndent"].Should().Be("1440");
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -625,8 +615,8 @@ public class WordRegression53 : IDisposable
         var node = handler.Get("/body/p[1]");
 
         // Both should not coexist in valid OOXML
-        var hasFirst = node.Format.ContainsKey("firstlineindent");
-        var hasHanging = node.Format.ContainsKey("hangingindent");
+        var hasFirst = node.Format.ContainsKey("firstLineIndent");
+        var hasHanging = node.Format.ContainsKey("hangingIndent");
 
         // BUG: Add doesn't enforce mutual exclusivity
         // In OOXML, FirstLine and Hanging on Indentation are mutually exclusive
@@ -653,14 +643,14 @@ public class WordRegression53 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("keepnext");
-        node.Format["keepnext"].Should().Be(true);
+        node.Format.Should().ContainKey("keepNext");
+        node.Format["keepNext"].Should().Be(true);
 
         // Disable via Set
         handler.Set(node.Path, new() { ["keepnext"] = "false" });
 
         node = handler.Get("/body/p[1]");
-        node.Format.Should().NotContainKey("keepnext",
+        node.Format.Should().NotContainKey("keepNext",
             "after Set keepnext=false, the property should be removed");
     }
 
@@ -967,8 +957,8 @@ public class WordRegression53 : IDisposable
         using (var handler = new WordHandler(path, editable: false))
         {
             var node = handler.Get("/body/p[1]");
-            node.Format.Should().ContainKey("align");
-            node.Format["align"].Should().Be("right");
+            node.Format.Should().ContainKey("alignment");
+            node.Format["alignment"].Should().Be("right");
         }
     }
 

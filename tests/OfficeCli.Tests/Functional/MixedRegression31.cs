@@ -284,27 +284,27 @@ public class MixedRegression31 : IDisposable
         _wordHandler.Add("/", "paragraph", null, new()
         {
             ["text"] = "Indented text",
-            ["leftindent"] = "720"
+            ["leftIndent"] = "720"
         });
 
         // 2. Get + Verify initial state
         var node1 = _wordHandler.Get("/body/p[1]");
-        node1.Format.Should().ContainKey("leftindent");
-        node1.Format["leftindent"].ToString().Should().Be("720");
+        node1.Format.Should().ContainKey("leftIndent");
+        node1.Format["leftIndent"].ToString().Should().Be("720");
 
         // 3. Set (modify indentation)
-        _wordHandler.Set("/body/p[1]", new() { ["leftindent"] = "1440" });
+        _wordHandler.Set("/body/p[1]", new() { ["leftIndent"] = "1440" });
 
         // 4. Get + Verify modification
         var node2 = _wordHandler.Get("/body/p[1]");
-        node2.Format.Should().ContainKey("leftindent");
-        node2.Format["leftindent"].ToString().Should().Be("1440");
+        node2.Format.Should().ContainKey("leftIndent");
+        node2.Format["leftIndent"].ToString().Should().Be("1440");
 
         // 5. Reopen + Verify persistence
         ReopenWord();
         var node3 = _wordHandler.Get("/body/p[1]");
-        node3.Format.Should().ContainKey("leftindent");
-        node3.Format["leftindent"].ToString().Should().Be("1440");
+        node3.Format.Should().ContainKey("leftIndent");
+        node3.Format["leftIndent"].ToString().Should().Be("1440");
     }
 
     // EDGE CASE: Word paragraph spacing round-trip.

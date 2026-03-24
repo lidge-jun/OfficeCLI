@@ -859,16 +859,16 @@ public class WordRegression49 : IDisposable
         });
 
         var node1 = handler.Get("/body/p[1]");
-        node1.Format.Should().ContainKey("keepnext",
-            because: "keepnext was set to true during Add");
+        node1.Format.Should().ContainKey("keepNext",
+            because: "keepNext was set to true during Add");
 
         // Set keepnext to false
         handler.Set("/body/p[1]", new() { ["keepnext"] = "false" });
 
         var node2 = handler.Get("/body/p[1]");
 
-        node2.Format.ContainsKey("keepnext").Should().BeFalse(
-            because: "After setting keepnext to false, it should not appear in Format. " +
+        node2.Format.ContainsKey("keepNext").Should().BeFalse(
+            because: "After setting keepNext to false, it should not appear in Format. " +
                      "keepnext=false removes the KeepNext element, and Get only reports it when present");
     }
 

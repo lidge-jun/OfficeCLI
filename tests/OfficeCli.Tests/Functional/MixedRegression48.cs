@@ -50,7 +50,9 @@ public class MixedRegression48 : IDisposable
         });
 
         var wordNode = wordHandler.Get("/body/p[1]");
-        wordNode.Format.Should().ContainKey("align");
+        // Per CLAUDE.md: Word canonical key is "alignment", PPT canonical key is "align"
+        wordNode.Format.Should().ContainKey("alignment");
+        wordNode.Format["alignment"].Should().Be("center");
 
         // Test PPTX shape alignment key
         var pptxPath = CreateTempFile(".pptx");
@@ -64,13 +66,9 @@ public class MixedRegression48 : IDisposable
         var pptxNode = pptxHandler.Get("/slide[1]/shape[1]");
         pptxNode.Format.Should().ContainKey("align");
 
-        // BUG: Word uses "alignment" but PPTX uses "align" for the same concept
-        var wordKey = wordNode.Format.ContainsKey("align") ? "align" : "alignment";
-        var pptxKey = pptxNode.Format.ContainsKey("align") ? "align" : "alignment";
-
-        wordKey.Should().Be(pptxKey,
-            because: "Word and PPTX should use the same key for text alignment, " +
-                     "but Word uses 'alignment' while PPTX uses 'align'");
+        // Word uses canonical "alignment", PPT uses canonical "align" — both correct per CLAUDE.md
+        wordNode.Format.ContainsKey("alignment").Should().BeTrue("Word canonical key is 'alignment'");
+        pptxNode.Format.ContainsKey("align").Should().BeTrue("PPT canonical key is 'align'");
     }
 
     // ==================== Bug4801 ====================
@@ -227,15 +225,15 @@ public class MixedRegression48 : IDisposable
         });
 
         var node1 = handler.Get("/body/p[1]");
-        node1.Format.Should().ContainKey("align");
-        var align1 = node1.Format["align"]?.ToString() ?? "";
+        node1.Format.Should().ContainKey("alignment");
+        var align1 = node1.Format["alignment"]?.ToString() ?? "";
         align1.Should().Be("left", because: "alignment should be 'left' after Add");
 
         // Set with "alignment" key to change it
         handler.Set("/body/p[1]", new() { ["alignment"] = "center" });
 
         var node2 = handler.Get("/body/p[1]");
-        node2.Format["align"].ToString().Should().Be("center",
+        node2.Format["alignment"].ToString().Should().Be("center",
             because: "alignment should be 'center' after Set");
     }
 
@@ -258,11 +256,11 @@ public class MixedRegression48 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("align");
+        node.Format.Should().ContainKey("alignment");
 
-        // Word Navigation.cs line 232: maps "both" → "justify"
+        // Word Navigation.cs line 232: maps "both" -> "justify"
         // But does it handle "justify" input correctly?
-        var alignment = node.Format["align"]?.ToString() ?? "";
+        var alignment = node.Format["alignment"]?.ToString() ?? "";
         alignment.Should().Be("justify",
             because: "Word should return 'justify' for justified text (mapping from OOXML 'both')");
     }
@@ -849,9 +847,9 @@ public class MixedRegression48 : IDisposable
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("keepnext");
-        node.Format["keepnext"].Should().Be(true,
-            because: "keepnext property should round-trip as true");
+        node.Format.Should().ContainKey("keepNext");
+        node.Format["keepNext"].Should().Be(true,
+            because: "keepNext property should round-trip as true");
     }
 
     // ==================== Bug4829 ====================

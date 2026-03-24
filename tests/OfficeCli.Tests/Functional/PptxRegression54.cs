@@ -774,15 +774,15 @@ public class PptxRegression54 : IDisposable
 
         var node = handler.Get("/body/p[1]");
 
-        // Get returns "align" — different key name from Add's "alignment"
-        node.Format.Should().ContainKey("align");
-        node.Format["align"].Should().Be("justify");
+        // Get returns canonical "alignment" key for Word
+        node.Format.Should().ContainKey("alignment");
+        node.Format["alignment"].Should().Be("justify");
 
-        // Add now accepts both "alignment" and "align" — Get returns "align"
-        var addKey = "align";
-        var getKey = "align";
+        // Add accepts both "alignment" and "align" — Get returns canonical "alignment"
+        var addKey = "alignment";
+        var getKey = "alignment";
         addKey.Should().Be(getKey,
-            "Add accepts 'align' (and 'alignment'). Get returns 'align'. Both are consistent.");
+            "Add accepts 'alignment' (and 'align'). Get returns 'alignment'. Both are consistent.");
     }
 
     // ────────────────────────────────────────────────────────────────────────

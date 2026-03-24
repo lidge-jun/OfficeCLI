@@ -339,7 +339,7 @@ public class WordRegression51 : IDisposable
     }
 
     // ==================== Bug5115 ====================
-    // Word paragraph "firstlineindent" round-trip.
+    // Word paragraph "firstLineIndent" round-trip.
     [Fact]
     public void Bug5115_WordParagraphFirstLineIndentRoundTrip()
     {
@@ -350,19 +350,19 @@ public class WordRegression51 : IDisposable
         handler.Add("/", "paragraph", null, new()
         {
             ["text"] = "indented",
-            ["firstlineindent"] = "720"
+            ["firstLineIndent"] = "720"
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("firstlineindent");
-        if (node.Format.ContainsKey("firstlineindent"))
+        node.Format.Should().ContainKey("firstLineIndent");
+        if (node.Format.ContainsKey("firstLineIndent"))
         {
-            node.Format["firstlineindent"]?.ToString().Should().Be("720");
+            node.Format["firstLineIndent"]?.ToString().Should().Be("720");
         }
     }
 
     // ==================== Bug5116 ====================
-    // Word paragraph "hangingindent" round-trip.
+    // Word paragraph "hangingIndent" round-trip.
     [Fact]
     public void Bug5116_WordParagraphHangingIndentRoundTrip()
     {
@@ -373,11 +373,11 @@ public class WordRegression51 : IDisposable
         handler.Add("/", "paragraph", null, new()
         {
             ["text"] = "hanging",
-            ["hangingindent"] = "720"
+            ["hangingIndent"] = "720"
         });
 
         var node = handler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("hangingindent");
+        node.Format.Should().ContainKey("hangingIndent");
     }
 
     // ==================== Bug5117 ====================

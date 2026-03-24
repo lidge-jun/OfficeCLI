@@ -1089,8 +1089,8 @@ public class PptxRegression32 : IDisposable
 
         var node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
         // Should be sanitized to 6-char RGB (strip leading alpha bytes, AARRGGBB → RRGGBB)
-        node.Format.Should().ContainKey("shd");
-        node.Format["shd"].ToString().Should().Be("#FF0000",
+        node.Format.Should().ContainKey("fill");
+        node.Format["fill"].ToString().Should().Be("#FF0000",
             "8-char AARRGGBB hex should extract 6-char RGB for OOXML");
 
         ReopenWord();

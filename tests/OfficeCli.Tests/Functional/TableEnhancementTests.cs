@@ -79,15 +79,15 @@ public class TableEnhancementTests : IDisposable
         // 2. Get + Verify (no gradient yet)
         var node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
         node.Text.Should().Be("Gradient Cell");
-        node.Format.Should().NotContainKey("shd");
+        node.Format.Should().NotContainKey("fill");
 
         // 3. Set gradient
         _wordHandler.Set("/body/tbl[1]/tr[1]/tc[1]", new() { ["shd"] = "gradient;FF0000;0000FF;90" });
 
         // 4. Get + Verify gradient applied
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        node.Format.Should().ContainKey("shd");
-        var shd = node.Format["shd"].ToString()!;
+        node.Format.Should().ContainKey("fill");
+        var shd = node.Format["fill"].ToString()!;
         shd.Should().Contain("gradient");
         shd.Should().Contain("#FF0000");
         shd.Should().Contain("#0000FF");
@@ -98,7 +98,7 @@ public class TableEnhancementTests : IDisposable
 
         // 6. Get + Verify modification
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        shd = node.Format["shd"].ToString()!;
+        shd = node.Format["fill"].ToString()!;
         shd.Should().Contain("#00FF00");
         shd.Should().Contain("#FF00FF");
         shd.Should().Contain("180");
@@ -107,7 +107,7 @@ public class TableEnhancementTests : IDisposable
         ReopenWord();
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
         node.Text.Should().Be("Gradient Cell");
-        shd = node.Format["shd"].ToString()!;
+        shd = node.Format["fill"].ToString()!;
         shd.Should().Contain("gradient");
         shd.Should().Contain("#00FF00");
         shd.Should().Contain("#FF00FF");
@@ -115,12 +115,12 @@ public class TableEnhancementTests : IDisposable
         // 8. Modify: override gradient with solid fill
         _wordHandler.Set("/body/tbl[1]/tr[1]/tc[1]", new() { ["shd"] = "solid;AABBCC" });
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        node.Format["shd"].ToString().Should().Be("#AABBCC");
+        node.Format["fill"].ToString().Should().Be("#AABBCC");
 
         // 9. Verify solid persists
         ReopenWord();
         node = _wordHandler.Get("/body/tbl[1]/tr[1]/tc[1]");
-        node.Format["shd"].ToString().Should().Be("#AABBCC");
+        node.Format["fill"].ToString().Should().Be("#AABBCC");
     }
 
     [Fact]

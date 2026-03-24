@@ -118,8 +118,8 @@ public class WordRegression21 : IDisposable
         });
 
         var para = _wordHandler.Get("/body/p[1]");
-        para.Format.Should().ContainKey("leftindent",
-            "paragraph Get should expose leftindent when it's set");
+        para.Format.Should().ContainKey("leftIndent",
+            "paragraph Get should expose leftIndent when it's set");
     }
 
 

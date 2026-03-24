@@ -367,14 +367,14 @@ public class BugReproTests : IDisposable
 
         _wordHandler.Set("/body/p[1]", new() { ["firstlineindent"] = "2" });
         var node = _wordHandler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("firstlineindent");
+        node.Format.Should().ContainKey("firstLineIndent");
 
         // Set hanging — should clear firstline
         _wordHandler.Set("/body/p[1]", new() { ["hanging"] = "720" });
         node = _wordHandler.Get("/body/p[1]");
-        node.Format.Should().ContainKey("hangingindent");
-        node.Format.Should().NotContainKey("firstlineindent",
-            "Hanging should clear firstlineindent (mutually exclusive)");
+        node.Format.Should().ContainKey("hangingIndent");
+        node.Format.Should().NotContainKey("firstLineIndent",
+            "Hanging should clear firstLineIndent (mutually exclusive)");
     }
 
     [Fact]

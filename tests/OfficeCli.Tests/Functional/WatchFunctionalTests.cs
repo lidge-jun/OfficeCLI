@@ -187,8 +187,9 @@ public class WatchFunctionalTests : IDisposable
             try
             {
                 await server.WaitForConnectionAsync(cts.Token);
-                using var reader = new StreamReader(server, Encoding.UTF8, leaveOpen: true);
-                using var writer = new StreamWriter(server, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+                var noBom = new UTF8Encoding(false);
+                using var reader = new StreamReader(server, noBom, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+                using var writer = new StreamWriter(server, noBom, leaveOpen: true) { AutoFlush = true };
 
                 receivedMessage = await reader.ReadLineAsync(cts.Token);
                 await writer.WriteLineAsync("ok".AsMemory(), cts.Token);
@@ -234,8 +235,9 @@ public class WatchFunctionalTests : IDisposable
             try
             {
                 await server.WaitForConnectionAsync(cts.Token);
-                using var reader = new StreamReader(server, Encoding.UTF8, leaveOpen: true);
-                using var writer = new StreamWriter(server, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+                var noBom = new UTF8Encoding(false);
+                using var reader = new StreamReader(server, noBom, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+                using var writer = new StreamWriter(server, noBom, leaveOpen: true) { AutoFlush = true };
 
                 receivedMessage = await reader.ReadLineAsync(cts.Token);
                 await writer.WriteLineAsync("ok".AsMemory(), cts.Token);
@@ -360,8 +362,9 @@ public class WatchFunctionalTests : IDisposable
             try
             {
                 await server.WaitForConnectionAsync(cts.Token);
-                using var reader = new StreamReader(server, Encoding.UTF8, leaveOpen: true);
-                using var writer = new StreamWriter(server, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+                var noBom = new UTF8Encoding(false);
+                using var reader = new StreamReader(server, noBom, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+                using var writer = new StreamWriter(server, noBom, leaveOpen: true) { AutoFlush = true };
                 receivedMessage = await reader.ReadLineAsync(cts.Token);
                 await writer.WriteLineAsync("ok".AsMemory(), cts.Token);
             }

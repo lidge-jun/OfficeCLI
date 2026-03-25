@@ -181,10 +181,29 @@ public partial class PowerPointHandler
 
         // Text margins
         var bodyPr = shape.TextBody?.Elements<Drawing.BodyProperties>().FirstOrDefault();
-        var lIns = bodyPr?.LeftInset?.Value ?? 91440;
-        var tIns = bodyPr?.TopInset?.Value ?? 45720;
-        var rIns = bodyPr?.RightInset?.Value ?? 91440;
-        var bIns = bodyPr?.BottomInset?.Value ?? 45720;
+        long lIns = bodyPr?.LeftInset?.Value ?? 91440;
+        long tIns = bodyPr?.TopInset?.Value ?? 45720;
+        long rIns = bodyPr?.RightInset?.Value ?? 91440;
+        long bIns = bodyPr?.BottomInset?.Value ?? 45720;
+
+        // For clip-path shapes (non-rectangular), add extra inner padding
+        // so text doesn't appear outside the visible shape area.
+        if (!string.IsNullOrEmpty(clipPathCss) && presetGeom?.Preset?.HasValue == true)
+        {
+            var insetPct = GetShapeTextInsetPercent(presetGeom.Preset!.InnerText!);
+            if (insetPct > 0)
+            {
+                var extraL = (long)(cx * insetPct);
+                var extraT = (long)(cy * insetPct);
+                var extraR = (long)(cx * insetPct);
+                var extraB = (long)(cy * insetPct);
+                lIns = Math.Max(lIns, extraL);
+                tIns = Math.Max(tIns, extraT);
+                rIns = Math.Max(rIns, extraR);
+                bIns = Math.Max(bIns, extraB);
+            }
+        }
+
         styles.Add($"padding:{EmuToCm(tIns)}cm {EmuToCm(rIns)}cm {EmuToCm(bIns)}cm {EmuToCm(lIns)}cm");
 
         // Vertical alignment class
@@ -245,7 +264,11 @@ public partial class PowerPointHandler
                 ? $" style=\"{flipStyle}{(string.IsNullOrEmpty(clipPathCss) ? "" : "position:relative;")}\""
                 : "";
             sb.Append($"<div class=\"shape-text valign-{valign}\"{textStyle}>");
-            RenderTextBody(sb, shape.TextBody, themeColors);
+
+            // Resolve placeholder-based default font size for inheritance
+            int? phDefaultFontSize = ResolvePlaceholderFontSize(shape, part);
+
+            RenderTextBody(sb, shape.TextBody, themeColors, phDefaultFontSize);
             sb.Append("</div>");
         }
 
@@ -383,6 +406,114 @@ public partial class PowerPointHandler
             // Generic placeholder — use body area
             return (margin, slideH / 4, contentW, slideH / 2);
         }
+
+        return null;
+    }
+
+    // ==================== Shape Text Inset for Clip-Path Shapes ====================
+
+    /// <summary>
+    /// Returns the approximate inset percentage (0-1) for text inside a clip-path shape.
+    /// This keeps text within the visible shape interior (e.g. inside the diamond, not in the corners).
+    /// </summary>
+    private static double GetShapeTextInsetPercent(string preset) => preset switch
+    {
+        "diamond" => 0.22,
+        "triangle" or "isosTriangle" => 0.20,
+        "rtTriangle" => 0.15,
+        "star4" => 0.28,
+        "star5" => 0.28,
+        "star6" => 0.25,
+        "star8" or "star10" or "star12" => 0.20,
+        "hexagon" => 0.10,
+        "pentagon" => 0.12,
+        "heptagon" or "octagon" or "decagon" or "dodecagon" => 0.08,
+        "parallelogram" => 0.12,
+        "trapezoid" => 0.12,
+        "rightArrow" or "leftArrow" or "notchedRightArrow" => 0.10,
+        "upArrow" or "downArrow" => 0.10,
+        "chevron" or "homePlate" => 0.10,
+        "heart" => 0.15,
+        "plus" or "cross" => 0.10,
+        "cloud" or "cloudCallout" => 0.12,
+        _ => 0
+    };
+
+    // ==================== Placeholder Font Size Inheritance ====================
+
+    /// <summary>
+    /// Resolve the default font size for a placeholder shape by walking the inheritance chain:
+    /// shape listStyle → slide layout placeholder → slide master placeholder → master text styles → OOXML defaults.
+    /// Returns font size in hundredths of a point (e.g. 4400 = 44pt), or null if no override.
+    /// </summary>
+    private static int? ResolvePlaceholderFontSize(Shape shape, OpenXmlPart part)
+    {
+        var ph = shape.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties
+            ?.GetFirstChild<PlaceholderShape>();
+        if (ph == null) return null; // Not a placeholder
+
+        // 1. Check shape's own list style for level 1 default run properties
+        var lstStyle = shape.TextBody?.GetFirstChild<Drawing.ListStyle>();
+        var lvl1 = lstStyle?.GetFirstChild<Drawing.Level1ParagraphProperties>();
+        var defRp = lvl1?.GetFirstChild<Drawing.DefaultRunProperties>();
+        if (defRp?.FontSize?.HasValue == true)
+            return defRp.FontSize.Value;
+
+        // Determine placeholder category
+        var phType = ph.Type?.HasValue == true ? ph.Type.Value : PlaceholderValues.Body;
+        bool isTitle = phType == PlaceholderValues.Title || phType == PlaceholderValues.CenteredTitle;
+        bool isSubTitle = phType == PlaceholderValues.SubTitle;
+
+        // 2. Check layout and master placeholder matching shapes for inherited font size
+        if (part is SlidePart slidePart)
+        {
+            var layoutTree = slidePart.SlideLayoutPart?.SlideLayout?.CommonSlideData?.ShapeTree;
+            var masterTree = slidePart.SlideLayoutPart?.SlideMasterPart?.SlideMaster?.CommonSlideData?.ShapeTree;
+
+            foreach (var tree in new[] { layoutTree, masterTree })
+            {
+                if (tree == null) continue;
+                foreach (var candidate in tree.Elements<Shape>())
+                {
+                    var cPh = candidate.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties
+                        ?.GetFirstChild<PlaceholderShape>();
+                    if (cPh == null) continue;
+                    if (!PlaceholderMatches(ph, cPh)) continue;
+
+                    // Check candidate's list style
+                    var cLstStyle = candidate.TextBody?.GetFirstChild<Drawing.ListStyle>();
+                    var cLvl1 = cLstStyle?.GetFirstChild<Drawing.Level1ParagraphProperties>();
+                    var cDefRp = cLvl1?.GetFirstChild<Drawing.DefaultRunProperties>();
+                    if (cDefRp?.FontSize?.HasValue == true)
+                        return cDefRp.FontSize.Value;
+                }
+            }
+
+            // 3. Check master text styles (titleStyle for titles, bodyStyle for body, otherStyle for others)
+            var masterTxStyles = slidePart.SlideLayoutPart?.SlideMasterPart?.SlideMaster?.TextStyles;
+            if (masterTxStyles != null)
+            {
+                OpenXmlCompositeElement? styleList = null;
+                if (isTitle)
+                    styleList = masterTxStyles.TitleStyle;
+                else if (isSubTitle || phType == PlaceholderValues.Body || phType == PlaceholderValues.Object)
+                    styleList = masterTxStyles.BodyStyle;
+                else
+                    styleList = masterTxStyles.OtherStyle;
+
+                if (styleList != null)
+                {
+                    var sLvl1 = styleList.GetFirstChild<Drawing.Level1ParagraphProperties>();
+                    var sDefRp = sLvl1?.GetFirstChild<Drawing.DefaultRunProperties>();
+                    if (sDefRp?.FontSize?.HasValue == true)
+                        return sDefRp.FontSize.Value;
+                }
+            }
+        }
+
+        // 4. OOXML spec defaults: Title=44pt, SubTitle=32pt, Body=24pt
+        if (isTitle) return 4400;
+        if (isSubTitle) return 3200;
 
         return null;
     }

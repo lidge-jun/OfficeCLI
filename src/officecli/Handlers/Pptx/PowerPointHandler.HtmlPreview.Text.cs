@@ -14,7 +14,8 @@ public partial class PowerPointHandler
 {
     // ==================== Text Rendering ====================
 
-    private static void RenderTextBody(StringBuilder sb, OpenXmlElement textBody, Dictionary<string, string> themeColors)
+    private static void RenderTextBody(StringBuilder sb, OpenXmlElement textBody, Dictionary<string, string> themeColors,
+        int? defaultFontSizeHundredths = null)
     {
         foreach (var para in textBody.Elements<Drawing.Paragraph>())
         {
@@ -102,7 +103,7 @@ public partial class PowerPointHandler
             {
                 foreach (var run in runs)
                 {
-                    RenderRun(sb, run, themeColors);
+                    RenderRun(sb, run, themeColors, defaultFontSizeHundredths);
                 }
             }
 
@@ -114,7 +115,8 @@ public partial class PowerPointHandler
         }
     }
 
-    private static void RenderRun(StringBuilder sb, Drawing.Run run, Dictionary<string, string> themeColors)
+    private static void RenderRun(StringBuilder sb, Drawing.Run run, Dictionary<string, string> themeColors,
+        int? defaultFontSizeHundredths = null)
     {
         var text = run.Text?.Text ?? "";
         if (string.IsNullOrEmpty(text)) return;
@@ -130,9 +132,11 @@ public partial class PowerPointHandler
             if (font != null && !font.StartsWith("+", StringComparison.Ordinal))
                 styles.Add(CssFontFamilyWithFallback(font));
 
-            // Size
+            // Size — use explicit run size, fall back to placeholder default
             if (rp.FontSize?.HasValue == true)
                 styles.Add($"font-size:{rp.FontSize.Value / 100.0:0.##}pt");
+            else if (defaultFontSizeHundredths.HasValue)
+                styles.Add($"font-size:{defaultFontSizeHundredths.Value / 100.0:0.##}pt");
 
             // Bold
             if (rp.Bold?.Value == true)

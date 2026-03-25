@@ -368,7 +368,6 @@ public partial class PowerPointHandler
             // Callouts
             "wedgeRoundRectCallout" => "border-radius:6px",
             "wedgeRectCallout" or "wedgeEllipseCallout" => "",
-            "cloudCallout" => "border-radius:50%",
 
             // Crosses and plus
             "plus" or "cross" => "clip-path:polygon(33% 0,67% 0,67% 33%,100% 33%,100% 67%,67% 67%,67% 100%,33% 100%,33% 67%,0 67%,0 33%,33% 33%)",
@@ -376,8 +375,9 @@ public partial class PowerPointHandler
             // Heart (polygon approximation)
             "heart" => "clip-path:polygon(50% 18%,65% 0,85% 0,100% 15%,100% 35%,50% 100%,0 35%,0 15%,15% 0,35% 0)",
 
-            // Cloud (rounded blob)
-            "cloud" or "cloudCallout" => "border-radius:50% 50% 45% 55% / 60% 40% 55% 45%",
+            // Cloud — SVG-based clip-path for realistic cloud bumps
+            "cloud" => "clip-path:path('M 25 80 Q 0 80 5 60 Q 0 45 15 35 Q 10 15 30 15 Q 35 0 55 5 Q 70 0 78 15 Q 95 10 95 30 Q 100 45 90 55 Q 100 70 85 78 Q 80 95 60 90 Q 45 100 35 90 Z')",
+            "cloudCallout" => "clip-path:path('M 25 80 Q 0 80 5 60 Q 0 45 15 35 Q 10 15 30 15 Q 35 0 55 5 Q 70 0 78 15 Q 95 10 95 30 Q 100 45 90 55 Q 100 70 85 78 Q 80 95 60 90 Q 45 100 35 90 Z')",
 
             // Smiley (circle)
             "smileyFace" or "smiley" => "border-radius:50%",

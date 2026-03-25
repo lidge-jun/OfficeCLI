@@ -510,7 +510,7 @@ public partial class PowerPointHandler
 
         var cx = svgW / 2.0;
         var cy = svgH / 2.0;
-        var r = Math.Min(svgW, svgH) * 0.38;
+        var r = Math.Min(svgW, svgH) * 0.44;
         var innerR = r * holeRatio;
         var startAngle = -Math.PI / 2;
 

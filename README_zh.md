@@ -19,6 +19,16 @@ OfficeCLI 是一个免费、开源的命令行工具，专为 AI 智能体设计
 
 <p align="center"><em>在 <a href="https://github.com/iOfficeAI/AionUi">AionUi</a> 上使用 OfficeCLI 的 PPT 制作过程</em></p>
 
+## AI 智能体接入
+
+把这行粘贴到你的 AI 智能体对话框 — 它会自动读取技能文件并完成安装：
+
+```
+curl -fsSL https://officecli.ai/SKILL.md
+```
+
+就这一步。技能文件会教智能体如何安装二进制文件并使用所有命令。
+
 ## 安装
 
 OfficeCLI 是单一可执行文件 — 无运行时依赖。
@@ -171,24 +181,7 @@ officecli raw-set report.docx document \
 
 ## AI 集成
 
-OfficeCLI 提供三种方式接入 AI 智能体：
-
-### 1. 技能安装（推荐 CLI 智能体使用）
-
-安装技能定义，让智能体自动发现 OfficeCLI 能力：
-
-```bash
-officecli skills all       # 自动检测并安装到所有客户端
-officecli skills claude    # Claude Code
-officecli skills copilot   # GitHub Copilot
-officecli skills codex     # OpenAI Codex
-officecli skills cursor    # Cursor
-officecli skills windsurf  # Windsurf
-```
-
-也可以直接提供技能文件：`curl -fsSL https://officecli.ai/SKILL.md`
-
-### 2. MCP 服务器（协议级集成）
+### MCP 服务器
 
 内置 [MCP](https://modelcontextprotocol.io) 服务器 — 一条命令注册：
 
@@ -202,7 +195,7 @@ officecli mcp list         # 查看注册状态
 
 通过 JSON-RPC 暴露所有文档操作 — 无需 shell 访问。
 
-### 3. 直接 CLI 调用（任意语言）
+### 直接 CLI 调用（任意语言）
 
 ```python
 # Python

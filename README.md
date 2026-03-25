@@ -19,6 +19,16 @@ OfficeCLI is a free, open-source command-line tool for AI agents to read, edit, 
 
 <p align="center"><em>PPT creation process using OfficeCLI on <a href="https://github.com/iOfficeAI/AionUi">AionUi</a></em></p>
 
+## For AI Agents
+
+Paste this into your AI agent's chat — it will read the skill file and install everything automatically:
+
+```
+curl -fsSL https://officecli.ai/SKILL.md
+```
+
+That's it. The skill file teaches the agent how to install the binary and use all commands.
+
 ## Installation
 
 OfficeCLI is a single binary — no runtime, no dependencies.
@@ -171,24 +181,7 @@ officecli raw-set report.docx document \
 
 ## AI Integration
 
-OfficeCLI offers three ways to connect with AI agents:
-
-### 1. Skills (recommended for CLI agents)
-
-Install skill definitions so agents discover OfficeCLI capabilities automatically:
-
-```bash
-officecli skills all       # Auto-detect and install for all clients
-officecli skills claude    # Claude Code
-officecli skills copilot   # GitHub Copilot
-officecli skills codex     # OpenAI Codex
-officecli skills cursor    # Cursor
-officecli skills windsurf  # Windsurf
-```
-
-Or feed the skill file directly: `curl -fsSL https://officecli.ai/SKILL.md`
-
-### 2. MCP Server (for protocol-based agents)
+### MCP Server
 
 Built-in [MCP](https://modelcontextprotocol.io) server — register with one command:
 
@@ -202,7 +195,7 @@ officecli mcp list         # Check registration status
 
 Exposes all document operations as tools over JSON-RPC — no shell access needed.
 
-### 3. Direct CLI (from any language)
+### Direct CLI (from any language)
 
 ```python
 # Python

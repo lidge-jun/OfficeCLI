@@ -65,38 +65,42 @@ if ($currentPath -notlike "*$installDir*") {
     Write-Host "Added $installDir to PATH (restart your terminal to take effect)."
 }
 
-# Step 4: Install AI agent skills for detected tools
-$skillTargets = @()
-$tools = @{
-    "$env:USERPROFILE\.claude" = "Claude Code"
-    "$env:USERPROFILE\.copilot" = "GitHub Copilot"
-    "$env:USERPROFILE\.agents" = "Codex CLI"
-    "$env:USERPROFILE\.cursor" = "Cursor"
-    "$env:USERPROFILE\.windsurf" = "Windsurf"
-    "$env:USERPROFILE\.minimax" = "MiniMax CLI"
-    "$env:USERPROFILE\.openclaw" = "OpenClaw"
-    "$env:USERPROFILE\.nanobot\workspace" = "NanoBot"
-    "$env:USERPROFILE\.zeroclaw\workspace" = "ZeroClaw"
-}
-foreach ($dir in $tools.Keys) {
-    if (Test-Path $dir) {
-        $skillTargets += "$dir\skills\officecli"
-        Write-Host "$($tools[$dir]) detected."
+# Step 4: Install AI agent skills (first install only)
+$skillMarker = "$installDir\.officecli-skills-installed"
+if (-not (Test-Path $skillMarker)) {
+    $skillTargets = @()
+    $tools = @{
+        "$env:USERPROFILE\.claude" = "Claude Code"
+        "$env:USERPROFILE\.copilot" = "GitHub Copilot"
+        "$env:USERPROFILE\.agents" = "Codex CLI"
+        "$env:USERPROFILE\.cursor" = "Cursor"
+        "$env:USERPROFILE\.windsurf" = "Windsurf"
+        "$env:USERPROFILE\.minimax" = "MiniMax CLI"
+        "$env:USERPROFILE\.openclaw" = "OpenClaw"
+        "$env:USERPROFILE\.nanobot\workspace" = "NanoBot"
+        "$env:USERPROFILE\.zeroclaw\workspace" = "ZeroClaw"
     }
-}
-
-if ($skillTargets.Count -gt 0) {
-    Write-Host "Downloading officecli skill..."
-    $tempSkill = "$env:TEMP\officecli-skill.md"
-    try {
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$repo/main/SKILL.md" -OutFile $tempSkill
-        foreach ($target in $skillTargets) {
-            New-Item -ItemType Directory -Force -Path $target | Out-Null
-            Copy-Item -Force $tempSkill "$target\SKILL.md"
-            Write-Host "  Installed: $target\SKILL.md"
+    foreach ($dir in $tools.Keys) {
+        if (Test-Path $dir) {
+            $skillTargets += "$dir\skills\officecli"
+            Write-Host "$($tools[$dir]) detected."
         }
-        Remove-Item -Force $tempSkill -ErrorAction SilentlyContinue
-    } catch {}
+    }
+
+    if ($skillTargets.Count -gt 0) {
+        Write-Host "Downloading officecli skill..."
+        $tempSkill = "$env:TEMP\officecli-skill.md"
+        try {
+            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$repo/main/SKILL.md" -OutFile $tempSkill
+            foreach ($target in $skillTargets) {
+                New-Item -ItemType Directory -Force -Path $target | Out-Null
+                Copy-Item -Force $tempSkill "$target\SKILL.md"
+                Write-Host "  Installed: $target\SKILL.md"
+            }
+            Remove-Item -Force $tempSkill -ErrorAction SilentlyContinue
+        } catch {}
+    }
+    New-Item -ItemType File -Force -Path $skillMarker | Out-Null
 }
 
 Write-Host "OfficeCli installed successfully!"

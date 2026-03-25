@@ -78,7 +78,7 @@ public partial class WordHandler
             }
             pProps.Shading = shd;
         }
-        if (properties.TryGetValue("leftindent", out var addLI) || properties.TryGetValue("leftIndent", out addLI) || properties.TryGetValue("indentleft", out addLI))
+        if (properties.TryGetValue("leftindent", out var addLI) || properties.TryGetValue("leftIndent", out addLI) || properties.TryGetValue("indentleft", out addLI) || properties.TryGetValue("indent", out addLI))
         {
             var ind = pProps.Indentation ?? (pProps.Indentation = new Indentation());
             ind.Left = ParseHelpers.SafeParseUint(addLI, "leftindent").ToString();

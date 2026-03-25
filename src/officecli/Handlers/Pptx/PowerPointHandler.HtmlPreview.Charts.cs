@@ -807,19 +807,20 @@ public partial class PowerPointHandler
 
         var cx = svgW / 2.0;
         var cy = svgH / 2.0;
-        var r = Math.Min(svgW, svgH) * 0.35;
+        var r = Math.Min(svgW, svgH) * 0.30;
 
-        // Grid lines (3 rings)
-        for (int ring = 1; ring <= 3; ring++)
+        // Grid lines (5 rings matching PowerPoint's 0/20/40/60/80/100 scale)
+        var gridRings = 5;
+        for (int ring = 1; ring <= gridRings; ring++)
         {
-            var rr = r * ring / 3;
+            var rr = r * ring / gridRings;
             var gridPoints = new List<string>();
             for (int c = 0; c < catCount; c++)
             {
                 var angle = -Math.PI / 2 + 2 * Math.PI * c / catCount;
                 gridPoints.Add($"{cx + rr * Math.Cos(angle):0.#},{cy + rr * Math.Sin(angle):0.#}");
             }
-            sb.AppendLine($"        <polygon points=\"{string.Join(" ", gridPoints)}\" fill=\"none\" stroke=\"#444\" stroke-width=\"0.5\"/>");
+            sb.AppendLine($"        <polygon points=\"{string.Join(" ", gridPoints)}\" fill=\"none\" stroke=\"#ccc\" stroke-width=\"0.5\"/>");
         }
 
         // Axis lines
@@ -828,7 +829,7 @@ public partial class PowerPointHandler
             var angle = -Math.PI / 2 + 2 * Math.PI * c / catCount;
             var ax = cx + r * Math.Cos(angle);
             var ay = cy + r * Math.Sin(angle);
-            sb.AppendLine($"        <line x1=\"{cx:0.#}\" y1=\"{cy:0.#}\" x2=\"{ax:0.#}\" y2=\"{ay:0.#}\" stroke=\"#444\" stroke-width=\"0.5\"/>");
+            sb.AppendLine($"        <line x1=\"{cx:0.#}\" y1=\"{cy:0.#}\" x2=\"{ax:0.#}\" y2=\"{ay:0.#}\" stroke=\"#ccc\" stroke-width=\"0.5\"/>");
         }
 
         // Data series

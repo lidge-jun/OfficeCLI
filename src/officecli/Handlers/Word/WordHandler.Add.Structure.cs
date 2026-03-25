@@ -256,7 +256,7 @@ public partial class WordHandler
         };
         newStyle.AppendChild(new StyleName { Val = styleName });
 
-        if (properties.TryGetValue("basedon", out var basedOn) && !string.IsNullOrEmpty(basedOn))
+        if ((properties.TryGetValue("basedon", out var basedOn) || properties.TryGetValue("basedOn", out basedOn)) && !string.IsNullOrEmpty(basedOn))
             newStyle.AppendChild(new BasedOn { Val = basedOn });
         if (properties.TryGetValue("next", out var nextStyle))
             newStyle.AppendChild(new NextParagraphStyle { Val = nextStyle });

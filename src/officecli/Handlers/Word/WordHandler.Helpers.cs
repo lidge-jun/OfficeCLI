@@ -160,7 +160,9 @@ public partial class WordHandler
     /// </summary>
     private static List<Run> GetAllRuns(Paragraph para)
     {
-        return para.Descendants<Run>().ToList();
+        return para.Descendants<Run>()
+            .Where(r => r.GetFirstChild<CommentReference>() == null)
+            .ToList();
     }
 
     private static string GetRunText(Run run)

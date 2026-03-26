@@ -107,6 +107,8 @@ public partial class PowerPointHandler
                     var rp = firstRun.RunProperties;
                     if (rp.FontSize?.HasValue == true)
                         cellStyles.Add($"font-size:{rp.FontSize.Value / 100.0:0.##}pt");
+                    else
+                        cellStyles.Add("font-size:18pt"); // PowerPoint default table cell font size
                     if (rp.Bold?.Value == true)
                         cellStyles.Add("font-weight:bold");
                     var fontVal = rp.GetFirstChild<Drawing.LatinFont>()?.Typeface?.Value

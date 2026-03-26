@@ -891,13 +891,24 @@ public partial class PowerPointHandler
             }
         }
 
-        // Category labels
+        // Value axis tick labels along top axis (0 → maxVal)
+        var gridRingValues = new[] { 0.2, 0.4, 0.6, 0.8, 1.0 };
+        foreach (var frac in gridRingValues)
+        {
+            var val = maxVal * frac;
+            var tickLabel = val % 1 == 0 ? $"{(int)val}" : $"{val:0.#}";
+            var ty = cy - r * frac;
+            sb.AppendLine($"        <text x=\"{cx + 2:0.#}\" y=\"{ty:0.#}\" fill=\"{_chartAxisColor}\" font-size=\"8\" dominant-baseline=\"middle\">{tickLabel}</text>");
+        }
+
+        // Category labels — offset further from polygon edge
+        var labelOffset = Math.Max(18, r * 0.15);
         for (int c = 0; c < catCount; c++)
         {
             var label = c < categories.Length ? categories[c] : "";
             var angle = -Math.PI / 2 + 2 * Math.PI * c / catCount;
-            var lx = cx + (r + 15) * Math.Cos(angle);
-            var ly = cy + (r + 15) * Math.Sin(angle);
+            var lx = cx + (r + labelOffset) * Math.Cos(angle);
+            var ly = cy + (r + labelOffset) * Math.Sin(angle);
             var anchor = Math.Abs(Math.Cos(angle)) < 0.1 ? "middle" : (Math.Cos(angle) > 0 ? "start" : "end");
             sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{ly:0.#}\" fill=\"{_chartCatColor}\" font-size=\"{labelSize}\" text-anchor=\"{anchor}\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
         }
@@ -958,7 +969,12 @@ public partial class PowerPointHandler
         // PowerPoint default bubble size is larger than 8% — use 12% as base
         var maxRadius = Math.Min(pw, ph) * 0.12 * bubbleScale;
 
-        // Axis lines
+        // Gridlines + axis lines
+        for (int t = 1; t <= 4; t++)
+        {
+            var gy = oy + ph - (double)ph * t / 4;
+            sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{gy:0.#}\" x2=\"{ox + pw}\" y2=\"{gy:0.#}\" stroke=\"{_chartGridColor}\" stroke-width=\"0.5\"/>");
+        }
         sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy}\" x2=\"{ox}\" y2=\"{oy + ph}\" stroke=\"{_chartAxisLineColor}\" stroke-width=\"1\"/>");
         sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy + ph}\" x2=\"{ox + pw}\" y2=\"{oy + ph}\" stroke=\"{_chartAxisLineColor}\" stroke-width=\"1\"/>");
 
@@ -971,8 +987,9 @@ public partial class PowerPointHandler
                 var bx = ox + ((xVals[i] - minX) / (maxX - minX)) * pw;
                 var by = oy + ph - ((yVals[i] - minY) / (maxY - minY)) * ph;
                 var sz = i < sizeVals.Length ? sizeVals[i] : yVals[i];
-                var r = (sz / maxSize) * maxRadius + 4;
-                sb.AppendLine($"        <circle cx=\"{bx:0.#}\" cy=\"{by:0.#}\" r=\"{r:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.5\"/>");
+                // Area-proportional scaling (sqrt) matches PowerPoint behavior
+                var r = Math.Sqrt(Math.Max(0, sz) / maxSize) * maxRadius + maxRadius * 0.15;
+                sb.AppendLine($"        <circle cx=\"{bx:0.#}\" cy=\"{by:0.#}\" r=\"{r:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.6\"/>");
             }
         }
 

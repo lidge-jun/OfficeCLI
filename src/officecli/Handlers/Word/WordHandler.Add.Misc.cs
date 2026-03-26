@@ -130,7 +130,7 @@ public partial class WordHandler
         if (properties.TryGetValue("font", out var hlFont))
             hlRProps.RunFonts = new RunFonts { Ascii = hlFont, HighAnsi = hlFont };
         if (properties.TryGetValue("size", out var hlSize))
-            hlRProps.FontSize = new FontSize { Val = ((int)(ParseFontSize(hlSize) * 2)).ToString() };
+            hlRProps.FontSize = new FontSize { Val = ((int)Math.Round(ParseFontSize(hlSize) * 2)).ToString() };
         if (properties.TryGetValue("bold", out var hlBold) && IsTruthy(hlBold))
             hlRProps.Bold = new Bold();
         if (properties.TryGetValue("italic", out var hlItalic) && IsTruthy(hlItalic))
@@ -208,7 +208,7 @@ public partial class WordHandler
             if (properties.TryGetValue("color", out var fc))
                 fieldRProps.AppendChild(new Color { Val = SanitizeHex(fc) });
             if (properties.TryGetValue("size", out var fs))
-                fieldRProps.AppendChild(new FontSize { Val = ((int)(ParseFontSize(fs) * 2)).ToString() });
+                fieldRProps.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(fs) * 2)).ToString() });
         }
 
         if (fieldRProps != null)

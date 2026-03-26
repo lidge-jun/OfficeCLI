@@ -140,7 +140,7 @@ public partial class WordHandler
             }
             if (properties.TryGetValue("size", out var size))
             {
-                rProps.AppendChild(new FontSize { Val = ((int)(ParseFontSize(size) * 2)).ToString() });
+                rProps.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(size) * 2)).ToString() });
             }
             if (properties.TryGetValue("bold", out var bold) && IsTruthy(bold))
                 rProps.Bold = new Bold();
@@ -293,7 +293,7 @@ public partial class WordHandler
         if (properties.TryGetValue("font", out var rFont))
             newRProps.AppendChild(new RunFonts { Ascii = rFont, HighAnsi = rFont, EastAsia = rFont });
         if (properties.TryGetValue("size", out var rSize))
-            newRProps.AppendChild(new FontSize { Val = ((int)(ParseFontSize(rSize) * 2)).ToString() });
+            newRProps.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(rSize) * 2)).ToString() });
         if (properties.TryGetValue("bold", out var rBold) && IsTruthy(rBold))
             newRProps.Bold = new Bold();
         if (properties.TryGetValue("italic", out var rItalic) && IsTruthy(rItalic))

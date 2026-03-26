@@ -68,6 +68,20 @@ public partial class WordHandler
         var element = NavigateToElement(parts, out var ctx)
             ?? throw new ArgumentException($"Path not found: {path}" + (ctx != null ? $". {ctx}" : ""));
 
+        // Clean up ImageParts referenced by any inline/anchor pictures in the element
+        var mainPart2 = _doc.MainDocumentPart;
+        if (mainPart2 != null)
+        {
+            foreach (var blip in element.Descendants<A.Blip>())
+            {
+                var embedId = blip.Embed?.Value;
+                if (!string.IsNullOrEmpty(embedId))
+                {
+                    try { mainPart2.DeletePart(embedId); } catch { }
+                }
+            }
+        }
+
         element.Remove();
         _doc.MainDocumentPart?.Document?.Save();
         return null;

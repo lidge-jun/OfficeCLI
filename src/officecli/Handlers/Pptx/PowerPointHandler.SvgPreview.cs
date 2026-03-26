@@ -567,6 +567,15 @@ public partial class PowerPointHandler
                 if (rp?.Italic?.Value == true)
                     tspanAttrs.Add("font-style=\"italic\"");
 
+                // Underline + Strikethrough
+                var decos = new List<string>();
+                if (rp?.Underline?.HasValue == true && rp.Underline.Value != Drawing.TextUnderlineValues.None)
+                    decos.Add("underline");
+                if (rp?.Strike?.HasValue == true && rp.Strike.Value != Drawing.TextStrikeValues.NoStrike)
+                    decos.Add("line-through");
+                if (decos.Count > 0)
+                    tspanAttrs.Add($"text-decoration=\"{string.Join(" ", decos)}\"");
+
                 var font = rp?.GetFirstChild<Drawing.LatinFont>()?.Typeface?.Value
                     ?? rp?.GetFirstChild<Drawing.EastAsianFont>()?.Typeface?.Value;
                 if (font != null && !font.StartsWith("+", StringComparison.Ordinal))

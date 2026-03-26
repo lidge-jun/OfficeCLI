@@ -269,14 +269,14 @@ public partial class PowerPointHandler
         else if (xfrm?.VerticalFlip?.Value == true)
             transforms.Add($"translate(0,{h:0.##}) scale(1,-1)");
 
-        // Shadow effect → SVG filter
+        // Effects → SVG filters (shadow, glow)
         var effectList = spPr?.GetFirstChild<Drawing.EffectList>();
         string? filterRef = null;
         if (effectList != null)
         {
-            var shadowFilter = BuildSvgShadowFilter(effectList, themeColors, ref defId, defs);
-            if (shadowFilter != null)
-                filterRef = shadowFilter;
+            filterRef = BuildSvgShadowFilter(effectList, themeColors, ref defId, defs);
+            if (filterRef == null)
+                filterRef = BuildSvgGlowFilter(effectList, themeColors, ref defId, defs);
         }
 
         var gAttrs = $"transform=\"{string.Join(" ", transforms)}\"";
@@ -1337,6 +1337,46 @@ public partial class PowerPointHandler
         var filterId = $"shadow{defId++}";
         defs.AppendLine($"<filter id=\"{filterId}\" x=\"-20%\" y=\"-20%\" width=\"150%\" height=\"150%\">");
         defs.AppendLine($"  <feDropShadow dx=\"{dx:0.##}\" dy=\"{dy:0.##}\" stdDeviation=\"{blurPx / 2:0.##}\" flood-color=\"rgb({r},{g},{b})\" flood-opacity=\"{opacity:0.##}\"/>");
+        defs.AppendLine("</filter>");
+
+        return filterId;
+    }
+
+    private static string? BuildSvgGlowFilter(Drawing.EffectList effectList,
+        Dictionary<string, string> themeColors, ref int defId, StringBuilder defs)
+    {
+        var glow = effectList.GetFirstChild<Drawing.Glow>();
+        if (glow == null) return null;
+
+        var radiusPx = EmuToPx(glow.Radius?.HasValue == true ? glow.Radius.Value : 63500);
+        var alpha = glow.Descendants<Drawing.Alpha>().FirstOrDefault()?.Val?.Value ?? 40000;
+        var opacity = alpha / 100000.0;
+
+        int r = 0, g = 0, b = 0;
+        var rgb = glow.GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
+        if (rgb != null && rgb.Length >= 6)
+        {
+            r = Convert.ToInt32(rgb[..2], 16);
+            g = Convert.ToInt32(rgb[2..4], 16);
+            b = Convert.ToInt32(rgb[4..6], 16);
+        }
+        else
+        {
+            var scheme = glow.GetFirstChild<Drawing.SchemeColor>()?.Val?.InnerText;
+            if (scheme != null && themeColors.TryGetValue(scheme, out var sc) && sc.Length >= 6)
+            {
+                r = Convert.ToInt32(sc[..2], 16);
+                g = Convert.ToInt32(sc[2..4], 16);
+                b = Convert.ToInt32(sc[4..6], 16);
+            }
+        }
+
+        var filterId = $"glow{defId++}";
+        defs.AppendLine($"<filter id=\"{filterId}\" x=\"-30%\" y=\"-30%\" width=\"160%\" height=\"160%\">");
+        defs.AppendLine($"  <feGaussianBlur in=\"SourceAlpha\" stdDeviation=\"{radiusPx:0.##}\" result=\"blur\"/>");
+        defs.AppendLine($"  <feFlood flood-color=\"rgb({r},{g},{b})\" flood-opacity=\"{opacity:0.##}\" result=\"color\"/>");
+        defs.AppendLine("  <feComposite in=\"color\" in2=\"blur\" operator=\"in\" result=\"glow\"/>");
+        defs.AppendLine("  <feMerge><feMergeNode in=\"glow\"/><feMergeNode in=\"SourceGraphic\"/></feMerge>");
         defs.AppendLine("</filter>");
 
         return filterId;

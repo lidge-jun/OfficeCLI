@@ -107,9 +107,10 @@ public static class ParseHelpers
 
     /// <summary>
     /// Accepts "true", "1", "yes", "on" (case-insensitive) as truthy.
+    /// Returns false for null or empty values.
     /// </summary>
-    public static bool IsTruthy(string value) =>
-        value.ToLowerInvariant() is "true" or "1" or "yes" or "on";
+    public static bool IsTruthy(string? value) =>
+        value != null && value.ToLowerInvariant() is "true" or "1" or "yes" or "on";
 
     /// <summary>
     /// Parse a font size string, stripping optional "pt" suffix.

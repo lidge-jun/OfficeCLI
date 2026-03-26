@@ -1632,8 +1632,9 @@ public partial class WordHandler
     /// Apply a paragraph-level property. Returns true if handled, false if not recognized.
     /// Handles: style, alignment, indent, spacing, keepNext, keepLines, pageBreakBefore, widowControl, shading, pbdr.
     /// </summary>
-    private static bool ApplyParagraphLevelProperty(ParagraphProperties pProps, string key, string value)
+    private static bool ApplyParagraphLevelProperty(ParagraphProperties pProps, string key, string? value)
     {
+        if (value is null) return false;
         switch (key.ToLowerInvariant())
         {
             case "style":

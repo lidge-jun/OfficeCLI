@@ -25,6 +25,7 @@ public partial class PowerPointHandler
 
         foreach (var (key, value) in properties)
         {
+            if (value is null) { unsupported.Add(key); continue; }
             switch (key.ToLowerInvariant())
             {
                 case "text":

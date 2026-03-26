@@ -26,7 +26,7 @@ public partial class WordHandler
         return $"{cm:0.##}cm";
     }
 
-    private static bool IsTruthy(string value) =>
+    private static bool IsTruthy(string? value) =>
         ParseHelpers.IsTruthy(value);
 
     private static JustificationValues ParseJustification(string value) =>
@@ -399,8 +399,9 @@ public partial class WordHandler
     /// <summary>
     /// Apply a run-level formatting property to either RunProperties or ParagraphMarkRunProperties.
     /// </summary>
-    private static void ApplyRunFormatting(OpenXmlCompositeElement props, string key, string value)
+    private static void ApplyRunFormatting(OpenXmlCompositeElement props, string key, string? value)
     {
+        if (value is null) return;
         switch (key.ToLowerInvariant())
         {
             case "size":

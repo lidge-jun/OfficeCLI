@@ -12,7 +12,7 @@ namespace OfficeCli.Handlers;
 
 public partial class PowerPointHandler
 {
-    private static bool IsTruthy(string value) =>
+    private static bool IsTruthy(string? value) =>
         ParseHelpers.IsTruthy(value);
 
     /// <summary>

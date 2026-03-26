@@ -73,9 +73,9 @@ public class ExcelStyleManager
     /// </summary>
     public uint ApplyStyle(Cell cell, Dictionary<string, string> styleProps)
     {
-        // Normalize keys to lowercase for case-insensitive matching
+        // Normalize keys to lowercase for case-insensitive matching; skip null values
         var props = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (k, v) in styleProps) props[k] = v;
+        foreach (var (k, v) in styleProps) if (v != null) props[k] = v;
         styleProps = props;
 
         var stylesheet = EnsureStylesheet();
@@ -835,7 +835,7 @@ public class ExcelStyleManager
     private static string NormalizeColor(string hex)
         => ParseHelpers.NormalizeArgbColor(hex);
 
-    private static bool IsTruthy(string value) =>
+    private static bool IsTruthy(string? value) =>
         ParseHelpers.IsTruthy(value);
 
     private static HorizontalAlignmentValues ParseHAlign(string value) =>

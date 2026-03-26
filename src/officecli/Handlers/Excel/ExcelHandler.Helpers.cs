@@ -829,7 +829,7 @@ public partial class ExcelHandler
 
     // ==================== Conditional Formatting Helpers ====================
 
-    private static bool IsTruthy(string value) =>
+    private static bool IsTruthy(string? value) =>
         ParseHelpers.IsTruthy(value);
 
     private static IconSetValues ParseIconSetValues(string name)

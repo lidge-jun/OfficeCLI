@@ -861,6 +861,7 @@ public partial class ExcelHandler
 
         foreach (var (key, value) in properties)
         {
+            if (value is null) continue;
             if (ExcelStyleManager.IsStyleKey(key))
             {
                 styleProps[key] = value;

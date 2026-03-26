@@ -1881,10 +1881,13 @@ public partial class PowerPointHandler
             switch (child.LocalName)
             {
                 case "r": // Run (text)
-                    sb.Append("<mi>");
                     var text = child.Descendants().FirstOrDefault(e => e.LocalName == "t")?.InnerText ?? "";
-                    sb.Append(SvgEncode(text));
-                    sb.Append("</mi>");
+                    if (text.Length > 0 && text.All(c => char.IsDigit(c) || c == '.'))
+                        sb.Append($"<mn>{SvgEncode(text)}</mn>");
+                    else if (text.Length > 0 && text.All(c => "+-*/=<>≤≥≠±∓×÷^|&~!@#%".Contains(c)))
+                        sb.Append($"<mo>{SvgEncode(text)}</mo>");
+                    else
+                        sb.Append($"<mi>{SvgEncode(text)}</mi>");
                     break;
                 case "f": // Fraction
                     sb.Append("<mfrac>");
@@ -1945,18 +1948,26 @@ public partial class PowerPointHandler
                     var naryE = child.ChildElements.FirstOrDefault(e => e.LocalName == "e");
                     sb.Append("<mrow>");
                     sb.Append("<munderover>");
-                    sb.Append($"<mo>{SvgEncode(naryChar ?? "\u2211")}</mo>");
+                    sb.Append($"<mo>{SvgEncode(naryChar ?? "\u222B")}</mo>");
                     sb.Append("<mrow>"); if (narySub != null) ConvertOmmlNode(sb, narySub); sb.Append("</mrow>");
                     sb.Append("<mrow>"); if (narySup != null) ConvertOmmlNode(sb, narySup); sb.Append("</mrow>");
                     sb.Append("</munderover>");
                     if (naryE != null) ConvertOmmlNode(sb, naryE);
                     sb.Append("</mrow>");
                     break;
-                case "d": // Delimiter (parentheses)
-                    sb.Append("<mrow><mo>(</mo>");
-                    var dE = child.ChildElements.FirstOrDefault(e => e.LocalName == "e");
-                    if (dE != null) ConvertOmmlNode(sb, dE);
-                    sb.Append("<mo>)</mo></mrow>");
+                case "d": // Delimiter (parentheses, brackets, etc.)
+                    var dPr = child.ChildElements.FirstOrDefault(e => e.LocalName == "dPr");
+                    var begChr = dPr?.Descendants().FirstOrDefault(e => e.LocalName == "begChr")?.GetAttributes().FirstOrDefault(a => a.LocalName == "val").Value ?? "(";
+                    var endChr = dPr?.Descendants().FirstOrDefault(e => e.LocalName == "endChr")?.GetAttributes().FirstOrDefault(a => a.LocalName == "val").Value ?? ")";
+                    var sepChr = dPr?.Descendants().FirstOrDefault(e => e.LocalName == "sepChr")?.GetAttributes().FirstOrDefault(a => a.LocalName == "val").Value ?? ",";
+                    var dElements = child.ChildElements.Where(e => e.LocalName == "e").ToList();
+                    sb.Append($"<mrow><mo>{SvgEncode(begChr)}</mo>");
+                    for (int di = 0; di < dElements.Count; di++)
+                    {
+                        if (di > 0) sb.Append($"<mo>{SvgEncode(sepChr)}</mo>");
+                        ConvertOmmlNode(sb, dElements[di]);
+                    }
+                    sb.Append($"<mo>{SvgEncode(endChr)}</mo></mrow>");
                     break;
                 case "oMath" or "oMathPara":
                     ConvertOmmlNode(sb, child);

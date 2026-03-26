@@ -203,6 +203,10 @@ public static class ParseHelpers
     /// </summary>
     public static (string Rgb, int? AlphaPercent) SanitizeColorForOoxml(string value)
     {
+        // "auto" is a legal OOXML value for shading Fill/Color — pass through unchanged
+        if (string.Equals(value, "auto", StringComparison.OrdinalIgnoreCase))
+            return ("auto", null);
+
         // Try named color / rgb() first
         var resolved = TryResolveColorInput(value);
         if (resolved != null) return (resolved, null);

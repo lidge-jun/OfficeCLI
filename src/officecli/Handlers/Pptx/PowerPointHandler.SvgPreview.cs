@@ -1227,8 +1227,8 @@ public partial class PowerPointHandler
                         if (oMath != null)
                         {
                             var latex = FormulaParser.ToLatex(oMath);
-                            // Render as LaTeX text with math font styling (no JS dependency)
-                            sb.Append($"<span style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:italic;font-size:1.1em\">{HtmlEncode(latex)}</span>");
+                            // Render LaTeX text with math font (data-formula for external KaTeX use)
+                            sb.Append($"<span data-formula=\"{HtmlEncode(latex)}\" style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:italic;font-size:1.1em\">{HtmlEncode(latex)}</span>");
                         }
                     }
                     catch { }

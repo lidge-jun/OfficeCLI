@@ -1377,6 +1377,10 @@ public partial class PowerPointHandler
         if (trans.Speed?.HasValue == true)
             node.Format["transitionSpeed"] = trans.Speed.InnerText;
 
+        // Duration
+        if (trans.Duration != null)
+            node.Format["transitionDuration"] = trans.Duration.Value;
+
         if (trans.AdvanceAfterTime != null)
             node.Format["advanceTime"] = trans.AdvanceAfterTime.Value;
         if (trans.AdvanceOnClick?.Value == false)

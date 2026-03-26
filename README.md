@@ -17,16 +17,19 @@ Open-source. Single binary. No Office installation. No dependencies. Works every
 
 <table>
 <tr>
-<td width="25%"><img src="assets/designwhatmovesyou.gif" alt="OfficeCLI design presentation"></td>
-<td width="25%"><img src="assets/mars.gif" alt="OfficeCLI space presentation"></td>
-<td width="25%"><img src="assets/horizon.gif" alt="OfficeCLI business presentation"></td>
-<td width="25%"><img src="assets/efforless.gif" alt="OfficeCLI tech presentation"></td>
+<td width="33%"><img src="assets/designwhatmovesyou.gif" alt="OfficeCLI design presentation"></td>
+<td width="33%"><img src="assets/mars.gif" alt="OfficeCLI space presentation"></td>
+<td width="33%"><img src="assets/horizon.gif" alt="OfficeCLI business presentation"></td>
 </tr>
 <tr>
-<td width="25%"><img src="assets/cat.gif" alt="OfficeCLI creative presentation"></td>
-<td width="25%"><img src="assets/first-ppt-aionui.gif" alt="OfficeCLI gaming presentation"></td>
-<td width="25%"><img src="assets/moridian.gif" alt="OfficeCLI minimal presentation"></td>
-<td width="25%"><img src="assets/move.gif" alt="OfficeCLI wellness presentation"></td>
+<td width="33%"><img src="assets/efforless.gif" alt="OfficeCLI tech presentation"></td>
+<td width="33%"><img src="assets/cat.gif" alt="OfficeCLI creative presentation"></td>
+<td width="33%"><img src="assets/first-ppt-aionui.gif" alt="OfficeCLI gaming presentation"></td>
+</tr>
+<tr>
+<td width="33%"><img src="assets/moridian.gif" alt="OfficeCLI minimal presentation"></td>
+<td width="33%"><img src="assets/move.gif" alt="OfficeCLI wellness presentation"></td>
+<td width="33%"><img src="assets/saturn+sun.gif" alt="OfficeCLI 3D morph transitions"></td>
 </tr>
 </table>
 

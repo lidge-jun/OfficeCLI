@@ -17,16 +17,19 @@
 
 <table>
 <tr>
-<td width="25%"><img src="assets/designwhatmovesyou.gif" alt="OfficeCLI 设计演示"></td>
-<td width="25%"><img src="assets/mars.gif" alt="OfficeCLI 太空演示"></td>
-<td width="25%"><img src="assets/horizon.gif" alt="OfficeCLI 商务演示"></td>
-<td width="25%"><img src="assets/efforless.gif" alt="OfficeCLI 科技演示"></td>
+<td width="33%"><img src="assets/designwhatmovesyou.gif" alt="OfficeCLI 设计演示"></td>
+<td width="33%"><img src="assets/mars.gif" alt="OfficeCLI 太空演示"></td>
+<td width="33%"><img src="assets/horizon.gif" alt="OfficeCLI 商务演示"></td>
 </tr>
 <tr>
-<td width="25%"><img src="assets/cat.gif" alt="OfficeCLI 创意演示"></td>
-<td width="25%"><img src="assets/first-ppt-aionui.gif" alt="OfficeCLI 游戏演示"></td>
-<td width="25%"><img src="assets/moridian.gif" alt="OfficeCLI 极简演示"></td>
-<td width="25%"><img src="assets/move.gif" alt="OfficeCLI 健康演示"></td>
+<td width="33%"><img src="assets/efforless.gif" alt="OfficeCLI 科技演示"></td>
+<td width="33%"><img src="assets/cat.gif" alt="OfficeCLI 创意演示"></td>
+<td width="33%"><img src="assets/first-ppt-aionui.gif" alt="OfficeCLI 游戏演示"></td>
+</tr>
+<tr>
+<td width="33%"><img src="assets/moridian.gif" alt="OfficeCLI 极简演示"></td>
+<td width="33%"><img src="assets/move.gif" alt="OfficeCLI 健康演示"></td>
+<td width="33%"><img src="assets/saturn+sun.gif" alt="OfficeCLI 3D morph 过渡效果"></td>
 </tr>
 </table>
 

@@ -494,7 +494,12 @@ public partial class PowerPointHandler
 
         // Update bldLst if not already there
         var shapeIdStr = shapeId.ToString();
-        if (bldLst != null && !bldLst.Elements<BuildParagraph>()
+        if (bldLst == null)
+        {
+            bldLst = new BuildList();
+            slide.GetFirstChild<Timing>()!.BuildList = bldLst;
+        }
+        if (!bldLst.Elements<BuildParagraph>()
                 .Any(b => b.ShapeId?.Value == shapeIdStr))
         {
             bldLst.AppendChild(new BuildParagraph
@@ -601,11 +606,6 @@ public partial class PowerPointHandler
             mainSeqCTn.ChildTimeNodeList = new ChildTimeNodeList();
 
         bldLst = timing.BuildList;
-        if (bldLst == null)
-        {
-            bldLst = new BuildList();
-            timing.BuildList = bldLst;
-        }
     }
 
     private static ParallelTimeNode BuildClickGroup(
@@ -1190,9 +1190,22 @@ public partial class PowerPointHandler
                 }
             };
 
+            // Read direction from presetSubtype
+            var presetSubtype = effectCTn.PresetSubtype?.Value ?? 0;
+            var dirStr = presetSubtype switch
+            {
+                8 => "left",
+                2 => "right",
+                1 when effectName is "fly" or "wipe" or "crawl" => "up",
+                4 when effectName is "fly" or "wipe" or "crawl" => "down",
+                _ => (string?)null
+            };
+
             animIdx++;
             var key = animIdx == 1 ? "animation" : $"animation{animIdx}";
-            node.Format[key] = $"{effectName}-{cls}-{dur}";
+            node.Format[key] = dirStr != null
+                ? $"{effectName}-{cls}-{dirStr}-{dur}"
+                : $"{effectName}-{cls}-{dur}";
         }
     }
 

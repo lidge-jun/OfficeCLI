@@ -1719,7 +1719,7 @@ public class PptxFunctionalTests : IDisposable
 
         var node = _handler.Get("/slide[1]/chart[1]");
         node.Format.Should().ContainKey("legend");
-        ((string)node.Format["legend"]).Should().Be("t");
+        ((string)node.Format["legend"]).Should().Be("top");
 
         // Change legend to none
         _handler.Set("/slide[1]/chart[1]", new() { ["legend"] = "none" });
@@ -1729,11 +1729,11 @@ public class PptxFunctionalTests : IDisposable
         // Set legend back
         _handler.Set("/slide[1]/chart[1]", new() { ["legend"] = "right" });
         node = _handler.Get("/slide[1]/chart[1]");
-        ((string)node.Format["legend"]).Should().Be("r");
+        ((string)node.Format["legend"]).Should().Be("right");
 
         Reopen();
         node = _handler.Get("/slide[1]/chart[1]");
-        ((string)node.Format["legend"]).Should().Be("r");
+        ((string)node.Format["legend"]).Should().Be("right");
     }
 
     [Fact]

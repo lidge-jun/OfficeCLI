@@ -180,7 +180,7 @@ static class CommandBuilder
 
         // ==================== view command ====================
         var viewFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.docx, .xlsx, .pptx)" };
-        var viewModeArg = new Argument<string>("mode") { Description = "View mode: text, annotated, outline, stats, issues, html" };
+        var viewModeArg = new Argument<string>("mode") { Description = "View mode: text, annotated, outline, stats, issues, html, svg" };
         var startLineOpt = new Option<int?>("--start") { Description = "Start line/paragraph number" };
         var endLineOpt = new Option<int?>("--end") { Description = "End line/paragraph number" };
         var maxLinesOpt = new Option<int?>("--max-lines") { Description = "Maximum number of lines/rows/slides to output (truncates with total count)" };
@@ -271,6 +271,42 @@ static class CommandBuilder
                 return;
             }
 
+            if (mode.ToLowerInvariant() is "svg" or "g")
+            {
+                if (handler is OfficeCli.Handlers.PowerPointHandler pptSvgHandler)
+                {
+                    var slideNum = start ?? 1;
+                    var svg = pptSvgHandler.ViewAsSvg(slideNum);
+
+                    if (browser)
+                    {
+                        var svgPath = Path.Combine(Path.GetTempPath(), $"officecli_slide{slideNum}_{Path.GetFileNameWithoutExtension(file.Name)}_{DateTime.Now:HHmmss}.svg");
+                        File.WriteAllText(svgPath, svg);
+                        Console.WriteLine(svgPath);
+                        try
+                        {
+                            var psi = new System.Diagnostics.ProcessStartInfo(svgPath) { UseShellExecute = true };
+                            System.Diagnostics.Process.Start(psi);
+                        }
+                        catch { /* silently ignore if browser can't be opened */ }
+                    }
+                    else
+                    {
+                        Console.Write(svg);
+                    }
+                }
+                else
+                {
+                    throw new OfficeCli.Core.CliException("SVG preview is only supported for .pptx files.")
+                    {
+                        Code = "unsupported_type",
+                        Suggestion = "Use a .pptx file, or use mode 'text' or 'annotated' for other formats.",
+                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg"]
+                    };
+                }
+                return;
+            }
+
             if (json)
             {
                 // Structured JSON output — no Content string wrapping
@@ -288,10 +324,10 @@ static class CommandBuilder
                     Console.WriteLine(OutputFormatter.WrapEnvelope(
                         OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), OutputFormat.Json)));
                 else
-                    throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html")
+                    throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html, svg")
                     {
                         Code = "invalid_value",
-                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html"]
+                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg"]
                     };
             }
             else
@@ -303,10 +339,10 @@ static class CommandBuilder
                     "outline" or "o" => handler.ViewAsOutline(),
                     "stats" or "s" => handler.ViewAsStats(),
                     "issues" or "i" => OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), OutputFormat.Text),
-                    _ => throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html")
+                    _ => throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html, svg")
                     {
                         Code = "invalid_value",
-                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html"]
+                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg"]
                     }
                 };
                 Console.WriteLine(output);
@@ -400,7 +436,7 @@ static class CommandBuilder
         var setPathArg = new Argument<string>("path") { Description = "DOM path to the element" };
         var propsOpt = new Option<string[]>("--prop") { Description = "Property to set (key=value)", AllowMultipleArgumentsPerToken = true };
 
-        var setCommand = new Command("set", "Modify a document node's properties");
+        var setCommand = new Command("set", "Modify a document node's properties") { TreatUnmatchedTokensAsErrors = false };
         setCommand.Add(setFileArg);
         setCommand.Add(setPathArg);
         setCommand.Add(propsOpt);
@@ -411,13 +447,41 @@ static class CommandBuilder
             var file = result.GetValue(setFileArg)!;
             var path = result.GetValue(setPathArg)!;
             var props = result.GetValue(propsOpt);
+            bool hadWarnings = false;
+
+            // Detect bare key=value positional arguments (missing --prop)
+            var unmatchedKvWarnings = DetectUnmatchedKeyValues(result);
+            if (unmatchedKvWarnings.Count > 0)
+            {
+                hadWarnings = true;
+                if (json)
+                {
+                    var kvWarnings = unmatchedKvWarnings.Select(kv => new OfficeCli.Core.CliWarning
+                    {
+                        Message = $"Bare property '{kv}' ignored. Use --prop {kv}",
+                        Code = "missing_prop_flag",
+                        Suggestion = $"--prop {kv}"
+                    }).ToList();
+                    Console.WriteLine(OutputFormatter.WrapEnvelopeError(
+                        $"Properties specified without --prop flag. Use: officecli set <file> <path> --prop {string.Join(" --prop ", unmatchedKvWarnings)}",
+                        kvWarnings));
+                }
+                else
+                {
+                    foreach (var kv in unmatchedKvWarnings)
+                        Console.Error.WriteLine($"WARNING: Bare property '{kv}' ignored. Did you mean: --prop {kv}");
+                    Console.Error.WriteLine("Hint: Properties must be passed with --prop flag, e.g. officecli set <file> <path> --prop key=value");
+                }
+                if (props == null || props.Length == 0)
+                    return 2;
+            }
 
             if (TryResident(file.FullName, req =>
             {
                 req.Command = "set";
                 req.Args["path"] = path;
                 req.Props = props;
-            }, json)) { return; }
+            }, json)) { return 0; }
 
             var properties = new Dictionary<string, string>();
             foreach (var prop in props ?? Array.Empty<string>())
@@ -431,38 +495,82 @@ static class CommandBuilder
 
             using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
             var unsupported = handler.Set(path, properties);
+
+            // Auto-correct: attempt to fix unsupported properties with Levenshtein distance == 1
+            var autoCorrected = new List<(string Original, string Corrected, string Value)>();
+            var stillUnsupported = new List<string>();
+            foreach (var u in unsupported)
+            {
+                var rawKey = u.Contains(' ') ? u[..u.IndexOf(' ')] : u;
+                if (properties.TryGetValue(rawKey, out var val))
+                {
+                    var (suggestion, dist, isUnique) = SuggestPropertyWithDistance(rawKey);
+                    if (suggestion != null && dist == 1 && isUnique)
+                    {
+                        // Auto-correct: re-apply with corrected key
+                        var correctedProps = new Dictionary<string, string> { [suggestion] = val };
+                        var retryUnsupported = handler.Set(path, correctedProps);
+                        if (retryUnsupported.Count == 0)
+                        {
+                            autoCorrected.Add((rawKey, suggestion, val));
+                            hadWarnings = true;
+                            continue;
+                        }
+                    }
+                }
+                stillUnsupported.Add(u);
+            }
+
             // unsupported entries may contain help text like "key (valid props: ...)" — extract raw keys
-            var unsupportedKeys = unsupported.Select(u => u.Contains(' ') ? u[..u.IndexOf(' ')] : u).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var applied = properties.Where(kv => !unsupportedKeys.Contains(kv.Key)).ToList();
+            var unsupportedKeys = stillUnsupported.Select(u => u.Contains(' ') ? u[..u.IndexOf(' ')] : u).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var autoCorrectedKeys = autoCorrected.Select(ac => ac.Original).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var applied = properties.Where(kv => !unsupportedKeys.Contains(kv.Key) && !autoCorrectedKeys.Contains(kv.Key)).ToList();
+            // Include auto-corrected props in applied list with the corrected key name
+            foreach (var ac in autoCorrected)
+                applied.Add(new KeyValuePair<string, string>(ac.Corrected, ac.Value));
+
             var message = applied.Count > 0
                 ? $"Updated {path}: {string.Join(", ", applied.Select(kv => $"{kv.Key}={kv.Value}"))}"
                 : $"No properties applied to {path}";
             if (json)
             {
-                var warnings = unsupported.Count > 0
-                    ? unsupported.Select(p =>
+                var allWarnings = new List<OfficeCli.Core.CliWarning>();
+                foreach (var ac in autoCorrected)
+                {
+                    allWarnings.Add(new OfficeCli.Core.CliWarning
                     {
-                        var suggestion = SuggestProperty(p);
-                        return new OfficeCli.Core.CliWarning
-                        {
-                            Message = suggestion != null ? $"Unsupported property: {p} (did you mean: {suggestion}?)" : $"Unsupported property: {p}",
-                            Code = "unsupported_property",
-                            Suggestion = suggestion
-                        };
-                    }).ToList()
-                    : null;
-                bool allFailed = applied.Count == 0 && unsupported.Count > 0;
+                        Message = $"Auto-corrected '{ac.Original}' to '{ac.Corrected}'",
+                        Code = "auto_corrected",
+                        Suggestion = ac.Corrected
+                    });
+                }
+                foreach (var p in stillUnsupported)
+                {
+                    var suggestion = SuggestProperty(p);
+                    allWarnings.Add(new OfficeCli.Core.CliWarning
+                    {
+                        Message = suggestion != null ? $"Unsupported property: {p} (did you mean: {suggestion}?)" : $"Unsupported property: {p}",
+                        Code = "unsupported_property",
+                        Suggestion = suggestion
+                    });
+                }
+                bool allFailed = applied.Count == 0 && (stillUnsupported.Count > 0 || unsupported.Count > 0);
                 Console.WriteLine(allFailed
-                    ? OutputFormatter.WrapEnvelopeError(message, warnings)
-                    : OutputFormatter.WrapEnvelopeText(message, warnings));
+                    ? OutputFormatter.WrapEnvelopeError(message, allWarnings.Count > 0 ? allWarnings : null)
+                    : OutputFormatter.WrapEnvelopeText(message, allWarnings.Count > 0 ? allWarnings : null));
             }
             else
             {
+                foreach (var ac in autoCorrected)
+                    Console.Error.WriteLine($"WARNING: Auto-corrected '{ac.Original}' to '{ac.Corrected}'");
                 Console.WriteLine(message);
-                if (unsupported.Count > 0)
-                    Console.Error.WriteLine(FormatUnsupported(unsupported));
+                if (stillUnsupported.Count > 0)
+                    Console.Error.WriteLine(FormatUnsupported(stillUnsupported));
             }
             NotifyWatch(handler, file.FullName, path);
+
+            if (hadWarnings || stillUnsupported.Count > 0) return 2;
+            return 0;
         }, json); });
 
         rootCommand.Add(setCommand);
@@ -475,7 +583,7 @@ static class CommandBuilder
         var addIndexOpt = new Option<int?>("--index") { Description = "Insert position (0-based). If omitted, appends to end" };
         var addPropsOpt = new Option<string[]>("--prop") { Description = "Property to set (key=value)", AllowMultipleArgumentsPerToken = true };
 
-        var addCommand = new Command("add", "Add a new element to the document");
+        var addCommand = new Command("add", "Add a new element to the document") { TreatUnmatchedTokensAsErrors = false };
         addCommand.Add(addFileArg);
         addCommand.Add(addParentPathArg);
         addCommand.Add(addTypeOpt);
@@ -492,6 +600,30 @@ static class CommandBuilder
             var from = result.GetValue(addFromOpt);
             var index = result.GetValue(addIndexOpt);
             var props = result.GetValue(addPropsOpt);
+            bool hadWarnings = false;
+
+            // Detect bare key=value positional arguments (missing --prop)
+            var unmatchedKvWarnings = DetectUnmatchedKeyValues(result);
+            if (unmatchedKvWarnings.Count > 0)
+            {
+                hadWarnings = true;
+                if (json)
+                {
+                    var kvWarnings = unmatchedKvWarnings.Select(kv => new OfficeCli.Core.CliWarning
+                    {
+                        Message = $"Bare property '{kv}' ignored. Use --prop {kv}",
+                        Code = "missing_prop_flag",
+                        Suggestion = $"--prop {kv}"
+                    }).ToList();
+                    Console.Error.WriteLine("WARNING: Properties specified without --prop flag.");
+                }
+                else
+                {
+                    foreach (var kv in unmatchedKvWarnings)
+                        Console.Error.WriteLine($"WARNING: Bare property '{kv}' ignored. Did you mean: --prop {kv}");
+                    Console.Error.WriteLine("Hint: Properties must be passed with --prop flag, e.g. officecli add <file> <parent> --type <type> --prop key=value");
+                }
+            }
 
             if (string.IsNullOrEmpty(type) && string.IsNullOrEmpty(from))
             {
@@ -512,7 +644,7 @@ static class CommandBuilder
                     req.Args["parent"] = parentPath;
                     req.Args["from"] = from;
                     if (index.HasValue) req.Args["index"] = index.Value.ToString();
-                }, json)) { return; }
+                }, json)) { return hadWarnings ? 2 : 0; }
 
                 using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
                 var oldCount = (handler as OfficeCli.Handlers.PowerPointHandler)?.GetSlideCount() ?? 0;
@@ -532,7 +664,7 @@ static class CommandBuilder
                     req.Args["type"] = type!;
                     if (index.HasValue) req.Args["index"] = index.Value.ToString();
                     req.Props = props;
-                }, json)) { return; }
+                }, json)) { return hadWarnings ? 2 : 0; }
 
                 var properties = new Dictionary<string, string>();
                 foreach (var prop in props ?? Array.Empty<string>())
@@ -553,6 +685,8 @@ static class CommandBuilder
                 if (parentPath == "/") NotifyWatchRoot(handler, file.FullName, oldCount);
                 else NotifyWatch(handler, file.FullName, parentPath);
             }
+
+            return hadWarnings ? 2 : 0;
         }, json); });
 
         rootCommand.Add(addCommand);
@@ -892,6 +1026,107 @@ static class CommandBuilder
 
         rootCommand.Add(batchCommand);
 
+        // ==================== import command ====================
+        var importFileArg = new Argument<FileInfo>("file") { Description = "Target Excel file (.xlsx)" };
+        var importParentPathArg = new Argument<string>("parent-path") { Description = "Sheet path (e.g. /Sheet1)" };
+        var importSourceOpt = new Option<FileInfo?>("--file") { Description = "Source CSV/TSV file to import" };
+        var importStdinOpt = new Option<bool>("--stdin") { Description = "Read CSV/TSV data from stdin" };
+        var importFormatOpt = new Option<string?>("--format") { Description = "Data format: csv or tsv (default: inferred from file extension, or csv)" };
+        var importHeaderOpt = new Option<bool>("--header") { Description = "First row is header: set AutoFilter and freeze pane" };
+        var importStartCellOpt = new Option<string>("--start-cell") { Description = "Starting cell (default: A1)" };
+        importStartCellOpt.DefaultValueFactory = _ => "A1";
+
+        var importCommand = new Command("import", "Import CSV/TSV data into an Excel sheet");
+        importCommand.Add(importFileArg);
+        importCommand.Add(importParentPathArg);
+        importCommand.Add(importSourceOpt);
+        importCommand.Add(importStdinOpt);
+        importCommand.Add(importFormatOpt);
+        importCommand.Add(importHeaderOpt);
+        importCommand.Add(importStartCellOpt);
+        importCommand.Add(jsonOption);
+
+        importCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
+        {
+            var file = result.GetValue(importFileArg)!;
+            var parentPath = result.GetValue(importParentPathArg)!;
+            var source = result.GetValue(importSourceOpt);
+            var useStdin = result.GetValue(importStdinOpt);
+            var format = result.GetValue(importFormatOpt);
+            var header = result.GetValue(importHeaderOpt);
+            var startCell = result.GetValue(importStartCellOpt)!;
+
+            if (!file.Exists)
+                throw new CliException($"File not found: {file.FullName}")
+                {
+                    Code = "file_not_found",
+                    Suggestion = $"Create the file first: officecli create \"{file.FullName}\""
+                };
+
+            var ext = Path.GetExtension(file.FullName).ToLowerInvariant();
+            if (ext != ".xlsx")
+                throw new CliException("Import is only supported for .xlsx files in V1")
+                {
+                    Code = "unsupported_type",
+                    Suggestion = "Use a .xlsx file"
+                };
+
+            // Read CSV content
+            string csvContent;
+            if (useStdin)
+            {
+                csvContent = Console.In.ReadToEnd();
+            }
+            else if (source != null)
+            {
+                if (!source.Exists)
+                    throw new CliException($"Source file not found: {source.FullName}")
+                    {
+                        Code = "file_not_found"
+                    };
+                csvContent = File.ReadAllText(source.FullName, Encoding.UTF8);
+            }
+            else
+            {
+                throw new CliException("Either --file or --stdin must be specified")
+                {
+                    Code = "missing_argument",
+                    Suggestion = "Use --file <path> to specify a CSV/TSV file, or --stdin to read from standard input"
+                };
+            }
+
+            // Determine delimiter: --format flag > file extension > default csv
+            char delimiter = ',';
+            if (!string.IsNullOrEmpty(format))
+            {
+                delimiter = format.ToLowerInvariant() switch
+                {
+                    "tsv" => '\t',
+                    "csv" => ',',
+                    _ => throw new CliException($"Unknown format: {format}. Use 'csv' or 'tsv'")
+                    {
+                        Code = "invalid_value",
+                        ValidValues = ["csv", "tsv"]
+                    }
+                };
+            }
+            else if (source != null)
+            {
+                var sourceExt = Path.GetExtension(source.FullName).ToLowerInvariant();
+                if (sourceExt == ".tsv" || sourceExt == ".tab")
+                    delimiter = '\t';
+            }
+
+            using var handler = new OfficeCli.Handlers.ExcelHandler(file.FullName, editable: true);
+            var msg = handler.Import(parentPath, csvContent, delimiter, header, startCell);
+            if (json)
+                Console.WriteLine(OutputFormatter.WrapEnvelopeText(msg));
+            else
+                Console.WriteLine(msg);
+        }, json); });
+
+        rootCommand.Add(importCommand);
+
         // ==================== create command ====================
         var createFileArg = new Argument<string>("file") { Description = "Output file path (.docx, .xlsx, .pptx)" };
         var createTypeOpt = new Option<string>("--type") { Description = "Document type (docx, xlsx, pptx) — optional, inferred from file extension" };
@@ -943,6 +1178,52 @@ static class CommandBuilder
 
         rootCommand.Add(createCommand);
 
+        // ==================== merge command (template merge) ====================
+        var mergeTemplateArg = new Argument<string>("template") { Description = "Template file path (.docx, .xlsx, .pptx) with {{key}} placeholders" };
+        var mergeOutputArg = new Argument<string>("output") { Description = "Output file path" };
+        var mergeDataOpt = new Option<string>("--data") { Description = "JSON data or path to .json file", Required = true };
+        var mergeCommand = new Command("merge", "Merge template with JSON data, replacing {{key}} placeholders");
+        mergeCommand.Add(mergeTemplateArg);
+        mergeCommand.Add(mergeOutputArg);
+        mergeCommand.Add(mergeDataOpt);
+        mergeCommand.Add(jsonOption);
+
+        mergeCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
+        {
+            var template = result.GetValue(mergeTemplateArg)!;
+            var output = result.GetValue(mergeOutputArg)!;
+            var dataArg = result.GetValue(mergeDataOpt)!;
+
+            var data = Core.TemplateMerger.ParseMergeData(dataArg);
+            var mergeResult = Core.TemplateMerger.Merge(template, output, data);
+
+            if (json)
+            {
+                var jsonObj = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["success"] = true,
+                    ["output"] = Path.GetFullPath(output),
+                    ["replacedKeys"] = mergeResult.UsedKeys.Count,
+                    ["unresolvedPlaceholders"] = new System.Text.Json.Nodes.JsonArray(
+                        mergeResult.UnresolvedPlaceholders.Select(p => (System.Text.Json.Nodes.JsonNode)p).ToArray())
+                };
+                Console.WriteLine(jsonObj.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = false }));
+            }
+            else
+            {
+                Console.WriteLine($"Merged: {output}");
+                Console.WriteLine($"  Replaced keys: {mergeResult.UsedKeys.Count}");
+                if (mergeResult.UnresolvedPlaceholders.Count > 0)
+                {
+                    Console.Error.WriteLine($"  Warning: {mergeResult.UnresolvedPlaceholders.Count} unresolved placeholder(s):");
+                    foreach (var p in mergeResult.UnresolvedPlaceholders)
+                        Console.Error.WriteLine($"    - {{{{{p}}}}}");
+                }
+            }
+        }, json); });
+
+        rootCommand.Add(mergeCommand);
+
         HelpCommands.Register(rootCommand);
 
         return rootCommand;
@@ -978,12 +1259,16 @@ static class CommandBuilder
 
     internal static int SafeRun(Action action, bool json = false)
     {
+        return SafeRun(() => { action(); return 0; }, json);
+    }
+
+    internal static int SafeRun(Func<int> action, bool json = false)
+    {
         if (!OfficeCli.Core.CliLogger.Enabled)
         {
             try
             {
-                action();
-                return 0;
+                return action();
             }
             catch (Exception ex)
             {
@@ -1001,10 +1286,10 @@ static class CommandBuilder
         Console.SetError(new TeeWriter(origErr, stderrWriter));
         try
         {
-            action();
+            var code = action();
             var stdout = stdoutWriter.ToString().TrimEnd('\r', '\n');
             OfficeCli.Core.CliLogger.LogOutput(stdout);
-            return 0;
+            return code;
         }
         catch (Exception ex)
         {
@@ -1103,6 +1388,10 @@ static class CommandBuilder
                 if (mode.ToLowerInvariant() is "html" or "h" && handler is OfficeCli.Handlers.PowerPointHandler pptH)
                 {
                     return pptH.ViewAsHtml();
+                }
+                if (mode.ToLowerInvariant() is "svg" or "g" && handler is OfficeCli.Handlers.PowerPointHandler pptSvg)
+                {
+                    return pptSvg.ViewAsSvg(1);
                 }
                 return mode.ToLowerInvariant() switch
                 {
@@ -1221,6 +1510,20 @@ static class CommandBuilder
         }
     }
 
+    /// <summary>
+    /// Detect bare key=value tokens in unmatched arguments (user forgot --prop).
+    /// </summary>
+    internal static List<string> DetectUnmatchedKeyValues(System.CommandLine.ParseResult parseResult)
+    {
+        var result = new List<string>();
+        foreach (var token in parseResult.UnmatchedTokens)
+        {
+            if (System.Text.RegularExpressions.Regex.IsMatch(token, @"^[A-Za-z_.][A-Za-z0-9_.]*=.+$"))
+                result.Add(token);
+        }
+        return result;
+    }
+
     internal static string FormatUnsupported(IEnumerable<string> unsupported)
     {
         var parts = new List<string>();
@@ -1232,39 +1535,59 @@ static class CommandBuilder
         return $"UNSUPPORTED props: {string.Join(", ", parts)}. Use 'officecli help <format>-set' to see available properties, or use raw-set for direct XML manipulation.";
     }
 
+    internal static readonly string[] KnownProps = new[]
+    {
+        "text", "bold", "italic", "underline", "strike", "font", "size", "color",
+        "highlight", "alignment", "spacing", "indent", "shd", "border",
+        "width", "height", "valign", "header", "formula", "value", "type",
+        "fill", "src", "path", "title", "name", "style", "caps", "smallcaps",
+        "lineSpacing", "listStyle", "start", "level", "cols", "rows",
+        "gridspan", "vmerge", "nowrap", "padding", "margin",
+        "orientation", "pageWidth", "pageHeight",
+        "x", "y", "cx", "cy", "rotation", "opacity",
+        "border.color", "border.width", "border.style",
+        "font.color", "font.size", "font.name", "font.bold", "font.italic",
+        "hyperlink", "link", "tooltip", "alt", "description",
+        "font.strike", "font.underline", "tabColor", "shadow", "glow",
+    };
+
     internal static string? SuggestProperty(string input)
     {
-        var knownProps = new[]
-        {
-            "text", "bold", "italic", "underline", "strike", "font", "size", "color",
-            "highlight", "alignment", "spacing", "indent", "shd", "border",
-            "width", "height", "valign", "header", "formula", "value", "type",
-            "fill", "src", "path", "title", "name", "style", "caps", "smallcaps",
-            "lineSpacing", "listStyle", "start", "level", "cols", "rows",
-            "gridspan", "vmerge", "nowrap", "padding", "margin",
-            "orientation", "pageWidth", "pageHeight",
-            "x", "y", "cx", "cy", "rotation", "opacity",
-            "border.color", "border.width", "border.style",
-            "font.color", "font.size", "font.name", "font.bold", "font.italic",
-            "hyperlink", "link", "tooltip", "alt", "description",
-            "font.strike", "font.underline", "tabColor", "shadow", "glow",
-        };
+        var (best, _, _) = SuggestPropertyWithDistance(input);
+        return best;
+    }
 
-        var lower = input.ToLowerInvariant();
+    /// <summary>
+    /// Returns (bestMatch, distance, isUnique) where isUnique means no other candidate shares the same distance.
+    /// </summary>
+    internal static (string? Best, int Distance, bool IsUnique) SuggestPropertyWithDistance(string input)
+    {
+        // Strip help text suffix if present (e.g. "key (valid props: ...)")
+        var rawInput = input.Contains(' ') ? input[..input.IndexOf(' ')] : input;
+        var lower = rawInput.ToLowerInvariant();
         string? best = null;
         int bestDist = int.MaxValue;
+        int bestCount = 0; // how many props share the best distance
 
-        foreach (var prop in knownProps)
+        foreach (var prop in KnownProps)
         {
             var dist = LevenshteinDistance(lower, prop.ToLowerInvariant());
-            if (dist > 0 && dist < bestDist && dist <= Math.Max(2, input.Length / 3))
+            if (dist > 0 && dist <= Math.Max(2, rawInput.Length / 3))
             {
-                bestDist = dist;
-                best = prop;
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = prop;
+                    bestCount = 1;
+                }
+                else if (dist == bestDist)
+                {
+                    bestCount++;
+                }
             }
         }
 
-        return best;
+        return best != null ? (best, bestDist, bestCount == 1) : (null, int.MaxValue, false);
     }
 
     internal static int LevenshteinDistance(string s, string t)

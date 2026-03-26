@@ -90,7 +90,7 @@ public class ChartUnifiedTests : IDisposable
         {
             ["chartType"] = "line", ["title"] = "T", ["data"] = "S1:1,2", ["legend"] = "top"
         });
-        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("t");
+        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("top");
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public class ChartUnifiedTests : IDisposable
         ((string)node.Format["title"]).Should().Be("Persist");
         ((string)node.Format["chartType"]).Should().Be("column");
         ((string)node.Format["categories"]).Should().Be("A,B");
-        ((string)node.Format["legend"]).Should().Be("r");
+        ((string)node.Format["legend"]).Should().Be("right");
         ((string)node.Format["axisTitle"]).Should().Be("Val");
     }
 
@@ -271,9 +271,9 @@ public class ChartUnifiedTests : IDisposable
             ["chartType"] = "column", ["title"] = "T", ["data"] = "S1:1,2;S2:3,4"
         });
         _excel.Set("/Sheet1/chart[1]", new() { ["legend"] = "right" });
-        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("r");
+        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("right");
         ReopenExcel();
-        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("r");
+        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("right");
     }
 
     [Fact]
@@ -463,7 +463,7 @@ public class ChartUnifiedTests : IDisposable
         ((string)node.Format["title"]).Should().Be("Initial");
         ((string)node.Format["categories"]).Should().Be("Q1,Q2,Q3");
         ((int)node.Format["seriesCount"]).Should().Be(2);
-        ((string)node.Format["legend"]).Should().Be("b");
+        ((string)node.Format["legend"]).Should().Be("bottom");
         ((string)node.Format["dataLabels"]).Should().Contain("value");
         ((string)node.Format["axisTitle"]).Should().Be("Amount");
         ((string)node.Format["catTitle"]).Should().Be("Quarter");
@@ -487,7 +487,7 @@ public class ChartUnifiedTests : IDisposable
         // 4. Verify Set
         node = _excel.Get("/Sheet1/chart[1]", depth: 2);
         ((string)node.Format["title"]).Should().Be("Updated");
-        ((string)node.Format["legend"]).Should().Be("t");
+        ((string)node.Format["legend"]).Should().Be("top");
         ((string)node.Format["categories"]).Should().Be("X,Y,Z");
         ((string)node.Format["dataLabels"]).Should().Contain("percent");
         ((string)node.Format["axisTitle"]).Should().Be("Revenue ($)");
@@ -503,7 +503,7 @@ public class ChartUnifiedTests : IDisposable
         ReopenExcel();
         node = _excel.Get("/Sheet1/chart[1]", depth: 2);
         ((string)node.Format["title"]).Should().Be("Updated");
-        ((string)node.Format["legend"]).Should().Be("t");
+        ((string)node.Format["legend"]).Should().Be("top");
         ((string)node.Format["axisTitle"]).Should().Be("Revenue ($)");
         ((double)node.Format["axisMin"]).Should().Be(10);
         ((string)node.Format["axisNumFmt"]).Should().Be("0.0%");
@@ -550,7 +550,7 @@ public class ChartUnifiedTests : IDisposable
         {
             ["chartType"] = "column", ["title"] = "T", ["data"] = "S1:1,2", ["legend"] = "left"
         });
-        ((string)_word.Get("/chart[1]").Format["legend"]).Should().Be("l");
+        ((string)_word.Get("/chart[1]").Format["legend"]).Should().Be("left");
     }
 
     [Fact]
@@ -700,7 +700,7 @@ public class ChartUnifiedTests : IDisposable
         ((string)node.Format["title"]).Should().Be("Persist");
         ((string)node.Format["chartType"]).Should().Be("bar");
         ((string)node.Format["categories"]).Should().Be("X,Y");
-        ((string)node.Format["legend"]).Should().Be("l");
+        ((string)node.Format["legend"]).Should().Be("left");
         ((string)node.Format["axisTitle"]).Should().Be("Val");
     }
 
@@ -721,9 +721,9 @@ public class ChartUnifiedTests : IDisposable
     {
         _word.Add("/body", "chart", null, new() { ["chartType"] = "column", ["title"] = "T", ["data"] = "S1:1,2;S2:3,4" });
         _word.Set("/chart[1]", new() { ["legend"] = "right" });
-        ((string)_word.Get("/chart[1]").Format["legend"]).Should().Be("r");
+        ((string)_word.Get("/chart[1]").Format["legend"]).Should().Be("right");
         ReopenWord();
-        ((string)_word.Get("/chart[1]").Format["legend"]).Should().Be("r");
+        ((string)_word.Get("/chart[1]").Format["legend"]).Should().Be("right");
     }
 
     [Fact]
@@ -871,7 +871,7 @@ public class ChartUnifiedTests : IDisposable
         // 2. Verify Add
         var node = _word.Get("/chart[1]", depth: 2);
         ((string)node.Format["title"]).Should().Be("Initial");
-        ((string)node.Format["legend"]).Should().Be("b");
+        ((string)node.Format["legend"]).Should().Be("bottom");
         ((string)node.Format["dataLabels"]).Should().Contain("value");
         ((string)node.Format["axisTitle"]).Should().Be("Amount");
         ((double)node.Format["axisMin"]).Should().Be(0);
@@ -890,7 +890,7 @@ public class ChartUnifiedTests : IDisposable
         // 4. Verify Set
         node = _word.Get("/chart[1]", depth: 2);
         ((string)node.Format["title"]).Should().Be("Updated");
-        ((string)node.Format["legend"]).Should().Be("t");
+        ((string)node.Format["legend"]).Should().Be("top");
         ((string)node.Format["dataLabels"]).Should().Contain("percent");
         ((string)node.Format["axisTitle"]).Should().Be("Revenue ($)");
         ((double)node.Format["axisMin"]).Should().Be(10);
@@ -900,7 +900,7 @@ public class ChartUnifiedTests : IDisposable
         ReopenWord();
         node = _word.Get("/chart[1]", depth: 2);
         ((string)node.Format["title"]).Should().Be("Updated");
-        ((string)node.Format["legend"]).Should().Be("t");
+        ((string)node.Format["legend"]).Should().Be("top");
         ((string)node.Format["axisTitle"]).Should().Be("Revenue ($)");
         ((double)node.Format["axisMin"]).Should().Be(10);
         ((string)node.Format["axisNumFmt"]).Should().Be("0.0%");
@@ -929,7 +929,7 @@ public class ChartUnifiedTests : IDisposable
         foreach (var node in new[] { pn, en, wn })
         {
             ((string)node.Format["title"]).Should().Be("Test");
-            ((string)node.Format["legend"]).Should().Be("t");
+            ((string)node.Format["legend"]).Should().Be("top");
             ((string)node.Format["dataLabels"]).Should().Contain("value");
             ((string)node.Format["axisTitle"]).Should().Be("Val");
             ((double)node.Format["axisMin"]).Should().Be(0);
@@ -952,7 +952,7 @@ public class ChartUnifiedTests : IDisposable
         foreach (var node in new[] { pn, en, wn })
         {
             ((string)node.Format["title"]).Should().Be("Unified");
-            ((string)node.Format["legend"]).Should().Be("r");
+            ((string)node.Format["legend"]).Should().Be("right");
             ((string)node.Format["axisTitle"]).Should().Be("Revenue");
             ((double)node.Format["axisMin"]).Should().Be(5);
             ((string)node.Format["axisNumFmt"]).Should().Be("$#,##0");

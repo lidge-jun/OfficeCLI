@@ -41,17 +41,25 @@ internal static partial class ChartHelper
                     var tColor = ReadColorFromFill(titleFill);
                     if (tColor != null) node.Format["title.color"] = tColor;
                 }
-                if (titleRp.Bold?.HasValue == true && titleRp.Bold.Value)
-                    node.Format["title.bold"] = "true";
+                if (titleRp.Bold?.HasValue == true)
+                    node.Format["title.bold"] = titleRp.Bold.Value ? "true" : "false";
             }
         }
 
         var legend = chart.GetFirstChild<C.Legend>();
         if (legend != null)
         {
-            var pos = legend.GetFirstChild<C.LegendPosition>()?.Val?.HasValue == true
+            var posRaw = legend.GetFirstChild<C.LegendPosition>()?.Val?.HasValue == true
                 ? legend.GetFirstChild<C.LegendPosition>()!.Val!.InnerText : "b";
-            node.Format["legend"] = pos;
+            node.Format["legend"] = posRaw switch
+            {
+                "b" => "bottom",
+                "t" => "top",
+                "l" => "left",
+                "r" => "right",
+                "tr" => "topRight",
+                _ => posRaw
+            };
         }
 
         var dataLabels = plotArea.Descendants<C.DataLabels>().FirstOrDefault();
@@ -176,6 +184,9 @@ internal static partial class ChartHelper
         var cats = ReadCategories(plotArea);
         if (cats != null) node.Format["categories"] = string.Join(",", cats);
 
+        var catsRef = ReadCategoriesRef(plotArea);
+        if (catsRef != null) node.Format["categoriesRef"] = catsRef;
+
         if (depth > 0)
         {
             var seriesList = ReadAllSeries(plotArea);
@@ -190,8 +201,19 @@ internal static partial class ChartHelper
                 };
                 seriesNode.Format["name"] = sName;
                 seriesNode.Format["values"] = string.Join(",", sValues.Select(v => v.ToString("G")));
+
                 var serEl = plotArea.Descendants<OpenXmlCompositeElement>()
                     .Where(e => e.LocalName == "ser").ElementAtOrDefault(i);
+
+                // Cell reference formulas (for series with NumberReference/StringReference)
+                if (serEl != null)
+                {
+                    var valRef = ReadFormulaRef(serEl.GetFirstChild<C.Values>());
+                    if (valRef != null) seriesNode.Format["valuesRef"] = valRef;
+                    var catRef = ReadFormulaRef(serEl.GetFirstChild<C.CategoryAxisData>());
+                    if (catRef != null) seriesNode.Format["categoriesRef"] = catRef;
+                }
+
                 var serSpPr = serEl?.GetFirstChild<C.ChartShapeProperties>();
                 var serColor = serSpPr?.GetFirstChild<Drawing.SolidFill>();
                 if (serColor != null)
@@ -319,7 +341,19 @@ internal static partial class ChartHelper
                 .ToArray();
         }
 
+        // StringReference without cache — return null (data lives in cells)
+        // The formula is read separately via ReadFormulaRef
         return null;
+    }
+
+    /// <summary>
+    /// Read the categories formula reference from the first CategoryAxisData element.
+    /// Returns null if no reference found (literal categories).
+    /// </summary>
+    internal static string? ReadCategoriesRef(C.PlotArea plotArea)
+    {
+        var catData = plotArea.Descendants<C.CategoryAxisData>().FirstOrDefault();
+        return ReadFormulaRef(catData);
     }
 
     internal static List<(string name, double[] values)> ReadAllSeries(C.PlotArea plotArea)
@@ -367,6 +401,23 @@ internal static partial class ChartHelper
                 .ToArray();
         }
 
+        // NumberReference without cache — return empty array (data lives in cells)
+        if (numRef != null) return Array.Empty<double>();
+
+        return null;
+    }
+
+    /// <summary>
+    /// Read the formula string from a NumberReference or StringReference inside a Values/CategoryAxisData element.
+    /// Returns null if no reference found.
+    /// </summary>
+    internal static string? ReadFormulaRef(OpenXmlCompositeElement? element)
+    {
+        if (element == null) return null;
+        var numRef = element.GetFirstChild<C.NumberReference>();
+        if (numRef != null) return numRef.GetFirstChild<C.Formula>()?.Text;
+        var strRef = element.GetFirstChild<C.StringReference>();
+        if (strRef != null) return strRef.GetFirstChild<C.Formula>()?.Text;
         return null;
     }
 

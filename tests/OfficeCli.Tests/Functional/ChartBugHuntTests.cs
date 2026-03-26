@@ -295,7 +295,7 @@ public class ChartBugHuntTests : IDisposable
             ["data"] = "S1:1,2;S2:3,4", ["legend"] = "top"
         });
 
-        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("t");
+        ((string)_excel.Get("/Sheet1/chart[1]").Format["legend"]).Should().Be("top");
 
         _excel.Set("/Sheet1/chart[1]", new() { ["legend"] = "none" });
 

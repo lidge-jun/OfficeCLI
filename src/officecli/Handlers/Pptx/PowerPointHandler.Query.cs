@@ -48,6 +48,19 @@ public partial class PowerPointHandler
                 };
             }
 
+            // Core document properties
+            var props = _doc.PackageProperties;
+            if (props.Title != null) node.Format["title"] = props.Title;
+            if (props.Creator != null) node.Format["author"] = props.Creator;
+            if (props.Subject != null) node.Format["subject"] = props.Subject;
+            if (props.Keywords != null) node.Format["keywords"] = props.Keywords;
+            if (props.Description != null) node.Format["description"] = props.Description;
+            if (props.Category != null) node.Format["category"] = props.Category;
+            if (props.LastModifiedBy != null) node.Format["lastModifiedBy"] = props.LastModifiedBy;
+            if (props.Revision != null) node.Format["revision"] = props.Revision;
+            if (props.Created != null) node.Format["created"] = props.Created.Value.ToString("o");
+            if (props.Modified != null) node.Format["modified"] = props.Modified.Value.ToString("o");
+
             int slideNum = 0;
             foreach (var slidePart in GetSlideParts())
             {
@@ -611,9 +624,10 @@ public partial class PowerPointHandler
                 throw new ArgumentException($"Group {elementIdx} not found (total: {groups.Count})");
             var grp = groups[elementIdx - 1];
             var grpName = grp.NonVisualGroupShapeProperties?.NonVisualDrawingProperties?.Name?.Value ?? "Group";
+            var grpPath = $"/slide[{slideIdx}]/group[{elementIdx}]";
             var grpNode = new DocumentNode
             {
-                Path = $"/slide[{slideIdx}]/group[{elementIdx}]",
+                Path = grpPath,
                 Type = "group",
                 Preview = grpName,
                 ChildCount = grp.Elements<Shape>().Count() + grp.Elements<Picture>().Count()
@@ -621,6 +635,32 @@ public partial class PowerPointHandler
                     + grp.Elements<GroupShape>().Count()
             };
             grpNode.Format["name"] = grpName;
+            // Bug 8 fix: read position/size from TransformGroup
+            var grpXfrm = grp.GroupShapeProperties?.TransformGroup;
+            if (grpXfrm?.Offset?.X != null) grpNode.Format["x"] = FormatEmu(grpXfrm.Offset.X.Value);
+            if (grpXfrm?.Offset?.Y != null) grpNode.Format["y"] = FormatEmu(grpXfrm.Offset.Y.Value);
+            if (grpXfrm?.Extents?.Cx != null) grpNode.Format["width"] = FormatEmu(grpXfrm.Extents.Cx.Value);
+            if (grpXfrm?.Extents?.Cy != null) grpNode.Format["height"] = FormatEmu(grpXfrm.Extents.Cy.Value);
+            // Bug 5/7 fix: populate Children list for group members
+            if (depth > 0)
+            {
+                int memberShapeIdx = 0;
+                foreach (var memberShape in grp.Elements<Shape>())
+                {
+                    memberShapeIdx++;
+                    var memberNode = ShapeToNode(memberShape, slideIdx, memberShapeIdx, depth - 1, targetSlidePart);
+                    memberNode.Path = $"{grpPath}/shape[{memberShapeIdx}]";
+                    grpNode.Children.Add(memberNode);
+                }
+                int memberPicIdx = 0;
+                foreach (var memberPic in grp.Elements<Picture>())
+                {
+                    memberPicIdx++;
+                    var picNode = PictureToNode(memberPic, slideIdx, memberPicIdx, targetSlidePart);
+                    picNode.Path = $"{grpPath}/picture[{memberPicIdx}]";
+                    grpNode.Children.Add(picNode);
+                }
+            }
             return grpNode;
         }
 

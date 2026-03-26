@@ -498,7 +498,7 @@ public partial class WordHandler
                         break;
                     case "size":
                         var rPr2 = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
-                        rPr2.FontSize = new FontSize { Val = ((int)(ParseFontSize(value) * 2)).ToString() };
+                        rPr2.FontSize = new FontSize { Val = ((int)Math.Round(ParseFontSize(value) * 2)).ToString() };
                         break;
                     case "bold":
                         var rPr3 = style.StyleRunProperties ?? style.AppendChild(new StyleRunProperties());
@@ -747,7 +747,7 @@ public partial class WordHandler
                     case "size":
                         EnsureRunProperties(run).FontSize = new FontSize
                         {
-                            Val = ((int)(ParseFontSize(value) * 2)).ToString() // half-points
+                            Val = ((int)Math.Round(ParseFontSize(value) * 2)).ToString() // half-points
                         };
                         break;
                     case "highlight":
@@ -1088,7 +1088,7 @@ public partial class WordHandler
                                         rPr.RunFonts = new RunFonts { Ascii = value, HighAnsi = value, EastAsia = value };
                                         break;
                                     case "size":
-                                        rPr.FontSize = new FontSize { Val = ((int)(ParseFontSize(value) * 2)).ToString() };
+                                        rPr.FontSize = new FontSize { Val = ((int)Math.Round(ParseFontSize(value) * 2)).ToString() };
                                         break;
                                     case "bold":
                                         rPr.Bold = IsTruthy(value) ? new Bold() : null;
@@ -1129,7 +1129,7 @@ public partial class WordHandler
                                     break;
                                 case "size":
                                     pmrp.RemoveAllChildren<FontSize>();
-                                    pmrp.AppendChild(new FontSize { Val = ((int)(ParseFontSize(value) * 2)).ToString() });
+                                    pmrp.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(value) * 2)).ToString() });
                                     break;
                                 case "bold":
                                     pmrp.RemoveAllChildren<Bold>();

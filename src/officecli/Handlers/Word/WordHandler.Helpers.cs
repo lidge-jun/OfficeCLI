@@ -406,8 +406,8 @@ public partial class WordHandler
         {
             case "size":
                 var existingFs = props.GetFirstChild<FontSize>();
-                if (existingFs != null) existingFs.Val = ((int)(ParseFontSize(value) * 2)).ToString();
-                else props.AppendChild(new FontSize { Val = ((int)(ParseFontSize(value) * 2)).ToString() });
+                if (existingFs != null) existingFs.Val = ((int)Math.Round(ParseFontSize(value) * 2)).ToString();
+                else props.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(value) * 2)).ToString() });
                 break;
             case "font":
                 var existingRf = props.GetFirstChild<RunFonts>();

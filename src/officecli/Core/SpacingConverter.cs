@@ -29,7 +29,6 @@ namespace OfficeCli.Core;
 /// </summary>
 public static class SpacingConverter
 {
-    private const double CmPerPoint = 28.3464567; // 1 cm = 28.3465 pt (72 pt/in ÷ 2.54 cm/in)
     private const double PointsPerCm = 72.0 / 2.54; // ~28.3465
     private const double PointsPerInch = 72.0;
     private const int TwipsPerPoint = 20; // 1 pt = 20 twips

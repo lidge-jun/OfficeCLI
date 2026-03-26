@@ -49,7 +49,9 @@ internal static partial class ChartHelper
                                 rPr.AppendChild(new Drawing.EastAsianFont { Typeface = value });
                                 break;
                             case "size":
-                                rPr.FontSize = (int)Math.Round(ParseHelpers.SafeParseDouble(value, "title.size") * 100);
+                                var sizeStr = value.EndsWith("pt", StringComparison.OrdinalIgnoreCase)
+                                    ? value[..^2] : value;
+                                rPr.FontSize = (int)Math.Round(ParseHelpers.SafeParseDouble(sizeStr, "title.size") * 100);
                                 break;
                             case "color":
                             {

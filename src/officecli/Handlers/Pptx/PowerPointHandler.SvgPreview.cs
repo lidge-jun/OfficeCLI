@@ -326,7 +326,12 @@ public partial class PowerPointHandler
 
         // Draw shape based on geometry type
         var polygonPoints = GetPresetPolygonPoints(presetName, w, h);
-        if (presetName == "ellipse")
+        if (presetName is "flowChartConnector" or "flowChartOffpageConnector")
+        {
+            // These are elliptical flowchart shapes
+            sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{h / 2:0.##}\" rx=\"{w / 2:0.##}\" ry=\"{h / 2:0.##}\" {fsStr}/>");
+        }
+        else if (presetName == "ellipse")
         {
             sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{h / 2:0.##}\" rx=\"{w / 2:0.##}\" ry=\"{h / 2:0.##}\" {fsStr}/>");
         }
@@ -1029,7 +1034,15 @@ public partial class PowerPointHandler
             "flowChartPreparation" => $"{w * 0.15:0.##},0 {w * 0.85:0.##},0 {w:0.##},{h / 2:0.##} {w * 0.85:0.##},{h:0.##} {w * 0.15:0.##},{h:0.##} 0,{h / 2:0.##}",
             "flowChartExtract" => $"{w / 2:0.##},0 {w:0.##},{h:0.##} 0,{h:0.##}",
             "flowChartMerge" => $"0,0 {w:0.##},0 {w / 2:0.##},{h:0.##}",
-            "flowChartDocument" => $"0,0 {w:0.##},0 {w:0.##},{h * 0.85:0.##} {w * 0.75:0.##},{h * 0.75:0.##} {w * 0.5:0.##},{h * 0.9:0.##} {w * 0.25:0.##},{h:0.##} 0,{h * 0.85:0.##}",
+            "flowChartDocument" => BuildDocumentPath(w, h),
+            "flowChartMultidocument" => BuildDocumentPath(w * 0.9, h * 0.9), // simplified
+            "flowChartDelay" => BuildDelayPath(w, h),
+            "flowChartSort" => $"{w / 2:0.##},0 {w:0.##},{h / 2:0.##} {w / 2:0.##},{h:0.##} 0,{h / 2:0.##}",
+            "flowChartCollate" => $"{w / 2:0.##},0 {w:0.##},{h / 2:0.##} {w / 2:0.##},{h:0.##} 0,{h / 2:0.##}",
+            "flowChartDisplay" => BuildDisplayPath(w, h),
+            "flowChartPunchedCard" => $"{w * 0.12:0.##},0 {w:0.##},0 {w:0.##},{h:0.##} 0,{h:0.##} 0,{h * 0.15:0.##}",
+            "flowChartPunchedTape" => BuildDocumentPath(w, h),
+            "flowChartConnector" or "flowChartOffpageConnector" => null, // ellipse handled separately
 
             // Snip rectangles
             "snip1Rect" => $"0,0 {w * 0.92:0.##},0 {w:0.##},{h * 0.08:0.##} {w:0.##},{h:0.##} 0,{h:0.##}",
@@ -1090,6 +1103,56 @@ public partial class PowerPointHandler
             var py = h * 0.45 + hy / 17 * h / 2;
             points.Add($"{px:0.##},{py:0.##}");
         }
+        return string.Join(" ", points);
+    }
+
+    private static string BuildDocumentPath(double w, double h)
+    {
+        // Rectangle with wavy bottom
+        var points = new List<string> { $"0,0", $"{w:0.##},0", $"{w:0.##},{h * 0.8:0.##}" };
+        int n = 12;
+        for (int i = 0; i <= n; i++)
+        {
+            var px = w * (1 - (double)i / n);
+            var py = h * 0.8 + h * 0.1 * Math.Sin(Math.PI * 2 * i / n);
+            points.Add($"{px:0.##},{py:0.##}");
+        }
+        return string.Join(" ", points);
+    }
+
+    private static string BuildDelayPath(double w, double h)
+    {
+        // Rect with right semicircle
+        var points = new List<string> { $"0,0", $"{w * 0.6:0.##},0" };
+        int n = 12;
+        for (int i = 0; i <= n; i++)
+        {
+            var angle = -Math.PI / 2 + Math.PI * i / n;
+            var px = w * 0.6 + w * 0.4 * Math.Cos(angle);
+            var py = h / 2 + h / 2 * Math.Sin(angle);
+            points.Add($"{px:0.##},{py:0.##}");
+        }
+        points.Add($"0,{h:0.##}");
+        return string.Join(" ", points);
+    }
+
+    private static string BuildDisplayPath(double w, double h)
+    {
+        // Hexagon-like with right rounded side
+        var points = new List<string>
+        {
+            $"{w * 0.15:0.##},0", $"{w * 0.7:0.##},0"
+        };
+        int n = 8;
+        for (int i = 0; i <= n; i++)
+        {
+            var angle = -Math.PI / 2 + Math.PI * i / n;
+            var px = w * 0.7 + w * 0.3 * Math.Cos(angle);
+            var py = h / 2 + h / 2 * Math.Sin(angle);
+            points.Add($"{px:0.##},{py:0.##}");
+        }
+        points.Add($"{w * 0.15:0.##},{h:0.##}");
+        points.Add($"0,{h / 2:0.##}");
         return string.Join(" ", points);
     }
 

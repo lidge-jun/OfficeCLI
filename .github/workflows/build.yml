@@ -104,11 +104,13 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate checksums
+      - name: Flatten artifacts and generate checksums
         run: |
+          mkdir -p flat
+          find artifacts -type f -exec mv {} flat/ \;
+          rm -rf artifacts
+          mv flat artifacts
           cd artifacts
-          find . -type f -exec mv {} . \;
-          find . -type d -empty -delete
           sha256sum officecli-* > SHA256SUMS
           echo "=== SHA256SUMS ==="
           cat SHA256SUMS

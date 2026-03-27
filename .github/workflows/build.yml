@@ -82,7 +82,7 @@ jobs:
         run: |
           chmod +x publish/${{ matrix.name }}
           publish/${{ matrix.name }} create test_smoke.docx
-          publish/${{ matrix.name }} add test_smoke.docx /body paragraph --text "Hello from CI"
+          publish/${{ matrix.name }} add test_smoke.docx /body --type paragraph --prop text="Hello from CI"
           publish/${{ matrix.name }} get test_smoke.docx /body/paragraph[1]
           rm -f test_smoke.docx
 
@@ -103,6 +103,15 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f -exec mv {} . \;
+          find . -type d -empty -delete
+          sha256sum officecli-* > SHA256SUMS
+          echo "=== SHA256SUMS ==="
+          cat SHA256SUMS
 
       - name: Create Draft Release
         uses: softprops/action-gh-release@v2

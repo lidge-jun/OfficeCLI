@@ -263,32 +263,31 @@ public partial class PowerPointHandler
                        : isBandedOdd ? (ApplyLumModOff(dk1, 20000, 80000), null)
                        : (ApplyLumModOff(dk1, 10000, 90000), null),
 
-            // Medium Style 1 - Accent 1: header=accent1, band1=accent1 tint40%
-            "medium1" => isHeader ? ((string?)$"#{accent1}", (string?)"#FFFFFF")
-                       : isBandedOdd ? (ApplyLumModOff(accent1, 20000, 80000), null)
+            // Medium Style 1: header=dk1, band1=dk1 tint25%, band2=none (uses dk1 base, not accent)
+            "medium1" => isHeader ? ($"#{dk1}", "#FFFFFF")
+                       : isBandedOdd ? (ApplyLumModOff(dk1, 25000, 75000), null)
                        : (null, null),
 
-            // Medium Style 3 - Accent 1: header=accent1, band1=accent1 lumMod40% lumOff60%
-            "medium3" => isHeader ? ((string?)$"#{accent1}", (string?)"#FFFFFF")
-                       : isBandedOdd ? (ApplyLumModOff(accent1, 40000, 60000), null)
+            // Medium Style 3: header border lines (accent1), band1=accent1 tint20%
+            "medium3" => isBandedOdd ? (ApplyLumModOff(accent1, 20000, 80000), null)
                        : (null, null),
 
-            // Medium Style 4 - Accent 1: header=accent1 lumMod75%, band1=accent1 lumMod40% lumOff60%, band2=accent1 lumMod20% lumOff80%
-            "medium4" => isHeader ? (ApplyLumModOff(accent1, 75000, 0), (string?)"#FFFFFF")
-                       : isBandedOdd ? (ApplyLumModOff(accent1, 40000, 60000), null)
-                       : (ApplyLumModOff(accent1, 20000, 80000), null),
+            // Medium Style 4: no header fill, band1=dk1 tint15%, band2=dk1 tint5%
+            "medium4" => isBandedOdd ? (ApplyLumModOff(dk1, 15000, 85000), null)
+                       : (ApplyLumModOff(dk1, 5000, 95000), null),
 
             // Dark Style 1: header=dk1 (raw), band1=dk1 tint25% (lumMod=25 lumOff=75), band2=dk1 tint15% (lumMod=15 lumOff=85)
             "dark1" => isHeader ? ($"#{dk1}", "#FFFFFF")
                      : isBandedOdd ? (ApplyLumModOff(dk1, 25000, 75000), "#FFFFFF")
                      : (ApplyLumModOff(dk1, 15000, 85000), "#FFFFFF"),
 
-            // Dark Style 2 - Accent 1: header=accent1, band1=accent1 lumMod75%, band2=accent1 lumMod85%
-            "dark2" => isHeader ? ($"#{accent1}", "#FFFFFF")
-                     : isBandedOdd ? (ApplyLumModOff(accent1, 75000, 0), "#FFFFFF")
-                     : (ApplyLumModOff(accent1, 85000, 0), "#FFFFFF"),
+            // Dark Style 2 - Accent 1: header=dk1, band1=accent1 (raw), band2=accent1 lumMod75%
+            "dark2" => isHeader ? ($"#{dk1}", "#FFFFFF")
+                     : isBandedOdd ? ((string?)$"#{accent1}", "#FFFFFF")
+                     : (ApplyLumModOff(accent1, 75000, 0), "#FFFFFF"),
 
-            "light1" => (null, null), // minimal styling, no fills
+            // Light Style 1: no fill, but banded rows get dk1 tint10%
+            "light1" => isBandedOdd ? (ApplyLumModOff(dk1, 10000, 90000), null) : (null, null),
             // Light Style 2/3: band1=accent1 lumMod20% lumOff80%
             "light2" => isBandedOdd ? (ApplyLumModOff(accent1, 20000, 80000), null) : (null, null),
             "light3" => isBandedOdd ? (ApplyLumModOff(accent1, 20000, 80000), null) : (null, null),

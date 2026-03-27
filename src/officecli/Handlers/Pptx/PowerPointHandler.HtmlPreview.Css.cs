@@ -425,6 +425,19 @@ public partial class PowerPointHandler
 
     // ==================== CSS Helper: Preset Geometry ====================
 
+    /// <summary>Plus/cross polygon with arm width proportional to min(w,h).</summary>
+    private static string PlusPolygon(long w, long h)
+    {
+        // OOXML default: arm width = 25% of min dimension
+        var minDim = Math.Min(w, h);
+        var armW = minDim * 0.25;
+        var hPct = armW / w * 100; // horizontal arm width as % of width
+        var vPct = armW / h * 100; // vertical arm width as % of height
+        var l = (50 - hPct); var r = (50 + hPct);
+        var t = (50 - vPct); var b = (50 + vPct);
+        return $"clip-path:polygon({l:0.#}% 0,{r:0.#}% 0,{r:0.#}% {t:0.#}%,100% {t:0.#}%,100% {b:0.#}%,{r:0.#}% {b:0.#}%,{r:0.#}% 100%,{l:0.#}% 100%,{l:0.#}% {b:0.#}%,0 {b:0.#}%,0 {t:0.#}%,{l:0.#}% {t:0.#}%)";
+    }
+
     private static string PresetGeometryToCss(string preset) =>
         PresetGeometryToCss(preset, 0, 0, null);
 
@@ -513,7 +526,8 @@ public partial class PowerPointHandler
             "wedgeRoundRectCallout" => "clip-path:polygon(8% 0%,92% 0%,95% 1%,98% 3%,100% 5%,100% 8%,100% 67%,100% 70%,98% 73%,95% 75%,92% 75%,40% 75%,10% 100%,30% 75%,8% 75%,5% 75%,2% 73%,1% 70%,0% 67%,0% 8%,0% 5%,1% 3%,2% 1%,5% 0%)",
             "wedgeEllipseCallout" => "clip-path:polygon(50% 0%,60% 1%,70% 3%,78% 7%,85% 13%,90% 20%,94% 28%,97% 37%,98% 47%,97% 56%,95% 64%,91% 71%,40% 75%,10% 100%,35% 72%,27% 76%,19% 72%,12% 65%,7% 57%,3% 48%,2% 38%,3% 29%,6% 20%,11% 13%,18% 7%,26% 3%,35% 1%,42% 0%)",
 
-            // Crosses and plus
+            // Crosses and plus — arm width scales with aspect ratio
+            "plus" or "cross" when widthEmu > 0 && heightEmu > 0 => PlusPolygon(widthEmu, heightEmu),
             "plus" or "cross" => "clip-path:polygon(33% 0,67% 0,67% 33%,100% 33%,100% 67%,67% 67%,67% 100%,33% 100%,33% 67%,0 67%,0 33%,33% 33%)",
 
             // Heart (polygon approximation)

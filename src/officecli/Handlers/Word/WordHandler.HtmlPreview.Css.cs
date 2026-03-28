@@ -478,10 +478,11 @@ public partial class WordHandler
         var vertAlign = rProps.VerticalTextAlignment?.Val;
         if (vertAlign != null)
         {
+            var hasExplicitSize = rProps.FontSize?.Val?.Value != null;
             if (vertAlign.InnerText == "superscript")
-                parts.Add("vertical-align:super;font-size:smaller");
+                parts.Add(hasExplicitSize ? "vertical-align:super" : "vertical-align:super;font-size:smaller");
             else if (vertAlign.InnerText == "subscript")
-                parts.Add("vertical-align:sub;font-size:smaller");
+                parts.Add(hasExplicitSize ? "vertical-align:sub" : "vertical-align:sub;font-size:smaller");
         }
 
         // SmallCaps / AllCaps
@@ -601,7 +602,7 @@ public partial class WordHandler
             "dotted" => "dotted",
             _ => "solid"
         };
-        var cssColor = (color != null && color != "auto") ? $"#{color}" : "#000";
+        var cssColor = (color != null && !color.Equals("auto", StringComparison.OrdinalIgnoreCase)) ? $"#{color}" : "#000";
 
         parts.Add($"{cssProp}:{width} {style} {cssColor}");
     }

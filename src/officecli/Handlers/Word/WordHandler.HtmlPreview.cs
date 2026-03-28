@@ -134,6 +134,15 @@ public partial class WordHandler
 
     private static string? NonEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
+    /// <summary>Check if dimensions are ≥90% of the page size (full-page background element).</summary>
+    private bool IsFullPageSize(long widthEmu, long heightEmu)
+    {
+        var pg = GetPageLayout();
+        var pgW = (long)(pg.WidthCm / 2.54 * 914400);
+        var pgH = (long)(pg.HeightCm / 2.54 * 914400);
+        return widthEmu > pgW * 0.9 && heightEmu > pgH * 0.9;
+    }
+
     /// <summary>Find embed attribute from a blip element anywhere in the element tree.</summary>
     private static string? FindEmbedInDescendants(OpenXmlElement el)
     {
@@ -548,6 +557,14 @@ public partial class WordHandler
             long shapeHeight = extent?.Cy?.Value ?? 0;
             if (shapeWidth > 0 && shapeHeight > 0)
             {
+                // Full-page shapes → render as background layer
+                if (IsFullPageSize(shapeWidth, shapeHeight))
+                {
+                    var fillCss = ResolveShapeFillCss(shape.Elements().FirstOrDefault(e => e.LocalName == "spPr"));
+                    if (!string.IsNullOrEmpty(fillCss))
+                        sb.Append($"<div style=\"position:absolute;top:0;left:0;width:100%;height:100%;z-index:-1;{fillCss}\"></div>");
+                    return;
+                }
                 RenderShapeHtml(sb, shape, 0, 0, shapeWidth, shapeHeight, shapeWidth, shapeHeight, floatImages);
                 return;
             }
@@ -578,30 +595,33 @@ public partial class WordHandler
 
             var extent = drawing.Descendants<DW.Extent>().FirstOrDefault()
                 ?? drawing.Descendants<A.Extents>().FirstOrDefault() as OpenXmlElement;
-            string widthAttr = "", heightAttr = "";
-            if (extent is DW.Extent dwExt)
-            {
-                if (dwExt.Cx?.Value > 0) widthAttr = $" width=\"{dwExt.Cx.Value / 9525}\"";
-                if (dwExt.Cy?.Value > 0) heightAttr = $" height=\"{dwExt.Cy.Value / 9525}\"";
-            }
-            else if (extent is A.Extents aExt)
-            {
-                if (aExt.Cx?.Value > 0) widthAttr = $" width=\"{aExt.Cx.Value / 9525}\"";
-                if (aExt.Cy?.Value > 0) heightAttr = $" height=\"{aExt.Cy.Value / 9525}\"";
-            }
+            long imgCxEmu = 0, imgCyEmu = 0;
+            if (extent is DW.Extent dwExt) { imgCxEmu = dwExt.Cx?.Value ?? 0; imgCyEmu = dwExt.Cy?.Value ?? 0; }
+            else if (extent is A.Extents aExt) { imgCxEmu = aExt.Cx?.Value ?? 0; imgCyEmu = aExt.Cy?.Value ?? 0; }
 
             var docProps = drawing.Descendants<DW.DocProperties>().FirstOrDefault();
             var alt = docProps?.Description?.Value ?? docProps?.Name?.Value ?? "image";
             var dataUri = $"data:{contentType};base64,{base64}";
 
+            // Detect full-page background images → render as absolute background
+            if (IsFullPageSize(imgCxEmu, imgCyEmu))
+            {
+                sb.Append($"<div style=\"position:absolute;top:0;left:0;width:100%;height:100%;z-index:-1;overflow:hidden\">");
+                sb.Append($"<img src=\"{dataUri}\" alt=\"{HtmlEncode(alt)}\" style=\"width:100%;height:100%;object-fit:cover\">");
+                sb.Append("</div>");
+                return;
+            }
+
+            var widthPx = imgCxEmu / 9525;
+            var heightPx = imgCyEmu / 9525;
+            string widthAttr = widthPx > 0 ? $" width=\"{widthPx}\"" : "";
+            string heightAttr = heightPx > 0 ? $" height=\"{heightPx}\"" : "";
+
             // Crop support: container-based cropping
             var crop = GetCropPercents(drawing);
             if (crop.HasValue)
             {
-                long wPx = 0, hPx = 0;
-                if (extent is DW.Extent dw2) { wPx = (dw2.Cx?.Value ?? 0) / 9525; hPx = (dw2.Cy?.Value ?? 0) / 9525; }
-                else if (extent is A.Extents a2) { wPx = (a2.Cx?.Value ?? 0) / 9525; hPx = (a2.Cy?.Value ?? 0) / 9525; }
-                RenderCroppedImage(sb, dataUri, wPx, hPx, crop.Value.l, crop.Value.t, crop.Value.r, crop.Value.b, HtmlEncode(alt));
+                RenderCroppedImage(sb, dataUri, widthPx, heightPx, crop.Value.l, crop.Value.t, crop.Value.r, crop.Value.b, HtmlEncode(alt));
             }
             else
             {
@@ -1631,7 +1651,7 @@ public partial class WordHandler
         body {{ background: #f0f0f0; font-family: {font}; color: {dd.Color}; padding: 20px; }}
         .page {{ background: white; margin: 0 auto 40px; padding: {mT} {mR} {mB} {mL};
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-radius: 4px;
-            min-height: {pageH}; line-height: {lh}; font-size: {sz}; }}
+            min-height: {pageH}; line-height: {lh}; font-size: {sz}; position: relative; overflow: hidden; }}
         .doc-header, .doc-footer {{ color: #888; font-size: 9pt;
             border-bottom: 1px solid #e0e0e0; margin-bottom: 1em; padding-bottom: 0.5em; }}
         .doc-footer {{ border-bottom: none; border-top: 1px solid #e0e0e0;

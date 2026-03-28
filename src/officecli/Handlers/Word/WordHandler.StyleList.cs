@@ -69,12 +69,7 @@ public partial class WordHandler
             }
         }
 
-        // 4. Apply paragraph mark rPr (pPr > rPr) — in text boxes this carries the default formatting
-        var paraMarkRPr = para.ParagraphProperties?.ParagraphMarkRunProperties;
-        if (paraMarkRPr != null)
-            MergeRunProperties(effective, paraMarkRPr);
-
-        // 5. Apply run's own direct rPr (highest priority, excluding rStyle which was resolved above)
+        // 4. Apply run's own direct rPr (highest priority, excluding rStyle which was resolved above)
         if (run.RunProperties != null)
             MergeRunProperties(effective, run.RunProperties);
 

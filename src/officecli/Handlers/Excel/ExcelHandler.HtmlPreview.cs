@@ -53,7 +53,16 @@ public partial class ExcelHandler
         for (int i = 0; i < sheets.Count; i++)
         {
             var activeClass = i == 0 ? " active" : "";
-            sb.AppendLine($"  <div class=\"sheet-tab{activeClass}\" data-sheet=\"{i}\" onclick=\"switchSheet({i})\">{HtmlEncode(sheets[i].Name)}</div>");
+            var tabColorStyle = "";
+            var sheetProps = GetSheet(sheets[i].Part).GetFirstChild<SheetProperties>();
+            var tabColorEl = sheetProps?.TabColor;
+            if (tabColorEl?.Rgb?.Value != null)
+            {
+                var rgb = tabColorEl.Rgb.Value;
+                if (rgb.Length > 6) rgb = rgb[^6..];
+                tabColorStyle = $" style=\"border-bottom:3px solid #{rgb}\"";
+            }
+            sb.AppendLine($"  <div class=\"sheet-tab{activeClass}\"{tabColorStyle} data-sheet=\"{i}\" onclick=\"switchSheet({i})\">{HtmlEncode(sheets[i].Name)}</div>");
         }
         sb.AppendLine("</div>");
 

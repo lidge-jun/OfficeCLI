@@ -1026,6 +1026,11 @@ public partial class ExcelHandler
                         cell.CellValue = new CellValue(evalResult.ToCellValueText());
                         cell.DataType = new DocumentFormat.OpenXml.EnumValue<CellValues>(CellValues.Boolean);
                     }
+                    else if (evalResult is { IsError: true })
+                    {
+                        cell.CellValue = new CellValue(evalResult.ErrorValue!);
+                        cell.DataType = new DocumentFormat.OpenXml.EnumValue<CellValues>(CellValues.Error);
+                    }
                     else
                     {
                         cell.CellValue = null;

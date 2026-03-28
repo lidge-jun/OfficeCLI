@@ -43,7 +43,7 @@ static class CommandBuilder
                 var msg = $"Opened {file.Name} (already running, do NOT call close)";
                 if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(msg));
                 else Console.WriteLine(msg);
-                return;
+                return 0;
             }
 
             // Fork a background process running the resident server
@@ -74,7 +74,7 @@ static class CommandBuilder
                     var msg = $"Opened {file.Name} (remember to call close when done)";
                     if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(msg));
                     else Console.WriteLine(msg);
-                    return;
+                    return 0;
                 }
                 if (process.HasExited)
                 {
@@ -107,6 +107,7 @@ static class CommandBuilder
             {
                 throw new InvalidOperationException($"No resident running for {file.Name}");
             }
+            return 0;
         }, json); });
 
         rootCommand.Add(closeCommand);
@@ -145,6 +146,7 @@ static class CommandBuilder
 
             using var watch = new WatchServer(file.FullName, port, initialHtml: initialHtml);
             watch.RunAsync(cts.Token).GetAwaiter().GetResult();
+            return 0;
         }));
 
         rootCommand.Add(watchCommand);
@@ -161,6 +163,7 @@ static class CommandBuilder
                 Console.WriteLine($"Watch stopped for {file.Name}");
             else
                 Console.Error.WriteLine($"No watch running for {file.Name}");
+            return 0;
         }));
 
         rootCommand.Add(unwatchCommand);
@@ -229,7 +232,7 @@ static class CommandBuilder
                 if (limit.HasValue) req.Args["limit"] = limit.Value.ToString();
                 if (colsStr != null) req.Args["cols"] = colsStr;
                 if (browser) req.Args["browser"] = "true";
-            }, json)) return;
+            }, json) is {} rc) return rc;
 
             var format = json ? OutputFormat.Json : OutputFormat.Text;
             var cols = colsStr != null ? new HashSet<string>(colsStr.Split(',').Select(c => c.Trim().ToUpperInvariant())) : null;
@@ -274,7 +277,7 @@ static class CommandBuilder
                         ValidValues = ["text", "annotated", "outline", "stats", "issues"]
                     };
                 }
-                return;
+                return 0;
             }
 
             if (mode.ToLowerInvariant() is "svg" or "g")
@@ -321,7 +324,7 @@ static class CommandBuilder
                         ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg"]
                     };
                 }
-                return;
+                return 0;
             }
 
             if (json)
@@ -364,6 +367,7 @@ static class CommandBuilder
                 };
                 Console.WriteLine(output);
             }
+            return 0;
         }, json); });
 
         rootCommand.Add(viewCommand);
@@ -393,7 +397,7 @@ static class CommandBuilder
                 req.Json = json;
                 req.Args["path"] = path;
                 req.Args["depth"] = depth.ToString();
-            }, json)) return;
+            }, json) is {} rc) return rc;
 
             using var handler = DocumentHandlerFactory.Open(file.FullName);
             var node = handler.Get(path, depth);
@@ -402,6 +406,7 @@ static class CommandBuilder
                     OutputFormatter.FormatNode(node, OutputFormat.Json)));
             else
                 Console.WriteLine(OutputFormatter.FormatNode(node, OutputFormat.Text));
+            return 0;
         }, json); });
 
         rootCommand.Add(getCommand);
@@ -425,7 +430,7 @@ static class CommandBuilder
                 req.Command = "query";
                 req.Json = json;
                 req.Args["selector"] = selector;
-            }, json)) return;
+            }, json) is {} rc) return rc;
 
             var format = json ? OutputFormat.Json : OutputFormat.Text;
 
@@ -444,6 +449,7 @@ static class CommandBuilder
                 foreach (var w in warnings) Console.Error.WriteLine(w);
                 Console.WriteLine(OutputFormatter.FormatNodes(results, OutputFormat.Text));
             }
+            return 0;
         }, json); });
 
         rootCommand.Add(queryCommand);
@@ -498,7 +504,7 @@ static class CommandBuilder
                 req.Command = "set";
                 req.Args["path"] = path;
                 req.Props = props;
-            }, json)) { return 0; }
+            }, json) is {} rc) return rc;
 
             var properties = new Dictionary<string, string>();
             foreach (var prop in props ?? Array.Empty<string>())
@@ -661,7 +667,7 @@ static class CommandBuilder
                     req.Args["parent"] = parentPath;
                     req.Args["from"] = from;
                     if (index.HasValue) req.Args["index"] = index.Value.ToString();
-                }, json)) { return hadWarnings ? 2 : 0; }
+                }, json) is {} rc) return rc != 0 ? rc : (hadWarnings ? 2 : 0);
 
                 using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
                 var oldCount = (handler as OfficeCli.Handlers.PowerPointHandler)?.GetSlideCount() ?? 0;
@@ -681,7 +687,7 @@ static class CommandBuilder
                     req.Args["type"] = type!;
                     if (index.HasValue) req.Args["index"] = index.Value.ToString();
                     req.Props = props;
-                }, json)) { return hadWarnings ? 2 : 0; }
+                }, json) is {} rc) return rc != 0 ? rc : (hadWarnings ? 2 : 0);
 
                 var properties = new Dictionary<string, string>();
                 foreach (var prop in props ?? Array.Empty<string>())
@@ -726,7 +732,7 @@ static class CommandBuilder
             {
                 req.Command = "remove";
                 req.Args["path"] = path;
-            }, json)) { return; }
+            }, json) is {} rc) return rc;
 
             using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
             var oldCount = (handler as OfficeCli.Handlers.PowerPointHandler)?.GetSlideCount() ?? 0;
@@ -740,6 +746,7 @@ static class CommandBuilder
                 NotifyWatchRoot(handler, file.FullName, oldCount);
             else
                 NotifyWatch(handler, file.FullName, path);
+            return 0;
         }, json); });
 
         rootCommand.Add(removeCommand);
@@ -770,7 +777,7 @@ static class CommandBuilder
                 req.Args["path"] = path;
                 if (to != null) req.Args["to"] = to;
                 if (index.HasValue) req.Args["index"] = index.Value.ToString();
-            }, json)) { return; }
+            }, json) is {} rc) return rc;
 
             using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
             var resultPath = handler.Move(path, to, index);
@@ -778,6 +785,7 @@ static class CommandBuilder
             if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message));
             else Console.WriteLine(message);
             NotifyWatch(handler, file.FullName, path);
+            return 0;
         }, json); });
 
         rootCommand.Add(moveCommand);
@@ -815,7 +823,7 @@ static class CommandBuilder
                 if (startRow.HasValue) req.Args["start"] = startRow.Value.ToString();
                 if (endRow.HasValue) req.Args["end"] = endRow.Value.ToString();
                 if (rawColsStr != null) req.Args["cols"] = rawColsStr;
-            }, json)) return;
+            }, json) is {} rc) return rc;
 
             var rawCols = rawColsStr != null ? new HashSet<string>(rawColsStr.Split(',').Select(c => c.Trim().ToUpperInvariant())) : null;
 
@@ -823,6 +831,7 @@ static class CommandBuilder
             var xml = handler.Raw(partPath, startRow, endRow, rawCols);
             if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(xml));
             else Console.WriteLine(xml);
+            return 0;
         }, json); });
 
         rootCommand.Add(rawCommand);
@@ -857,7 +866,7 @@ static class CommandBuilder
                 req.Args["xpath"] = xpath;
                 req.Args["action"] = action;
                 if (xml != null) req.Args["xml"] = xml;
-            }, json)) { return; }
+            }, json) is {} rc) return rc;
 
             using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
             var errorsBefore = handler.Validate().Select(e => e.Description).ToHashSet();
@@ -871,6 +880,7 @@ static class CommandBuilder
                 ReportNewErrors(handler, errorsBefore, warnings);
             }
             NotifyWatch(handler, file.FullName, null);
+            return 0;
         }, json); });
 
         rootCommand.Add(rawSetCommand);
@@ -896,7 +906,7 @@ static class CommandBuilder
                 req.Command = "add-part";
                 req.Args["parent"] = parent;
                 req.Args["type"] = type;
-            }, json)) { return; }
+            }, json) is {} rc) return rc;
 
             using var handler = DocumentHandlerFactory.Open(file, editable: true);
             var errorsBefore = handler.Validate().Select(e => e.Description).ToHashSet();
@@ -910,6 +920,7 @@ static class CommandBuilder
                 ReportNewErrors(handler, errorsBefore, warnings);
             }
             NotifyWatch(handler, file, null);
+            return 0;
         }, json); });
 
         rootCommand.Add(addPartCommand);
@@ -927,7 +938,7 @@ static class CommandBuilder
             {
                 req.Command = "validate";
                 req.Json = json;
-            }, json)) return;
+            }, json) is {} rc) return rc;
 
             using var handler = DocumentHandlerFactory.Open(file.FullName);
             var errors = handler.Validate();
@@ -953,6 +964,7 @@ static class CommandBuilder
                     }
                 }
             }
+            return 0;
         }, json); });
         rootCommand.Add(validateCommand);
 
@@ -1015,7 +1027,7 @@ static class CommandBuilder
                 PrintBatchResults(results, json);
                 if (results.Any(r => !r.Success))
                     throw new InvalidOperationException($"Batch completed with {results.Count(r => !r.Success)} error(s)");
-                return;
+                return 0;
             }
 
             // Non-resident: open file once, execute all commands, save once
@@ -1039,6 +1051,7 @@ static class CommandBuilder
                 NotifyWatch(handler, file.FullName, null);
             if (batchResults.Any(r => !r.Success))
                 throw new InvalidOperationException($"Batch completed with {batchResults.Count(r => !r.Success)} error(s)");
+            return 0;
         }, json); });
 
         rootCommand.Add(batchCommand);
@@ -1140,6 +1153,7 @@ static class CommandBuilder
                 Console.WriteLine(OutputFormatter.WrapEnvelopeText(msg));
             else
                 Console.WriteLine(msg);
+            return 0;
         }, json); });
 
         rootCommand.Add(importCommand);
@@ -1191,6 +1205,7 @@ static class CommandBuilder
                     Console.WriteLine($"  slideHeight: {Core.EmuConverter.FormatEmu(6858000)}");
                 }
             }
+            return 0;
         }, json); });
 
         rootCommand.Add(createCommand);
@@ -1237,6 +1252,7 @@ static class CommandBuilder
                         Console.Error.WriteLine($"    - {{{{{p}}}}}");
                 }
             }
+            return 0;
         }, json); });
 
         rootCommand.Add(mergeCommand);
@@ -1247,7 +1263,7 @@ static class CommandBuilder
     }
 
     // ==================== Helper: try forwarding to resident ====================
-    internal static bool TryResident(string filePath, Action<ResidentRequest> configure, bool json = false)
+    internal static int? TryResident(string filePath, Action<ResidentRequest> configure, bool json = false)
     {
         var request = new ResidentRequest();
         configure(request);
@@ -1255,7 +1271,7 @@ static class CommandBuilder
 
         var response = ResidentClient.TrySend(filePath, request);
         if (response == null)
-            return false;
+            return null;
 
         if (json)
         {
@@ -1271,13 +1287,9 @@ static class CommandBuilder
                 Console.Error.WriteLine(response.Stderr);
         }
 
-        return true;
+        return response.ExitCode;
     }
 
-    internal static int SafeRun(Action action, bool json = false)
-    {
-        return SafeRun(() => { action(); return 0; }, json);
-    }
 
     internal static int SafeRun(Func<int> action, bool json = false)
     {

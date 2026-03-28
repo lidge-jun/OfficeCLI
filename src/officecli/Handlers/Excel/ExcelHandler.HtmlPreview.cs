@@ -23,7 +23,7 @@ public partial class ExcelHandler
         var stylesheet = wbStylesPart?.Stylesheet;
 
         sb.AppendLine("<!DOCTYPE html>");
-        sb.AppendLine("<html lang=\"en\">");
+        sb.AppendLine("<html>");
         sb.AppendLine("<head>");
         sb.AppendLine("<meta charset=\"UTF-8\">");
         sb.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">");
@@ -42,7 +42,11 @@ public partial class ExcelHandler
         {
             var (sheetName, worksheetPart) = sheets[sheetIdx];
             var displayStyle = sheetIdx == 0 ? "" : " style=\"display:none\"";
-            sb.AppendLine($"<div class=\"sheet-content\" data-sheet=\"{sheetIdx}\"{displayStyle}>");
+            // Check if sheet is RTL
+            var sheetView = GetSheet(worksheetPart).GetFirstChild<SheetViews>()?.GetFirstChild<SheetView>();
+            var isRtl = sheetView?.RightToLeft?.Value == true;
+            var dirAttr = isRtl ? " dir=\"rtl\"" : "";
+            sb.AppendLine($"<div class=\"sheet-content\" data-sheet=\"{sheetIdx}\"{displayStyle}{dirAttr}>");
             RenderSheetTable(sb, sheetName, worksheetPart, stylesheet);
             RenderSheetCharts(sb, worksheetPart);
             sb.AppendLine("</div>");
@@ -529,6 +533,14 @@ public partial class ExcelHandler
 
         if (alignment.Indent?.HasValue == true && alignment.Indent.Value > 0)
             styles.Add($"padding-left:{alignment.Indent.Value * 8}px");
+
+        // Reading order: 1=LTR, 2=RTL (for mixed-direction content)
+        if (alignment.ReadingOrder?.HasValue == true)
+        {
+            var ro = alignment.ReadingOrder.Value;
+            if (ro == 2) styles.Add("direction:rtl;unicode-bidi:embed");
+            else if (ro == 1) styles.Add("direction:ltr;unicode-bidi:embed");
+        }
     }
 
     // ==================== Color Resolution ====================
@@ -957,7 +969,8 @@ public partial class ExcelHandler
             overflow: hidden;
             text-overflow: ellipsis;
             vertical-align: bottom;
-            max-width: 300px;
+            max-width: 500px;
+            word-break: break-all; /* CJK text wrapping support */
             height: 20px;
         }
         .empty-sheet {

@@ -953,14 +953,15 @@ public partial class ExcelHandler
             switch (key.ToLowerInvariant())
             {
                 case "value":
+                    var cellValue = value.Replace("\\n", "\n"); // Support escaped newlines
                     cell.CellFormula = null; // Clear formula when explicit value is set
                     // If cell is already boolean type, convert true/false to 1/0
                     if (cell.DataType?.Value == CellValues.Boolean)
                     {
-                        var bv = value.Trim().ToLowerInvariant();
+                        var bv = cellValue.Trim().ToLowerInvariant();
                         if (bv is "true" or "yes") cell.CellValue = new CellValue("1");
                         else if (bv is "false" or "no") cell.CellValue = new CellValue("0");
-                        else cell.CellValue = new CellValue(value);
+                        else cell.CellValue = new CellValue(cellValue);
                     }
                     else
                     {
@@ -976,37 +977,31 @@ public partial class ExcelHandler
                             .Any(v => v is "number" or "num");
 
                         // Auto-detect ISO date (only if user did NOT explicitly set type=string)
-                        if (!explicitTypeIsString && DateTime.TryParseExact(value,
+                        if (!explicitTypeIsString && DateTime.TryParseExact(cellValue,
                             new[] { "yyyy-MM-dd", "yyyy/MM/dd", "yyyy-MM-dd HH:mm:ss" },
                             System.Globalization.CultureInfo.InvariantCulture,
                             System.Globalization.DateTimeStyles.None, out var dt))
                         {
                             cell.CellValue = new CellValue(dt.ToOADate().ToString(System.Globalization.CultureInfo.InvariantCulture));
-                            cell.DataType = null; // Date stored as number
-                            // Apply default date format unless user already specified one
+                            cell.DataType = null;
                             if (!properties.ContainsKey("numberformat") && !properties.ContainsKey("numfmt") && !properties.ContainsKey("format"))
                                 styleProps["numberformat"] = "yyyy-mm-dd";
                         }
-                        // Auto-detect strings that look like numbers but should be text:
-                        // - Leading zeros with length > 1 (e.g. "007", "0912345678"), except decimals like "0.5"
-                        // - Values longer than 15 digits (Excel number precision limit)
+                        // Auto-detect strings that look like numbers but should be text
                         else if (!explicitTypeIsNumber
-                            && ((value.Length > 1 && value.StartsWith('0') && !value.StartsWith("0.") && !value.StartsWith("0,") && value.All(c => char.IsDigit(c)))
-                                || (value.All(char.IsDigit) && value.Length > 15)))
+                            && ((cellValue.Length > 1 && cellValue.StartsWith('0') && !cellValue.StartsWith("0.") && !cellValue.StartsWith("0,") && cellValue.All(c => char.IsDigit(c)))
+                                || (cellValue.All(char.IsDigit) && cellValue.Length > 15)))
                         {
-                            cell.CellValue = new CellValue(value);
+                            cell.CellValue = new CellValue(cellValue);
                             cell.DataType = new EnumValue<CellValues>(CellValues.String);
                         }
                         else
                         {
-                            cell.CellValue = new CellValue(value);
-                            // Auto-detect type: number or string (boolean only via explicit type=boolean)
-                            if (double.TryParse(value, out _))
-                                cell.DataType = null; // Number is default
+                            cell.CellValue = new CellValue(cellValue);
+                            if (double.TryParse(cellValue, out _))
+                                cell.DataType = null;
                             else
-                            {
                                 cell.DataType = new EnumValue<CellValues>(CellValues.String);
-                            }
                         }
                     }
                     break;

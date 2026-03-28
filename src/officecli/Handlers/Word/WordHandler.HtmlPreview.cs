@@ -382,8 +382,8 @@ public partial class WordHandler
 
     private void RenderParagraphHtml(StringBuilder sb, Paragraph para)
     {
-        // Use <div> instead of <p> when paragraph contains block-level elements (text boxes)
-        var tag = HasTextBoxContent(para) ? "div" : "p";
+        // Use <div> instead of <p> when paragraph contains block-level elements (text boxes, charts, shapes)
+        var tag = HasBlockLevelDrawing(para) ? "div" : "p";
         sb.Append($"<{tag}");
         var pStyle = GetParagraphInlineCss(para);
         if (!string.IsNullOrEmpty(pStyle))
@@ -467,8 +467,12 @@ public partial class WordHandler
                     }
                 }
 
+                // Also check for internal bookmark links (Anchor property)
+                if (url == null && hyperlink.Anchor?.Value != null)
+                    url = $"#{hyperlink.Anchor.Value}";
+
                 if (url != null)
-                    sb.Append($"<a href=\"{HtmlEncode(url)}\" target=\"_blank\">");
+                    sb.Append($"<a href=\"{HtmlEncode(url)}\"{(url.StartsWith("#") ? "" : " target=\"_blank\"")}>");
 
                 foreach (var hRun in hyperlink.Elements<Run>())
                     RenderRunHtml(sb, hRun, para);
@@ -529,30 +533,9 @@ public partial class WordHandler
         // FootnoteReferenceMark / EndnoteReferenceMark: don't skip the run, just ignore the mark element
         // (the run may also contain text that should be rendered)
 
-        var hasContent = false;
-        foreach (var child in run.ChildElements)
-        {
-            if (child is Break brk)
-            {
-                if (brk.Type?.Value == BreakValues.Page)
-                    sb.Append("<hr class=\"page-break\">");
-                else
-                    sb.Append("<br>");
-                hasContent = true;
-            }
-            else if (child is TabChar)
-            {
-                hasContent = true;
-            }
-            else if (child is Text t && !string.IsNullOrEmpty(t.Text))
-            {
-                hasContent = true;
-            }
-            else if (child is SymbolChar sym)
-            {
-                hasContent = true;
-            }
-        }
+        var hasContent = run.ChildElements.Any(c =>
+            c is Break || c is TabChar || c is SymbolChar
+            || (c is Text t && !string.IsNullOrEmpty(t.Text)));
 
         if (!hasContent) return;
 
@@ -564,7 +547,14 @@ public partial class WordHandler
 
         foreach (var child in run.ChildElements)
         {
-            if (child is TabChar)
+            if (child is Break brk)
+            {
+                if (brk.Type?.Value == BreakValues.Page)
+                    sb.Append("<hr class=\"page-break\">");
+                else
+                    sb.Append("<br>");
+            }
+            else if (child is TabChar)
                 sb.Append("&emsp;");
             else if (child is Text t && !string.IsNullOrEmpty(t.Text))
                 sb.Append(HtmlEncode(t.Text));
@@ -612,6 +602,20 @@ public partial class WordHandler
             var drawing = run.GetFirstChild<Drawing>() ?? run.Descendants<Drawing>().FirstOrDefault();
             if (drawing != null && HasTextBox(drawing))
                 return true;
+        }
+        return false;
+    }
+
+    /// <summary>Check if paragraph contains any drawing that renders as block-level HTML (text box, chart, shape).</summary>
+    private static bool HasBlockLevelDrawing(Paragraph para)
+    {
+        foreach (var run in para.Elements<Run>())
+        {
+            var drawing = run.GetFirstChild<Drawing>() ?? run.Descendants<Drawing>().FirstOrDefault();
+            if (drawing == null) continue;
+            if (HasGroupOrShape(drawing)) return true;
+            // Chart reference
+            if (drawing.Descendants().Any(e => e.LocalName == "chart")) return true;
         }
         return false;
     }
@@ -1108,8 +1112,13 @@ public partial class WordHandler
                 colors.Add(seriesColor ?? Core.ChartSvgRenderer.DefaultColors[idx % Core.ChartSvgRenderer.DefaultColors.Length]);
             }
 
-            // Render SVG chart
-            var renderer = new Core.ChartSvgRenderer();
+            // Render SVG chart (use dark label colors for white background)
+            var renderer = new Core.ChartSvgRenderer
+            {
+                CatColor = "#333333",
+                AxisColor = "#555555",
+                ValueColor = "#444444"
+            };
 
             sb.Append($"<div style=\"margin:0.5em 0;text-align:center\">");
             if (!string.IsNullOrEmpty(titleText))
@@ -1809,8 +1818,10 @@ public partial class WordHandler
                 parts.Add("text-decoration:underline");
         }
 
-        // Strikethrough
-        if (rProps.Strike != null && (rProps.Strike.Val == null || rProps.Strike.Val.Value))
+        // Strikethrough (single or double)
+        var hasStrike = (rProps.Strike != null && (rProps.Strike.Val == null || rProps.Strike.Val.Value))
+            || (rProps.DoubleStrike != null && (rProps.DoubleStrike.Val == null || rProps.DoubleStrike.Val.Value));
+        if (hasStrike)
         {
             var existing = parts.FirstOrDefault(p => p.StartsWith("text-decoration:"));
             if (existing != null)

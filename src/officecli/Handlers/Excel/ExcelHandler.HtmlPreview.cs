@@ -145,13 +145,16 @@ public partial class ExcelHandler
             }
         }
 
-        // Row height lookup
+        // Row height and hidden row lookup
         var rowHeights = new Dictionary<int, double>();
+        var hiddenRows = new HashSet<int>();
         foreach (var row in rows)
         {
             var rowIdx = (int)(row.RowIndex?.Value ?? 0);
             if (row.CustomHeight?.Value == true && row.Height?.Value != null)
                 rowHeights[rowIdx] = row.Height.Value;
+            if (row.Hidden?.Value == true)
+                hiddenRows.Add(rowIdx);
         }
 
         // Start table
@@ -183,6 +186,7 @@ public partial class ExcelHandler
         sb.AppendLine("<tbody>");
         for (int r = 1; r <= maxRow; r++)
         {
+            if (hiddenRows.Contains(r)) { sb.AppendLine("<tr style=\"display:none\"></tr>"); continue; }
             var rowH = rowHeights.TryGetValue(r, out var rh) ? $" style=\"height:{rh * 1.33:0.#}px\"" : "";
             sb.Append($"<tr{rowH}>");
 
@@ -270,10 +274,10 @@ public partial class ExcelHandler
         foreach (var col in columns.Elements<Column>())
         {
             if (col.Width?.Value == null) continue;
-            // Excel column width is in character units; convert to approximate pixels (1 char ≈ 7.5px + 5px padding)
-            var widthPx = col.Width.Value == 0 ? 0 : col.Width.Value * 7.5 + 5;
             var min = (int)(col.Min?.Value ?? 1u);
             var max = (int)(col.Max?.Value ?? (uint)min);
+            // Hidden columns get width 0
+            var widthPx = col.Hidden?.Value == true ? 0 : (col.Width.Value == 0 ? 0 : col.Width.Value * 7.5 + 5);
             for (int c = min; c <= max; c++)
                 result[c] = widthPx;
         }
@@ -482,9 +486,17 @@ public partial class ExcelHandler
         if (alignment.TextRotation?.HasValue == true && alignment.TextRotation.Value != 0)
         {
             var rot = alignment.TextRotation.Value;
-            // Excel: 0-90 = counter-clockwise, 91-180 = clockwise (91=1°CW, 180=90°CW)
-            int cssDeg = rot <= 90 ? -(int)rot : 90 - (int)rot;
-            styles.Add($"writing-mode:vertical-lr;transform:rotate({cssDeg}deg)");
+            if (rot == 255)
+            {
+                // 255 = stacked vertical text (each char on its own line)
+                styles.Add("writing-mode:vertical-rl;text-orientation:upright;letter-spacing:-2px");
+            }
+            else
+            {
+                // Excel: 0-90 = counter-clockwise, 91-180 = clockwise (91=1°CW, 180=90°CW)
+                int cssDeg = rot <= 90 ? -(int)rot : 90 - (int)rot;
+                styles.Add($"transform:rotate({cssDeg}deg);white-space:nowrap");
+            }
         }
 
         if (alignment.Indent?.HasValue == true && alignment.Indent.Value > 0)
@@ -623,6 +635,23 @@ public partial class ExcelHandler
 
     private static string ApplyNumberFormat(double value, string fmtCode)
     {
+        // Handle multi-section format codes: positive;negative;zero
+        if (fmtCode.Contains(';'))
+        {
+            var sections = fmtCode.Split(';');
+            if (value < 0 && sections.Length >= 2)
+                return ApplyNumberFormat(Math.Abs(value), sections[1].Trim()).Insert(0, "-");
+            if (value == 0 && sections.Length >= 3)
+                return ApplyNumberFormat(value, sections[2].Trim());
+            fmtCode = sections[0].Trim();
+        }
+
+        // Strip [Color] markers: [Red], [Blue], [Green], [Color N], etc.
+        fmtCode = System.Text.RegularExpressions.Regex.Replace(fmtCode, @"\[(Red|Blue|Green|Yellow|White|Black|Cyan|Magenta|Color\s*\d+)\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+
+        // Strip condition markers: [>100], [<=0], etc.
+        fmtCode = System.Text.RegularExpressions.Regex.Replace(fmtCode, @"\[[<>=!]+\d+\.?\d*\]", "").Trim();
+
         var fmt = fmtCode.ToLowerInvariant();
 
         // Extract currency/text prefix and suffix (e.g. "$", "€", "¥", or quoted strings like "USD ")

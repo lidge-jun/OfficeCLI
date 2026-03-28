@@ -253,10 +253,14 @@ public partial class WordHandler
             if (align != null) parts.Add($"text-align:{align}");
         }
 
+        // Style ID for fallback lookups
+        var styleId = pProps.ParagraphStyleId?.Val?.Value;
+
         // Indentation (skip for list items — handled by list nesting)
         if (!isListItem)
         {
-            var indent = pProps.Indentation;
+            // Indentation — direct or style fallback
+            var indent = pProps.Indentation ?? ResolveIndentationFromStyle(styleId);
             if (indent != null)
             {
                 if (indent.Left?.Value is string leftTwips && leftTwips != "0")
@@ -270,26 +274,41 @@ public partial class WordHandler
             }
         }
 
-        // Spacing
+        // Spacing — direct properties first, fallback to style chain per-property
         var spacing = pProps.SpacingBetweenLines;
+        var styleSpacing = ResolveSpacingFromStyle(styleId);
+        if (spacing == null)
+            spacing = styleSpacing;
+
         if (spacing != null)
         {
-            if (spacing.Before?.Value is string beforeTwips && beforeTwips != "0")
+            // Before: try direct, then style fallback
+            var beforeVal = pProps.SpacingBetweenLines?.Before?.Value
+                            ?? styleSpacing?.Before?.Value;
+            if (beforeVal is string beforeTwips && beforeTwips != "0")
                 parts.Add($"margin-top:{TwipsToPx(beforeTwips):0.#}px");
-            if (spacing.After?.Value is string afterTwips && afterTwips != "0")
+
+            // After: try direct, then style fallback
+            var afterVal = pProps.SpacingBetweenLines?.After?.Value
+                           ?? styleSpacing?.After?.Value;
+            if (afterVal is string afterTwips && afterTwips != "0")
                 parts.Add($"margin-bottom:{TwipsToPx(afterTwips):0.#}px");
-            if (spacing.Line?.Value is string lineVal)
+
+            // Line: try direct, then style fallback
+            var lineVal = pProps.SpacingBetweenLines?.Line?.Value
+                          ?? styleSpacing?.Line?.Value;
+            if (lineVal is string lv)
             {
-                var rule = spacing.LineRule?.InnerText;
+                var rule = pProps.SpacingBetweenLines?.LineRule?.InnerText
+                           ?? styleSpacing?.LineRule?.InnerText;
                 if (rule == "auto" || rule == null)
                 {
-                    // Multiplier: value/240 = line spacing ratio
-                    if (int.TryParse(lineVal, out var lv))
-                        parts.Add($"line-height:{lv / 240.0:0.##}");
+                    if (int.TryParse(lv, out var lvNum))
+                        parts.Add($"line-height:{lvNum / 240.0:0.##}");
                 }
                 else if (rule == "exact" || rule == "atLeast")
                 {
-                    parts.Add($"line-height:{TwipsToPx(lineVal):0.#}px");
+                    parts.Add($"line-height:{TwipsToPx(lv):0.#}px");
                 }
             }
         }
@@ -343,6 +362,59 @@ public partial class WordHandler
             var sFill = ResolveShadingFill(shading);
             if (sFill != null) return sFill;
 
+            currentStyleId = style.BasedOn?.Val?.Value;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolve SpacingBetweenLines from the style chain (basedOn walk).
+    /// </summary>
+    private SpacingBetweenLines? ResolveSpacingFromStyle(string? styleId)
+    {
+        // If no explicit style, use the default paragraph style (Normal)
+        if (styleId == null)
+        {
+            var defaultStyle = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles
+                ?.Elements<Style>().FirstOrDefault(s => s.Type?.Value == StyleValues.Paragraph && s.Default?.Value == true);
+            if (defaultStyle?.StyleParagraphProperties?.SpacingBetweenLines != null)
+                return defaultStyle.StyleParagraphProperties.SpacingBetweenLines;
+            return null;
+        }
+        var visited = new HashSet<string>();
+        var currentStyleId = styleId;
+        while (currentStyleId != null && visited.Add(currentStyleId))
+        {
+            var style = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles
+                ?.Elements<Style>().FirstOrDefault(s => s.StyleId?.Value == currentStyleId);
+            if (style == null) break;
+            var sp = style.StyleParagraphProperties?.SpacingBetweenLines;
+            if (sp != null) return sp;
+            currentStyleId = style.BasedOn?.Val?.Value;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolve Indentation from the style chain (basedOn walk).
+    /// </summary>
+    private Indentation? ResolveIndentationFromStyle(string? styleId)
+    {
+        if (styleId == null)
+        {
+            var defaultStyle = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles
+                ?.Elements<Style>().FirstOrDefault(s => s.Type?.Value == StyleValues.Paragraph && s.Default?.Value == true);
+            return defaultStyle?.StyleParagraphProperties?.Indentation;
+        }
+        var visited = new HashSet<string>();
+        var currentStyleId = styleId;
+        while (currentStyleId != null && visited.Add(currentStyleId))
+        {
+            var style = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles
+                ?.Elements<Style>().FirstOrDefault(s => s.StyleId?.Value == currentStyleId);
+            if (style == null) break;
+            var ind = style.StyleParagraphProperties?.Indentation;
+            if (ind != null) return ind;
             currentStyleId = style.BasedOn?.Val?.Value;
         }
         return null;
@@ -701,12 +773,7 @@ public partial class WordHandler
         .doc-footer {{ border-bottom: none; border-top: 1px solid #e0e0e0;
             margin-top: 1em; padding-top: 0.5em; margin-bottom: 0; }}
         h1, h2, h3, h4, h5, h6 {{ line-height: 1.4; }}
-        h1 {{ margin-top: 0.5em; margin-bottom: 0.3em; }}
-        h2 {{ margin-top: 0.4em; margin-bottom: 0.2em; }}
-        h3 {{ margin-top: 0.3em; margin-bottom: 0.2em; }}
-        h4 {{ margin-top: 0.2em; margin-bottom: 0.1em; }}
-        h5, h6 {{ margin-top: 0.1em; margin-bottom: 0.1em; }}
-        p {{ margin: 0.1em 0; }}
+        p {{ margin: 0; }}
         p.empty {{ margin: 0; min-height: 1em; }}
         a {{ color: #2B579A; }} a:hover {{ color: #1a3c6e; }}
         ul, ol {{ padding-left: 2em; margin: 0.2em 0; }}

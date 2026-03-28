@@ -126,7 +126,9 @@ internal partial class FormulaEvaluator
             "ROW" => EvalRowCol(args, true), "COLUMN" => EvalRowCol(args, false),
             "ROWS" => EvalRowsCols(args, true), "COLUMNS" => EvalRowsCols(args, false),
             "ADDRESS" => EvalAddress(args),
-            "VLOOKUP" or "HLOOKUP" or "LOOKUP" or "OFFSET" or "INDIRECT" => null, // need 2D range — unsupported
+            "VLOOKUP" => EvalVlookup(args),
+            "HLOOKUP" => EvalHlookup(args),
+            "LOOKUP" or "OFFSET" or "INDIRECT" => null, // unsupported
 
             // ===== Date & Time =====
             "TODAY" => FR(DateTime.Today.ToOADate()), "NOW" => FR(DateTime.Now.ToOADate()),
@@ -307,15 +309,31 @@ internal partial class FormulaEvaluator
 
     private FormulaResult? EvalIndex(List<object> args)
     {
-        if (args.Count < 2 || args[0] is not double[] arr) return null;
-        var idx = args[1] is FormulaResult r ? (int)r.AsNumber() - 1 : 0;
-        return idx >= 0 && idx < arr.Length ? FR(arr[idx]) : FormulaResult.Error("#REF!");
+        if (args.Count < 2) return null;
+        if (args[0] is RangeData rd)
+        {
+            var rowIdx = args[1] is FormulaResult r ? (int)r.AsNumber() : 0;
+            var colIdx = args.Count > 2 && args[2] is FormulaResult c ? (int)c.AsNumber() : 1;
+            if (rowIdx < 1 || rowIdx > rd.Rows || colIdx < 1 || colIdx > rd.Cols) return FormulaResult.Error("#REF!");
+            return rd.Cells[rowIdx - 1, colIdx - 1] ?? FormulaResult.Number(0);
+        }
+        if (args[0] is double[] arr)
+        {
+            var idx = args[1] is FormulaResult r2 ? (int)r2.AsNumber() - 1 : 0;
+            return idx >= 0 && idx < arr.Length ? FR(arr[idx]) : FormulaResult.Error("#REF!");
+        }
+        return null;
     }
 
     private FormulaResult? EvalMatch(List<object> args)
     {
         if (args.Count < 2) return null;
         var lookup = args[0] is FormulaResult r ? r : null; if (lookup == null) return null;
+        if (args[1] is RangeData rd)
+        {
+            if (rd.Cols == 1) { for (int i = 0; i < rd.Rows; i++) { var cell = rd.Cells[i, 0]; if (cell != null && CompareValues(cell, lookup) == 0) return FR(i + 1); } }
+            else if (rd.Rows == 1) { for (int i = 0; i < rd.Cols; i++) { var cell = rd.Cells[0, i]; if (cell != null && CompareValues(cell, lookup) == 0) return FR(i + 1); } }
+        }
         if (args[1] is double[] arr)
         { for (int i = 0; i < arr.Length; i++) if (Math.Abs(arr[i] - lookup.AsNumber()) < 1e-10) return FR(i + 1); }
         return FormulaResult.Error("#N/A");
@@ -332,8 +350,45 @@ internal partial class FormulaEvaluator
 
     private static FormulaResult? EvalRowsCols(List<object> args, bool isRows)
     {
+        if (args.Count > 0 && args[0] is RangeData rd) return FR(isRows ? rd.Rows : rd.Cols);
         if (args.Count > 0 && args[0] is double[] arr) return FR(arr.Length);
         return FR(1);
+    }
+
+    private FormulaResult? EvalVlookup(List<object> args)
+    {
+        if (args.Count < 3) return null;
+        var lookupVal = args[0] is FormulaResult r ? r : null; if (lookupVal == null) return null;
+        var table = args[1] is RangeData rd ? rd : null; if (table == null) return FormulaResult.Error("#N/A");
+        var colIndex = args[2] is FormulaResult ci ? (int)ci.AsNumber() : 0;
+        if (colIndex < 1 || colIndex > table.Cols) return FormulaResult.Error("#REF!");
+        var exactMatch = args.Count > 3 && args[3] is FormulaResult rm && (rm.AsNumber() == 0 || rm.AsString().Equals("FALSE", StringComparison.OrdinalIgnoreCase));
+
+        int foundRow = -1;
+        if (exactMatch)
+        { for (int i = 0; i < table.Rows; i++) { var cell = table.Cells[i, 0]; if (cell != null && CompareValues(cell, lookupVal) == 0) { foundRow = i; break; } } }
+        else
+        { for (int i = 0; i < table.Rows; i++) { var cell = table.Cells[i, 0]; if (cell == null) continue; if (CompareValues(cell, lookupVal) <= 0) foundRow = i; else break; } }
+
+        return foundRow >= 0 ? (table.Cells[foundRow, colIndex - 1] ?? FormulaResult.Number(0)) : FormulaResult.Error("#N/A");
+    }
+
+    private FormulaResult? EvalHlookup(List<object> args)
+    {
+        if (args.Count < 3) return null;
+        var lookupVal = args[0] is FormulaResult r ? r : null; if (lookupVal == null) return null;
+        var table = args[1] is RangeData rd ? rd : null; if (table == null) return FormulaResult.Error("#N/A");
+        var rowIndex = args[2] is FormulaResult ri ? (int)ri.AsNumber() : 0;
+        if (rowIndex < 1 || rowIndex > table.Rows) return FormulaResult.Error("#REF!");
+        var exactMatch = args.Count > 3 && args[3] is FormulaResult rm && (rm.AsNumber() == 0 || rm.AsString().Equals("FALSE", StringComparison.OrdinalIgnoreCase));
+
+        int foundCol = -1;
+        if (exactMatch)
+        { for (int i = 0; i < table.Cols; i++) { var cell = table.Cells[0, i]; if (cell != null && CompareValues(cell, lookupVal) == 0) { foundCol = i; break; } } }
+        else
+        { for (int i = 0; i < table.Cols; i++) { var cell = table.Cells[0, i]; if (cell == null) continue; if (CompareValues(cell, lookupVal) <= 0) foundCol = i; else break; } }
+
+        return foundCol >= 0 ? (table.Cells[rowIndex - 1, foundCol] ?? FormulaResult.Number(0)) : FormulaResult.Error("#N/A");
     }
 
     private static FormulaResult? EvalAddress(List<object> args)
@@ -515,7 +570,7 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalSumProduct(List<object> args)
     {
         if (args.Count == 0) return FR(0);
-        var arrays = args.Select(a => a is double[] arr ? arr : null).ToList();
+        var arrays = args.Select(a => a is RangeData rd ? rd.ToDoubleArray() : a is double[] arr ? arr : null).ToList();
         if (arrays.Any(a => a == null)) return null;
         var len = arrays.Min(a => a!.Length); double sum = 0;
         for (int i = 0; i < len; i++) { double p = 1; foreach (var arr in arrays) p *= arr![i]; sum += p; }

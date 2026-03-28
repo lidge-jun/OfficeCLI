@@ -23,7 +23,8 @@ internal partial class FormulaEvaluator
     }
 
     private static List<FormulaResult> AllArgs(List<object> args) =>
-        args.SelectMany(a => a is double[] arr ? arr.Select(v => FormulaResult.Number(v))
+        args.SelectMany(a => a is RangeData rd ? Enumerable.Range(0, rd.Rows).SelectMany(r => Enumerable.Range(0, rd.Cols).Select(c => rd.Cells[r, c] ?? FormulaResult.Number(0)))
+            : a is double[] arr ? arr.Select(v => FormulaResult.Number(v))
             : a is FormulaResult r ? [r] : Enumerable.Empty<FormulaResult>()).ToList();
 
     private static double[] FlattenNumbers(List<object> args)
@@ -31,7 +32,8 @@ internal partial class FormulaEvaluator
         var result = new List<double>();
         foreach (var a in args)
         {
-            if (a is double[] arr) result.AddRange(arr);
+            if (a is RangeData rd) result.AddRange(rd.ToDoubleArray());
+            else if (a is double[] arr) result.AddRange(arr);
             else if (a is FormulaResult { IsNumeric: true } r) result.Add(r.NumericValue!.Value);
             else if (a is FormulaResult { IsBool: true } rb) result.Add(rb.BoolValue!.Value ? 1 : 0);
         }

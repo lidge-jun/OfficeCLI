@@ -40,6 +40,31 @@ internal record FormulaResult
 }
 
 /// <summary>
+/// 2D range data for lookup functions (VLOOKUP, HLOOKUP, INDEX).
+/// </summary>
+internal class RangeData
+{
+    public FormulaResult?[,] Cells { get; }
+    public int Rows { get; }
+    public int Cols { get; }
+
+    public RangeData(FormulaResult?[,] cells) { Cells = cells; Rows = cells.GetLength(0); Cols = cells.GetLength(1); }
+
+    public double[] ToDoubleArray()
+    {
+        var values = new List<double>();
+        for (int r = 0; r < Rows; r++)
+            for (int c = 0; c < Cols; c++)
+            {
+                var cell = Cells[r, c];
+                if (cell?.IsNumeric == true) values.Add(cell.NumericValue!.Value);
+                else if (cell?.IsBool == true) values.Add(cell.BoolValue!.Value ? 1 : 0);
+            }
+        return values.ToArray();
+    }
+}
+
+/// <summary>
 /// Excel formula evaluator supporting 150+ functions.
 /// Split across partial class files:
 ///   FormulaEvaluator.cs          — core: tokenizer, parser, cell resolution
@@ -51,6 +76,7 @@ internal partial class FormulaEvaluator
     private readonly SheetData _sheetData;
     private readonly WorkbookPart? _workbookPart;
     private readonly HashSet<string> _visiting = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, Cell>? _cellIndex;
 
     public FormulaEvaluator(SheetData sheetData, WorkbookPart? workbookPart = null)
     {
@@ -268,7 +294,7 @@ internal partial class FormulaEvaluator
         {
             while (true)
             {
-                if (p < t.Count && t[p].Type == TT.Range) { args.Add(ExpandRange(t[p].Value)); p++; }
+                if (p < t.Count && t[p].Type == TT.Range) { args.Add(Expand2DRange(t[p].Value)); p++; }
                 else { var expr = ParseExpression(t, ref p); if (expr == null) return null; args.Add(expr); }
                 if (p >= t.Count || t[p].Type != TT.Comma) break; p++;
             }
@@ -311,30 +337,32 @@ internal partial class FormulaEvaluator
 
     private Cell? FindCell(string cellRef)
     {
-        foreach (var row in _sheetData.Elements<Row>())
-            foreach (var cell in row.Elements<Cell>())
-                if (cell.CellReference?.Value?.Equals(cellRef, StringComparison.OrdinalIgnoreCase) == true) return cell;
-        return null;
+        if (_cellIndex == null)
+        {
+            _cellIndex = new Dictionary<string, Cell>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in _sheetData.Elements<Row>())
+                foreach (var cell in row.Elements<Cell>())
+                    if (cell.CellReference?.Value != null)
+                        _cellIndex[cell.CellReference.Value] = cell;
+        }
+        return _cellIndex.TryGetValue(cellRef, out var found) ? found : null;
     }
 
-    private double[] ExpandRange(string rangeExpr)
+    private RangeData Expand2DRange(string rangeExpr)
     {
         var parts = rangeExpr.Split(':');
-        if (parts.Length != 2) return [];
+        if (parts.Length != 2) return new RangeData(new FormulaResult?[0, 0]);
         var (col1, row1) = ParseRef(StripDollar(parts[0]));
         var (col2, row2) = ParseRef(StripDollar(parts[1]));
         var c1 = ColToIndex(col1); var c2 = ColToIndex(col2);
         var r1 = Math.Min(row1, row2); var r2 = Math.Max(row1, row2);
         var cMin = Math.Min(c1, c2); var cMax = Math.Max(c1, c2);
-        var values = new List<double>();
-        for (int r = r1; r <= r2; r++)
-            for (int c = cMin; c <= cMax; c++)
-            {
-                var result = ResolveCellResult($"{IndexToCol(c)}{r}");
-                if (result?.IsNumeric == true) values.Add(result.NumericValue!.Value);
-                else if (result?.IsBool == true) values.Add(result.BoolValue!.Value ? 1 : 0);
-            }
-        return values.ToArray();
+        var rows = r2 - r1 + 1; var cols = cMax - cMin + 1;
+        var cells = new FormulaResult?[rows, cols];
+        for (int r = 0; r < rows; r++)
+            for (int c = 0; c < cols; c++)
+                cells[r, c] = ResolveCellResult($"{IndexToCol(cMin + c)}{r1 + r}");
+        return new RangeData(cells);
     }
 
     private static (string col, int row) ParseRef(string r)

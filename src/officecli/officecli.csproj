@@ -29,6 +29,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="../../skills/**/*.md" Link="skills/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="../../SKILL.md" LogicalName="OfficeCli.Resources.skill-officecli.md" />
   </ItemGroup>
 

@@ -80,6 +80,18 @@ public partial class WordHandler
 
         // Split body content on page breaks into pages
         var bodyContent = bodySb.ToString();
+        // Remove footer content that leaked into body rendering (from floating text boxes in last body paragraph)
+        // Pattern: starts with incomplete tag, contains doc-footer div, ends before next page or end
+        var footerLeakIdx = bodyContent.IndexOf("<div class=\"doc-footer\">");
+        if (footerLeakIdx >= 0)
+        {
+            // Find the start of the enclosing paragraph (look back for <p )
+            var pStart = bodyContent.LastIndexOf("<p ", footerLeakIdx);
+            if (pStart >= 0)
+                bodyContent = bodyContent[..pStart];
+            else
+                bodyContent = bodyContent[..footerLeakIdx];
+        }
         var pages = bodyContent.Split("<!--PAGE_BREAK-->");
 
         // Filter out truly empty trailing page (empty string after final page break)
@@ -92,6 +104,13 @@ public partial class WordHandler
             pageList.Add(pc);
         }
 
+        // Detect PAGE field in footer and replace with placeholder
+        // Footer typically contains: <span ...>1</span> where "1" is the cached PAGE field value
+        // We replace single-digit page numbers in the footer with a placeholder for per-page substitution
+        var footerHasPageNum = footerHtml.Contains("PAGE") || !string.IsNullOrEmpty(footerHtml);
+        var pageNumPattern = new Regex(@"(<span[^>]*>)\s*\d+\s*(</span>)");
+        var footerTemplate = pageNumPattern.Replace(footerHtml, "$1<!--PAGE_NUM-->$2", 1);
+
         for (int i = 0; i < pageList.Count; i++)
         {
             sb.AppendLine($"<div class=\"page\" style=\"{maxW}\">");
@@ -100,7 +119,7 @@ public partial class WordHandler
             sb.Append(pageList[i]);
             if (i == 0) sb.Append(footnotesHtml);
             sb.Append("</div>");
-            sb.Append(footerHtml);
+            sb.Append(footerTemplate.Replace("<!--PAGE_NUM-->", (i + 1).ToString()));
             sb.AppendLine("</div>");
         }
 

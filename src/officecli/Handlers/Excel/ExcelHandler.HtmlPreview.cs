@@ -625,6 +625,37 @@ public partial class ExcelHandler
     {
         var fmt = fmtCode.ToLowerInvariant();
 
+        // Extract currency/text prefix and suffix (e.g. "$", "€", "¥", or quoted strings like "USD ")
+        var prefix = "";
+        var suffix = "";
+        var cleanFmt = fmtCode;
+        // Handle literal characters: $, ¥, €, £
+        foreach (var sym in new[] { "$", "¥", "€", "£", "₹" })
+        {
+            if (cleanFmt.Contains(sym))
+            {
+                var idx = cleanFmt.IndexOf(sym);
+                if (idx <= cleanFmt.IndexOf('#') && idx <= cleanFmt.IndexOf('0'))
+                    prefix = sym;
+                else
+                    suffix = sym;
+                cleanFmt = cleanFmt.Replace(sym, "");
+            }
+        }
+        // Handle quoted prefix/suffix: "USD "
+        var quoteMatch = System.Text.RegularExpressions.Regex.Match(fmtCode, "^\"([^\"]+)\"");
+        if (quoteMatch.Success) { prefix = quoteMatch.Groups[1].Value; cleanFmt = cleanFmt[quoteMatch.Length..]; }
+        var quoteSuffix = System.Text.RegularExpressions.Regex.Match(fmtCode, "\"([^\"]+)\"$");
+        if (quoteSuffix.Success) { suffix = quoteSuffix.Groups[1].Value; cleanFmt = cleanFmt[..^quoteSuffix.Length]; }
+
+        var formatted = ApplyNumberFormatCore(value, cleanFmt.Trim());
+        return prefix + formatted + suffix;
+    }
+
+    private static string ApplyNumberFormatCore(double value, string fmtCode)
+    {
+        var fmt = fmtCode.ToLowerInvariant();
+
         // Percentage formats
         if (fmt.Contains('%'))
         {

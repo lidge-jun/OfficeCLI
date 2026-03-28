@@ -256,7 +256,7 @@ public partial class ExcelHandler
             }
             else
             {
-                for (int i = 0; i < seriesList.Count; i++)
+                for (int i = 0; i < seriesList.Count && i < seriesColors.Count; i++)
                     sb.Append($"<span style=\"display:inline-flex;align-items:center;gap:4px\"><span style=\"display:inline-block;width:12px;height:12px;background:{seriesColors[i]};border-radius:1px\"></span>{HtmlEncode(seriesList[i].name)}</span>");
             }
             sb.AppendLine("</div>");

@@ -3,6 +3,7 @@
 
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace OfficeCli.Core;
 
@@ -43,17 +44,47 @@ internal partial class FormulaEvaluator
     // ==================== Criteria matching (for SUMIF, COUNTIF, etc.) ====================
 
     private static bool MatchesCriteria(double value, string criteria)
+        => MatchesCriteria(FormulaResult.Number(value), criteria);
+
+    private static bool MatchesCriteria(FormulaResult? cellValue, string criteria)
     {
         criteria = criteria.Trim();
         if (string.IsNullOrEmpty(criteria)) return true;
-        if (criteria.StartsWith(">=") && double.TryParse(criteria[2..], NumberStyles.Any, CultureInfo.InvariantCulture, out var ge)) return value >= ge;
-        if (criteria.StartsWith("<=") && double.TryParse(criteria[2..], NumberStyles.Any, CultureInfo.InvariantCulture, out var le)) return value <= le;
-        if (criteria.StartsWith("<>") && double.TryParse(criteria[2..], NumberStyles.Any, CultureInfo.InvariantCulture, out var ne)) return Math.Abs(value - ne) > 1e-10;
-        if (criteria.StartsWith(">") && double.TryParse(criteria[1..], NumberStyles.Any, CultureInfo.InvariantCulture, out var gt)) return value > gt;
-        if (criteria.StartsWith("<") && double.TryParse(criteria[1..], NumberStyles.Any, CultureInfo.InvariantCulture, out var lt)) return value < lt;
-        if (criteria.StartsWith("=") && double.TryParse(criteria[1..], NumberStyles.Any, CultureInfo.InvariantCulture, out var eq)) return Math.Abs(value - eq) < 1e-10;
-        if (double.TryParse(criteria, NumberStyles.Any, CultureInfo.InvariantCulture, out var plain)) return Math.Abs(value - plain) < 1e-10;
-        return false;
+
+        // Numeric comparison operators
+        double numVal = cellValue?.AsNumber() ?? 0;
+        if (criteria.StartsWith(">=") && double.TryParse(criteria[2..], NumberStyles.Any, CultureInfo.InvariantCulture, out var ge)) return numVal >= ge;
+        if (criteria.StartsWith("<=") && double.TryParse(criteria[2..], NumberStyles.Any, CultureInfo.InvariantCulture, out var le)) return numVal <= le;
+        if (criteria.StartsWith("<>"))
+        {
+            var operand = criteria[2..];
+            if (double.TryParse(operand, NumberStyles.Any, CultureInfo.InvariantCulture, out var ne)) return Math.Abs(numVal - ne) > 1e-10;
+            // String not-equal
+            return !string.Equals(cellValue?.AsString() ?? "", operand, StringComparison.OrdinalIgnoreCase);
+        }
+        if (criteria.StartsWith(">") && double.TryParse(criteria[1..], NumberStyles.Any, CultureInfo.InvariantCulture, out var gt)) return numVal > gt;
+        if (criteria.StartsWith("<") && double.TryParse(criteria[1..], NumberStyles.Any, CultureInfo.InvariantCulture, out var lt)) return numVal < lt;
+        if (criteria.StartsWith("="))
+        {
+            var operand = criteria[1..];
+            if (double.TryParse(operand, NumberStyles.Any, CultureInfo.InvariantCulture, out var eq)) return Math.Abs(numVal - eq) < 1e-10;
+            // String equality after =
+            return string.Equals(cellValue?.AsString() ?? "", operand, StringComparison.OrdinalIgnoreCase);
+        }
+        if (double.TryParse(criteria, NumberStyles.Any, CultureInfo.InvariantCulture, out var plain)) return Math.Abs(numVal - plain) < 1e-10;
+
+        // Wildcard / string matching
+        string cellStr = cellValue?.AsString() ?? "";
+        if (criteria.Contains('*') || criteria.Contains('?'))
+        {
+            // Convert Excel wildcards to regex: * -> .*, ? -> ., ~* -> literal *, ~? -> literal ?
+            var pattern = Regex.Escape(criteria).Replace(@"\~\*", "\x01").Replace(@"\~\?", "\x02")
+                .Replace(@"\*", ".*").Replace(@"\?", ".").Replace("\x01", @"\*").Replace("\x02", @"\?");
+            return Regex.IsMatch(cellStr, "^" + pattern + "$", RegexOptions.IgnoreCase);
+        }
+
+        // Plain string equality
+        return string.Equals(cellStr, criteria, StringComparison.OrdinalIgnoreCase);
     }
 
     // ==================== Math utilities ====================

@@ -299,7 +299,16 @@ internal partial class FormulaEvaluator
         var parts = new List<string>();
         for (int i = 2; i < args.Count; i++)
         {
-            if (args[i] is double[] arr) foreach (var v in arr) parts.Add(v.ToString(CultureInfo.InvariantCulture));
+            if (args[i] is RangeData rd2)
+            {
+                for (int row = 0; row < rd2.Rows; row++)
+                    for (int col = 0; col < rd2.Cols; col++)
+                    {
+                        var cv = rd2.Cells[row, col];
+                        if (cv != null) { var s = cv.AsString(); if (!ignoreEmpty || s != "") parts.Add(s); }
+                    }
+            }
+            else if (args[i] is double[] arr) foreach (var v in arr) parts.Add(v.ToString(CultureInfo.InvariantCulture));
             else if (args[i] is FormulaResult fr) { var s = fr.AsString(); if (!ignoreEmpty || s != "") parts.Add(s); }
         }
         return FR_S(string.Join(delim, parts));
@@ -477,11 +486,14 @@ internal partial class FormulaEvaluator
 
     // ==================== Conditional Aggregation ====================
 
+    // Helper: extract double[] from RangeData or double[]
+    private static double[]? AsDoubles(object? a) => a is RangeData rd ? rd.ToDoubleArray() : a is double[] arr ? arr : null;
+
     private FormulaResult? EvalSumIf(List<object> args)
     {
         if (args.Count < 2) return null;
-        var range = args[0] is double[] a ? a : null; var criteria = args[1] is FormulaResult c ? c.AsString() : "";
-        var sumRange = args.Count > 2 && args[2] is double[] s ? s : range; if (range == null || sumRange == null) return null;
+        var range = AsDoubles(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
+        var sumRange = args.Count > 2 ? AsDoubles(args[2]) ?? range : range; if (range == null || sumRange == null) return null;
         double sum = 0; for (int i = 0; i < range.Length && i < sumRange.Length; i++) if (MatchesCriteria(range[i], criteria)) sum += sumRange[i];
         return FR(sum);
     }
@@ -489,13 +501,13 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalSumIfs(List<object> args)
     {
         if (args.Count < 3) return null;
-        var sumRange = args[0] is double[] s ? s : null; if (sumRange == null) return null;
+        var sumRange = AsDoubles(args[0]); if (sumRange == null) return null;
         double sum = 0;
         for (int i = 0; i < sumRange.Length; i++)
         {
             var match = true;
             for (int c = 1; c + 1 < args.Count; c += 2)
-            { var cr = args[c] is double[] cra ? cra : null; var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
             if (match) sum += sumRange[i];
         }
@@ -505,20 +517,20 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalCountIf(List<object> args)
     {
         if (args.Count < 2) return null;
-        var range = args[0] is double[] a ? a : null; var criteria = args[1] is FormulaResult c ? c.AsString() : "";
+        var range = AsDoubles(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
         return range != null ? FR(range.Count(v => MatchesCriteria(v, criteria))) : null;
     }
 
     private FormulaResult? EvalCountIfs(List<object> args)
     {
         if (args.Count < 2) return null;
-        var first = args[0] is double[] a ? a : null; if (first == null) return null;
+        var first = AsDoubles(args[0]); if (first == null) return null;
         int count = 0;
         for (int i = 0; i < first.Length; i++)
         {
             var match = true;
             for (int c = 0; c + 1 < args.Count; c += 2)
-            { var cr = args[c] is double[] cra ? cra : null; var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
             if (match) count++;
         }
@@ -528,8 +540,8 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalAverageIf(List<object> args)
     {
         if (args.Count < 2) return null;
-        var range = args[0] is double[] a ? a : null; var criteria = args[1] is FormulaResult c ? c.AsString() : "";
-        var avgRange = args.Count > 2 && args[2] is double[] s ? s : range; if (range == null || avgRange == null) return null;
+        var range = AsDoubles(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
+        var avgRange = args.Count > 2 ? AsDoubles(args[2]) ?? range : range; if (range == null || avgRange == null) return null;
         var vals = new List<double>();
         for (int i = 0; i < range.Length && i < avgRange.Length; i++) if (MatchesCriteria(range[i], criteria)) vals.Add(avgRange[i]);
         return vals.Count > 0 ? FR(vals.Average()) : FormulaResult.Error("#DIV/0!");
@@ -538,13 +550,13 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalAverageIfs(List<object> args)
     {
         if (args.Count < 3) return null;
-        var avgRange = args[0] is double[] s ? s : null; if (avgRange == null) return null;
+        var avgRange = AsDoubles(args[0]); if (avgRange == null) return null;
         var vals = new List<double>();
         for (int i = 0; i < avgRange.Length; i++)
         {
             var match = true;
             for (int c = 1; c + 1 < args.Count; c += 2)
-            { var cr = args[c] is double[] cra ? cra : null; var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
             if (match) vals.Add(avgRange[i]);
         }
@@ -554,13 +566,13 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalMaxMinIfs(List<object> args, bool isMax)
     {
         if (args.Count < 3) return null;
-        var valRange = args[0] is double[] s ? s : null; if (valRange == null) return null;
+        var valRange = AsDoubles(args[0]); if (valRange == null) return null;
         var vals = new List<double>();
         for (int i = 0; i < valRange.Length; i++)
         {
             var match = true;
             for (int c = 1; c + 1 < args.Count; c += 2)
-            { var cr = args[c] is double[] cra ? cra : null; var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
             if (match) vals.Add(valRange[i]);
         }

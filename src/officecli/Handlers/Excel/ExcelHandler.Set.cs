@@ -999,6 +999,7 @@ public partial class ExcelHandler
                     {
                         cell.CellValue = null;
                         cell.DataType = null;
+                        unsupported.Add($"formula not evaluated (unsupported): {value.TrimStart('=')}");
                     }
                     break;
                 case "type":

@@ -134,19 +134,11 @@ public partial class WordHandler
         var blip = drawing.Descendants<A.Blip>().FirstOrDefault();
         if (blip?.Embed?.Value == null) return;
 
-        var mainPart = _doc.MainDocumentPart;
-        if (mainPart == null) return;
+        var dataUri = LoadImageAsDataUri(blip.Embed.Value);
+        if (dataUri == null) return;
 
         try
         {
-            var imagePart = mainPart.GetPartById(blip.Embed.Value) as ImagePart;
-            if (imagePart == null) return;
-
-            var contentType = imagePart.ContentType;
-            using var stream = imagePart.GetStream();
-            using var ms = new MemoryStream();
-            stream.CopyTo(ms);
-            var base64 = Convert.ToBase64String(ms.ToArray());
 
             var extent = drawing.Descendants<DW.Extent>().FirstOrDefault()
                 ?? drawing.Descendants<A.Extents>().FirstOrDefault() as OpenXmlElement;
@@ -156,7 +148,6 @@ public partial class WordHandler
 
             var docProps = drawing.Descendants<DW.DocProperties>().FirstOrDefault();
             var alt = docProps?.Description?.Value ?? docProps?.Name?.Value ?? "image";
-            var dataUri = $"data:{contentType};base64,{base64}";
 
             // Detect full-page background images → render as absolute background
             if (IsFullPageSize(imgCxEmu, imgCyEmu))
@@ -261,6 +252,21 @@ public partial class WordHandler
         return val != null && int.TryParse(val, out var v) ? v : 0;
     }
 
+    /// <summary>Load an image part by relationship ID and return as a base64 data URI.</summary>
+    private string? LoadImageAsDataUri(string relId)
+    {
+        try
+        {
+            var imagePart = _doc.MainDocumentPart?.GetPartById(relId) as ImagePart;
+            if (imagePart == null) return null;
+            using var stream = imagePart.GetStream();
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            return $"data:{imagePart.ContentType};base64,{Convert.ToBase64String(ms.ToArray())}";
+        }
+        catch { return null; }
+    }
+
     // ==================== Group / Shape Rendering ====================
 
     private void RenderGroupHtml(StringBuilder sb, OpenXmlElement group, long groupWidthEmu, long groupHeightEmu,
@@ -319,91 +325,58 @@ public partial class WordHandler
     private void RenderStandaloneShapeHtml(StringBuilder sb, OpenXmlElement shape, long widthEmu, long heightEmu,
         List<Drawing>? floatImages)
     {
-        var widthPx = widthEmu / 9525;
-        var heightPx = heightEmu / 9525;
-        var spPr = shape.Elements().FirstOrDefault(e => e.LocalName == "spPr");
-        var fillCss = ResolveShapeFillCss(spPr);
-        var borderCss = ResolveShapeBorderCss(spPr);
-        var txbx = shape.Descendants().FirstOrDefault(e => e.LocalName == "txbxContent");
-
-        var style = $"display:inline-block;width:{widthPx}px;min-height:{heightPx}px;vertical-align:top";
-        if (!string.IsNullOrEmpty(fillCss)) style += $";{fillCss}";
-        if (!string.IsNullOrEmpty(borderCss)) style += $";{borderCss}";
-
-        var bodyPr = shape.Elements().FirstOrDefault(e => e.LocalName == "bodyPr");
-        var lIns = GetLongAttr(bodyPr, "lIns", 91440);
-        var tIns = GetLongAttr(bodyPr, "tIns", 45720);
-        var rIns = GetLongAttr(bodyPr, "rIns", 91440);
-        var bIns = GetLongAttr(bodyPr, "bIns", 45720);
-        style += $";padding:{tIns / 9525}px {rIns / 9525}px {bIns / 9525}px {lIns / 9525}px";
-
-        sb.Append($"<div style=\"{style}\">");
-        if (txbx != null)
-        {
-            foreach (var para in txbx.Descendants<Paragraph>())
-                RenderParagraphHtml(sb, para);
-        }
-        else
-        {
-            var embedAttr = FindEmbedInDescendants(shape);
-            if (embedAttr != null)
-            {
-                try
-                {
-                    var imagePart = _doc.MainDocumentPart?.GetPartById(embedAttr) as ImagePart;
-                    if (imagePart != null)
-                    {
-                        using var stream = imagePart.GetStream();
-                        using var ms = new MemoryStream();
-                        stream.CopyTo(ms);
-                        sb.Append($"<img src=\"data:{imagePart.ContentType};base64,{Convert.ToBase64String(ms.ToArray())}\" style=\"width:100%;height:auto\">");
-                    }
-                }
-                catch { }
-            }
-        }
-        sb.Append("</div>");
+        // Standalone shapes use inline positioning with pixel dimensions
+        RenderShapeHtml(sb, shape, 0, 0, widthEmu, heightEmu, widthEmu, heightEmu, floatImages, standalone: true);
     }
 
+    /// <summary>
+    /// Render a shape element (wsp, pic, grpSp) with either absolute (inside group) or inline (standalone) positioning.
+    /// </summary>
     private void RenderShapeHtml(StringBuilder sb, OpenXmlElement shape, long offX, long offY,
         long extCx, long extCy, long coordSpaceCx, long coordSpaceCy,
-        List<Drawing>? floatImages = null)
+        List<Drawing>? floatImages = null, bool standalone = false)
     {
-        // Convert child coordinates to percentage of group
-        double leftPct = coordSpaceCx > 0 ? (double)offX / coordSpaceCx * 100 : 0;
-        double topPct = coordSpaceCy > 0 ? (double)offY / coordSpaceCy * 100 : 0;
-        double widthPct = coordSpaceCx > 0 ? (double)extCx / coordSpaceCx * 100 : 100;
-        double heightPct = coordSpaceCy > 0 ? (double)extCy / coordSpaceCy * 100 : 100;
-
-        // Get fill color
+        // Common shape properties
         var spPr = shape.Elements().FirstOrDefault(e => e.LocalName == "spPr");
         var fillCss = ResolveShapeFillCss(spPr);
-
-        // Get border
         var borderCss = ResolveShapeBorderCss(spPr);
-
-        // pic elements are always images, not text boxes
         var txbx = shape.LocalName == "pic" ? null
             : shape.Descendants().FirstOrDefault(e => e.LocalName == "txbxContent");
 
-        // Rotation from xfrm rot attribute (60000ths of a degree)
-        var xfrm = spPr?.Elements().FirstOrDefault(e => e.LocalName == "xfrm");
-        var rot = GetLongAttr(xfrm, "rot");
-        var rotCss = rot != 0 ? $";transform:rotate({rot / 60000.0:0.##}deg)" : "";
+        // Build positioning style
+        string style;
+        if (standalone)
+        {
+            var widthPx = extCx / 9525;
+            var heightPx = extCy / 9525;
+            style = $"display:inline-block;width:{widthPx}px;min-height:{heightPx}px;vertical-align:top";
+        }
+        else
+        {
+            double leftPct = coordSpaceCx > 0 ? (double)offX / coordSpaceCx * 100 : 0;
+            double topPct = coordSpaceCy > 0 ? (double)offY / coordSpaceCy * 100 : 0;
+            double widthPct = coordSpaceCx > 0 ? (double)extCx / coordSpaceCx * 100 : 100;
+            double heightPct = coordSpaceCy > 0 ? (double)extCy / coordSpaceCy * 100 : 100;
+            style = $"position:absolute;left:{leftPct:0.##}%;top:{topPct:0.##}%;width:{widthPct:0.##}%;height:{heightPct:0.##}%";
 
-        // Build style
-        var style = $"position:absolute;left:{leftPct:0.##}%;top:{topPct:0.##}%;width:{widthPct:0.##}%;height:{heightPct:0.##}%";
+            // Rotation (only for positioned shapes inside groups)
+            var xfrm = spPr?.Elements().FirstOrDefault(e => e.LocalName == "xfrm");
+            var rot = GetLongAttr(xfrm, "rot");
+            if (rot != 0) style += $";transform:rotate({rot / 60000.0:0.##}deg)";
+        }
+
         if (!string.IsNullOrEmpty(fillCss)) style += $";{fillCss}";
         if (!string.IsNullOrEmpty(borderCss)) style += $";{borderCss}";
-        style += rotCss;
 
-        // Get body properties for text layout
+        // Body properties: text layout + padding
         var bodyPr = shape.Elements().FirstOrDefault(e => e.LocalName == "bodyPr");
-        var vAnchor = bodyPr?.GetAttributes().FirstOrDefault(a => a.LocalName == "anchor").Value;
-        if (vAnchor == "ctr") style += ";display:flex;align-items:center";
-        else if (vAnchor == "b") style += ";display:flex;align-items:flex-end";
+        if (!standalone)
+        {
+            var vAnchor = bodyPr?.GetAttributes().FirstOrDefault(a => a.LocalName == "anchor").Value;
+            if (vAnchor == "ctr") style += ";display:flex;align-items:center";
+            else if (vAnchor == "b") style += ";display:flex;align-items:flex-end";
+        }
 
-        // Padding from bodyPr insets (EMU → px)
         var lIns = GetLongAttr(bodyPr, "lIns", 91440);
         var tIns = GetLongAttr(bodyPr, "tIns", 45720);
         var rIns = GetLongAttr(bodyPr, "rIns", 91440);
@@ -424,18 +397,13 @@ public partial class WordHandler
                 {
                     var imgBlip = imgDrawing.Descendants<A.Blip>().FirstOrDefault();
                     if (imgBlip?.Embed?.Value == null) continue;
+                    var imgDataUri = LoadImageAsDataUri(imgBlip.Embed.Value);
+                    if (imgDataUri == null) continue;
                     try
                     {
-                        var imgPart = _doc.MainDocumentPart?.GetPartById(imgBlip.Embed.Value) as ImagePart;
-                        if (imgPart == null) continue;
-                        using var imgStream = imgPart.GetStream();
-                        using var imgMs = new MemoryStream();
-                        imgStream.CopyTo(imgMs);
-                        var imgBase64 = Convert.ToBase64String(imgMs.ToArray());
                         var imgExtent = imgDrawing.Descendants<DW.Extent>().FirstOrDefault();
                         var imgW = imgExtent?.Cx?.Value > 0 ? imgExtent.Cx.Value / 9525 : 100;
                         var imgH = imgExtent?.Cy?.Value > 0 ? imgExtent.Cy.Value / 9525 : 100;
-                        var imgDataUri = $"data:{imgPart.ContentType};base64,{imgBase64}";
                         // Read distT/distB/distL/distR for image margins (EMU)
                         var inline = imgDrawing.Descendants<DW.Inline>().FirstOrDefault();
                         var anchor = imgDrawing.Descendants<DW.Anchor>().FirstOrDefault();
@@ -480,24 +448,13 @@ public partial class WordHandler
         }
         else
         {
-            // Check for image inside shape (spPr blip or pic:blipFill blip)
+            // Check for image inside shape
             var embedAttr = FindEmbedInDescendants(shape);
             if (embedAttr != null)
             {
-                try
-                {
-                    var mainPart = _doc.MainDocumentPart;
-                    var imagePart = mainPart?.GetPartById(embedAttr) as ImagePart;
-                    if (imagePart != null)
-                    {
-                        using var stream = imagePart.GetStream();
-                        using var ms = new MemoryStream();
-                        stream.CopyTo(ms);
-                        var base64 = Convert.ToBase64String(ms.ToArray());
-                        sb.Append($"<img src=\"data:{imagePart.ContentType};base64,{base64}\" style=\"width:100%;height:100%;object-fit:contain\">");
-                    }
-                }
-                catch { }
+                var dataUri = LoadImageAsDataUri(embedAttr);
+                if (dataUri != null)
+                    sb.Append($"<img src=\"{dataUri}\" style=\"width:100%;height:100%;object-fit:contain\">");
             }
         }
 

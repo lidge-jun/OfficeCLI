@@ -132,10 +132,11 @@ public partial class ExcelHandler
             if (sheetId == null) continue;
 
             var worksheetPart = (WorksheetPart)_doc.WorkbookPart!.GetPartById(sheetId);
-            var sheetData = GetSheet(worksheetPart).GetFirstChild<SheetData>();
+            var worksheet = GetSheet(worksheetPart);
+            var sheetData = worksheet.GetFirstChild<SheetData>();
 
             int rowCount = sheetData?.Elements<Row>().Count() ?? 0;
-            int colCount = sheetData?.Elements<Row>().FirstOrDefault()?.Elements<Cell>().Count() ?? 0;
+            int colCount = GetSheetColumnCount(worksheet, sheetData);
 
             int formulaCount = 0;
             if (sheetData != null)
@@ -251,9 +252,10 @@ public partial class ExcelHandler
             if (sheetId == null) continue;
 
             var worksheetPart = (WorksheetPart)_doc.WorkbookPart!.GetPartById(sheetId);
-            var sheetData = GetSheet(worksheetPart).GetFirstChild<SheetData>();
+            var worksheet = GetSheet(worksheetPart);
+            var sheetData = worksheet.GetFirstChild<SheetData>();
             int rowCount = sheetData?.Elements<Row>().Count() ?? 0;
-            int colCount = sheetData?.Elements<Row>().FirstOrDefault()?.Elements<Cell>().Count() ?? 0;
+            int colCount = GetSheetColumnCount(worksheet, sheetData);
             int formulaCount = sheetData?.Descendants<CellFormula>().Count() ?? 0;
 
             var sheetObj = new JsonObject
@@ -323,6 +325,40 @@ public partial class ExcelHandler
         }
 
         return new JsonObject { ["sheets"] = sheetsArray };
+    }
+
+    private static int GetSheetColumnCount(Worksheet worksheet, SheetData? sheetData)
+    {
+        // Try SheetDimension first (e.g., <dimension ref="A1:F20"/>)
+        var dimRef = worksheet.GetFirstChild<SheetDimension>()?.Reference?.Value;
+        if (!string.IsNullOrEmpty(dimRef))
+        {
+            var parts = dimRef.Split(':');
+            if (parts.Length == 2)
+            {
+                var endRef = parts[1];
+                var col = new string(endRef.TakeWhile(char.IsLetter).ToArray());
+                if (!string.IsNullOrEmpty(col))
+                    return ColumnNameToIndex(col);
+            }
+            // Single-cell dimension like "A1" means 1 column
+            if (parts.Length == 1)
+            {
+                var col = new string(parts[0].TakeWhile(char.IsLetter).ToArray());
+                if (!string.IsNullOrEmpty(col))
+                    return ColumnNameToIndex(col);
+            }
+        }
+
+        // Fallback: scan all rows for max cell count
+        if (sheetData == null) return 0;
+        int maxCols = 0;
+        foreach (var row in sheetData.Elements<Row>())
+        {
+            var count = row.Elements<Cell>().Count();
+            if (count > maxCols) maxCols = count;
+        }
+        return maxCols;
     }
 
     public List<DocumentIssue> ViewAsIssues(string? issueType = null, int? limit = null)

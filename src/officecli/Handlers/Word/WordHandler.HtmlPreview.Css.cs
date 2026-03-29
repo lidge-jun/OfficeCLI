@@ -236,8 +236,25 @@ public partial class WordHandler
     {
         var parts = new List<string>();
 
+        // Set paragraph font-size to match the first run's resolved font-size.
+        // This prevents the CSS "strut" (block container's anonymous inline box) from inflating
+        // the line box when .page font-size differs from the actual text span font-size.
+        var firstRun = para.Elements<Run>().FirstOrDefault(r =>
+            r.ChildElements.Any(c => c is Text t && !string.IsNullOrEmpty(t.Text)));
+        if (firstRun != null)
+        {
+            var rProps = ResolveEffectiveRunProperties(firstRun, para);
+            var sz = rProps.FontSize?.Val?.Value;
+            if (sz != null && int.TryParse(sz, out var hp))
+                parts.Add($"font-size:{hp / 2.0:0.##}pt");
+        }
+
         var pProps = para.ParagraphProperties;
-        if (pProps == null) return ResolveParagraphStyleCss(para);
+        if (pProps == null)
+        {
+            if (parts.Count > 0) return string.Join(";", parts);
+            return ResolveParagraphStyleCss(para);
+        }
 
         // Alignment
         var jc = pProps.Justification?.Val;
@@ -817,9 +834,9 @@ public partial class WordHandler
         .page-body {{ flex: 1; }}
         .doc-header, .doc-footer {{ color: #888; font-size: 9pt; }}
         .doc-header {{ position: absolute; top: {pg.HeaderDistancePt:0.#}pt; left: {mL}; right: {mR};
-            border-bottom: 1px solid #e0e0e0; padding-bottom: 0.3em; }}
+            padding-bottom: 0.3em; }}
         .doc-footer {{ position: absolute; bottom: {pg.FooterDistancePt:0.#}pt; left: {mL}; right: {mR};
-            border-top: 1px solid #e0e0e0; padding-top: 0.3em; }}
+            padding-top: 0.3em; }}
         h1, h2, h3, h4, h5, h6 {{ line-height: 1.4; }}
         p {{ margin: 0; text-align: justify; text-justify: inter-character; }}
         p.empty {{ margin: 0; min-height: 1em; }}

@@ -201,9 +201,9 @@ public partial class WordHandler
         splitIdx++;
       }
       np.appendChild(nb);
-      // Clone footer into new page
+      // Clone footer into new page, replacing page number placeholder
       var nf=document.createElement('div');
-      nf.innerHTML=ftpl;
+      nf.innerHTML=ftpl.replace('<!--PAGE_NUM-->',(pi+2).toString());
       if(nf.firstChild)np.appendChild(nf.firstChild);
       page.after(np);
     }

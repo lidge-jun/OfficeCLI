@@ -256,8 +256,12 @@ public partial class WordHandler
             return ResolveParagraphStyleCss(para);
         }
 
-        // Alignment
+        // Style ID for fallback lookups
+        var styleId = pProps.ParagraphStyleId?.Val?.Value;
+
+        // Alignment (direct or from style chain)
         var jc = pProps.Justification?.Val;
+        if (jc == null) jc = ResolveJustificationFromStyle(styleId);
         if (jc != null)
         {
             var align = jc.InnerText switch
@@ -269,9 +273,6 @@ public partial class WordHandler
             };
             if (align != null) parts.Add($"text-align:{align}");
         }
-
-        // Style ID for fallback lookups
-        var styleId = pProps.ParagraphStyleId?.Val?.Value;
 
         // Indentation (skip for list items — handled by list nesting)
         if (!isListItem)
@@ -387,6 +388,26 @@ public partial class WordHandler
             var sFill = ResolveShadingFill(shading);
             if (sFill != null) return sFill;
 
+            currentStyleId = style.BasedOn?.Val?.Value;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolve Justification from the style chain.
+    /// </summary>
+    private JustificationValues? ResolveJustificationFromStyle(string? styleId)
+    {
+        if (styleId == null) return null;
+        var visited = new HashSet<string>();
+        var currentStyleId = styleId;
+        while (currentStyleId != null && visited.Add(currentStyleId))
+        {
+            var style = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles
+                ?.Elements<Style>().FirstOrDefault(s => s.StyleId?.Value == currentStyleId);
+            if (style == null) break;
+            var jc = style.StyleParagraphProperties?.Justification?.Val;
+            if (jc != null) return jc;
             currentStyleId = style.BasedOn?.Val?.Value;
         }
         return null;

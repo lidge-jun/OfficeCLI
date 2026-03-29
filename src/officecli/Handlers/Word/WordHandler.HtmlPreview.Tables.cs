@@ -34,8 +34,31 @@ public partial class WordHandler
         // Resolve conditional formatting from table style
         var condFormats = styleId != null ? ResolveTableStyleConditionalFormats(styleId) : null;
 
+        // Check for floating table (tblpPr = text wrapping)
+        var tblpPr = tblPr?.GetFirstChild<TablePositionProperties>();
+        var tableStyles = new List<string>();
+        if (tblpPr != null)
+        {
+            // Float the table; determine alignment from horzAnchor/tblpX
+            var hAnchor = tblpPr.HorizontalAnchor?.InnerText;
+            var tblpX = tblpPr.TablePositionX?.Value ?? 0;
+            var floatDir = (hAnchor == "page" && tblpX > 5000) ? "right" : "left";
+            tableStyles.Add($"float:{floatDir}");
+            // Margins from text distance
+            var rightDist = tblpPr.RightFromText?.Value ?? 0;
+            var bottomDist = tblpPr.BottomFromText?.Value ?? 0;
+            var leftDist = tblpPr.LeftFromText?.Value ?? 0;
+            if (rightDist > 0) tableStyles.Add($"margin-right:{rightDist / 20.0:0.#}pt");
+            if (bottomDist > 0) tableStyles.Add($"margin-bottom:{bottomDist / 20.0:0.#}pt");
+            if (leftDist > 0) tableStyles.Add($"margin-left:{leftDist / 20.0:0.#}pt");
+        }
+
         var tableClass = tableBordersNone ? "borderless" : "";
-        sb.AppendLine(string.IsNullOrEmpty(tableClass) ? "<table>" : $"<table class=\"{tableClass}\">");
+        var tableStyleAttr = tableStyles.Count > 0 ? $" style=\"{string.Join(";", tableStyles)}\"" : "";
+        if (!string.IsNullOrEmpty(tableClass))
+            sb.AppendLine($"<table class=\"{tableClass}\"{tableStyleAttr}>");
+        else
+            sb.AppendLine($"<table{tableStyleAttr}>");
 
         // Get column widths from grid
         var tblGrid = table.GetFirstChild<TableGrid>();

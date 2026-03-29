@@ -742,23 +742,21 @@ public partial class WordHandler
                 if (fmt.Borders != null)
                 {
                     var cb = fmt.Borders;
-                    if (!IsBorderNone(cb.TopBorder)) { parts.RemoveAll(p => p.StartsWith("border-top:")); RenderBorderCss(parts, cb.TopBorder, "border-top"); }
-                    if (!IsBorderNone(cb.BottomBorder)) { parts.RemoveAll(p => p.StartsWith("border-bottom:")); RenderBorderCss(parts, cb.BottomBorder, "border-bottom"); }
-                    if (!IsBorderNone(cb.LeftBorder)) { parts.RemoveAll(p => p.StartsWith("border-left:")); RenderBorderCss(parts, cb.LeftBorder, "border-left"); }
-                    if (!IsBorderNone(cb.RightBorder)) { parts.RemoveAll(p => p.StartsWith("border-right:")); RenderBorderCss(parts, cb.RightBorder, "border-right"); }
-                    if (!IsBorderNone(cb.InsideHorizontalBorder))
+                    // Apply or clear each border edge from conditional format
+                    // val=nil/none means explicitly REMOVE the border
+                    ApplyCondBorder(parts, cb.TopBorder, "border-top");
+                    ApplyCondBorder(parts, cb.BottomBorder, "border-bottom");
+                    ApplyCondBorder(parts, cb.LeftBorder, "border-left");
+                    ApplyCondBorder(parts, cb.RightBorder, "border-right");
+                    if (cb.InsideHorizontalBorder != null)
                     {
-                        parts.RemoveAll(p => p.StartsWith("border-top:"));
-                        parts.RemoveAll(p => p.StartsWith("border-bottom:"));
-                        RenderBorderCss(parts, cb.InsideHorizontalBorder, "border-top");
-                        RenderBorderCss(parts, cb.InsideHorizontalBorder, "border-bottom");
+                        ApplyCondBorder(parts, cb.InsideHorizontalBorder, "border-top");
+                        ApplyCondBorder(parts, cb.InsideHorizontalBorder, "border-bottom");
                     }
-                    if (!IsBorderNone(cb.InsideVerticalBorder))
+                    if (cb.InsideVerticalBorder != null)
                     {
-                        parts.RemoveAll(p => p.StartsWith("border-left:"));
-                        parts.RemoveAll(p => p.StartsWith("border-right:"));
-                        RenderBorderCss(parts, cb.InsideVerticalBorder, "border-left");
-                        RenderBorderCss(parts, cb.InsideVerticalBorder, "border-right");
+                        ApplyCondBorder(parts, cb.InsideVerticalBorder, "border-left");
+                        ApplyCondBorder(parts, cb.InsideVerticalBorder, "border-right");
                     }
                 }
 

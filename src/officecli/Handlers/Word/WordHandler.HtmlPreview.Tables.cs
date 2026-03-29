@@ -182,6 +182,16 @@ public partial class WordHandler
         return val is null or "nil" or "none";
     }
 
+    /// <summary>Apply or clear a conditional format border edge.</summary>
+    private void ApplyCondBorder(List<string> parts, OpenXmlElement? border, string cssProperty)
+    {
+        if (border == null) return;
+        parts.RemoveAll(p => p.StartsWith(cssProperty + ":"));
+        if (!IsBorderNone(border))
+            RenderBorderCss(parts, border, cssProperty);
+        // If val=nil/none, the RemoveAll already cleared it — border is removed
+    }
+
     /// <summary>Resolve TableBorders from a table style (walking basedOn chain).</summary>
     private TableBorders? ResolveTableStyleBorders(string styleId)
     {

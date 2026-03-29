@@ -316,9 +316,8 @@ public partial class WordHandler
             RenderBorderCss(parts, pBdr.RightBorder, "border-right");
         }
 
-        // Page break before
-        if (pProps.PageBreakBefore?.Val?.Value != false && pProps.PageBreakBefore != null)
-            parts.Add("page-break-before:always");
+        // Page break before (direct or from style chain) — handled via <!--PAGE_BREAK--> marker
+        // CSS page-break-before only works for print; screen pagination uses the marker instead
 
         return string.Join(";", parts);
     }
@@ -343,6 +342,24 @@ public partial class WordHandler
             var sFill = ResolveShadingFill(shading);
             if (sFill != null) return sFill;
 
+            currentStyleId = style.BasedOn?.Val?.Value;
+        }
+        return null;
+    }
+
+    /// <summary>Resolve PageBreakBefore from the style chain.</summary>
+    private PageBreakBefore? ResolvePageBreakBeforeFromStyle(string? styleId)
+    {
+        if (styleId == null) return null;
+        var visited = new HashSet<string>();
+        var currentStyleId = styleId;
+        while (currentStyleId != null && visited.Add(currentStyleId))
+        {
+            var style = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles
+                ?.Elements<Style>().FirstOrDefault(s => s.StyleId?.Value == currentStyleId);
+            if (style == null) break;
+            var pgBB = style.StyleParagraphProperties?.PageBreakBefore;
+            if (pgBB != null) return pgBB;
             currentStyleId = style.BasedOn?.Val?.Value;
         }
         return null;

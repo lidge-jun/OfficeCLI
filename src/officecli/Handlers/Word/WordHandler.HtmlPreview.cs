@@ -254,6 +254,16 @@ public partial class WordHandler
         {
             if (element is Paragraph para)
             {
+                // Check for pageBreakBefore (direct or from style) — insert page break marker
+                var pgBB = para.ParagraphProperties?.PageBreakBefore;
+                if (pgBB == null)
+                {
+                    var sid = para.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+                    pgBB = ResolvePageBreakBeforeFromStyle(sid);
+                }
+                if (pgBB != null && pgBB.Val?.Value != false)
+                    sb.Append("<!--PAGE_BREAK-->");
+
                 // Check for display equation
                 var oMathPara = para.ChildElements.FirstOrDefault(e => e.LocalName == "oMathPara" || e is M.Paragraph);
                 if (oMathPara != null)

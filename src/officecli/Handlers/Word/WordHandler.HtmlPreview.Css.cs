@@ -700,7 +700,8 @@ public partial class WordHandler
         return string.Join(";", parts);
     }
 
-    private string GetTableCellInlineCss(TableCell cell, bool tableBordersNone, TableBorders? tblBorders = null)
+    private string GetTableCellInlineCss(TableCell cell, bool tableBordersNone, TableBorders? tblBorders = null,
+        Dictionary<string, TableConditionalFormat>? condFormats = null, List<string>? condTypes = null)
     {
         var parts = new List<string>();
         var tcPr = cell.TableCellProperties;
@@ -726,12 +727,71 @@ public partial class WordHandler
             }
         }
 
+        // Apply conditional formatting from table style (priority order: banding < col < row)
+        if (condFormats != null && condTypes != null)
+        {
+            foreach (var condType in condTypes)
+            {
+                if (!condFormats.TryGetValue(condType, out var fmt)) continue;
+
+                // Cell shading / background
+                var condFill = ResolveShadingFill(fmt.Shading);
+                if (condFill != null)
+                {
+                    parts.RemoveAll(p => p.StartsWith("background-color:"));
+                    parts.Add($"background-color:{condFill}");
+                }
+
+                // Border overrides from conditional format
+                if (fmt.Borders != null)
+                {
+                    var cb = fmt.Borders;
+                    if (!IsBorderNone(cb.TopBorder)) { parts.RemoveAll(p => p.StartsWith("border-top:")); RenderBorderCss(parts, cb.TopBorder, "border-top"); }
+                    if (!IsBorderNone(cb.BottomBorder)) { parts.RemoveAll(p => p.StartsWith("border-bottom:")); RenderBorderCss(parts, cb.BottomBorder, "border-bottom"); }
+                    if (!IsBorderNone(cb.LeftBorder)) { parts.RemoveAll(p => p.StartsWith("border-left:")); RenderBorderCss(parts, cb.LeftBorder, "border-left"); }
+                    if (!IsBorderNone(cb.RightBorder)) { parts.RemoveAll(p => p.StartsWith("border-right:")); RenderBorderCss(parts, cb.RightBorder, "border-right"); }
+                    if (!IsBorderNone(cb.InsideHorizontalBorder))
+                    {
+                        parts.RemoveAll(p => p.StartsWith("border-top:"));
+                        parts.RemoveAll(p => p.StartsWith("border-bottom:"));
+                        RenderBorderCss(parts, cb.InsideHorizontalBorder, "border-top");
+                        RenderBorderCss(parts, cb.InsideHorizontalBorder, "border-bottom");
+                    }
+                    if (!IsBorderNone(cb.InsideVerticalBorder))
+                    {
+                        parts.RemoveAll(p => p.StartsWith("border-left:"));
+                        parts.RemoveAll(p => p.StartsWith("border-right:"));
+                        RenderBorderCss(parts, cb.InsideVerticalBorder, "border-left");
+                        RenderBorderCss(parts, cb.InsideVerticalBorder, "border-right");
+                    }
+                }
+
+                // Text formatting from conditional format (bold, color, font-size)
+                if (fmt.RunProperties != null)
+                {
+                    var rPr = fmt.RunProperties;
+                    if (rPr.Bold != null && (rPr.Bold.Val == null || rPr.Bold.Val.Value))
+                        parts.Add("font-weight:bold");
+                    if (rPr.Italic != null && (rPr.Italic.Val == null || rPr.Italic.Val.Value))
+                        parts.Add("font-style:italic");
+                    var condColor = ResolveRunColor(rPr.Color);
+                    if (condColor != null)
+                        parts.Add($"color:{condColor}");
+                    if (rPr.FontSize?.Val?.Value is string fsz && int.TryParse(fsz, out var fhp))
+                        parts.Add($"font-size:{fhp / 2.0}pt");
+                }
+            }
+        }
+
         if (tcPr == null) return string.Join(";", parts);
 
-        // Shading / fill (supports theme colors)
+        // Shading / fill (supports theme colors) — direct cell shading overrides conditional
         var cellFill = ResolveShadingFill(tcPr.Shading);
         if (cellFill != null)
+        {
+            parts.RemoveAll(p => p.StartsWith("background-color:"));
             parts.Add($"background-color:{cellFill}");
+        }
 
         // Vertical alignment
         var vAlign = tcPr.TableCellVerticalAlignment?.Val;
@@ -746,14 +806,14 @@ public partial class WordHandler
             if (va != null) parts.Add($"vertical-align:{va}");
         }
 
-        // Cell-level borders override table-level
+        // Cell-level borders override table-level and conditional
         var tcBorders = tcPr.TableCellBorders;
         if (tcBorders != null)
         {
-            RenderBorderCss(parts, tcBorders.TopBorder, "border-top");
-            RenderBorderCss(parts, tcBorders.BottomBorder, "border-bottom");
-            RenderBorderCss(parts, tcBorders.LeftBorder, "border-left");
-            RenderBorderCss(parts, tcBorders.RightBorder, "border-right");
+            if (!IsBorderNone(tcBorders.TopBorder)) { parts.RemoveAll(p => p.StartsWith("border-top:")); RenderBorderCss(parts, tcBorders.TopBorder, "border-top"); }
+            if (!IsBorderNone(tcBorders.BottomBorder)) { parts.RemoveAll(p => p.StartsWith("border-bottom:")); RenderBorderCss(parts, tcBorders.BottomBorder, "border-bottom"); }
+            if (!IsBorderNone(tcBorders.LeftBorder)) { parts.RemoveAll(p => p.StartsWith("border-left:")); RenderBorderCss(parts, tcBorders.LeftBorder, "border-left"); }
+            if (!IsBorderNone(tcBorders.RightBorder)) { parts.RemoveAll(p => p.StartsWith("border-right:")); RenderBorderCss(parts, tcBorders.RightBorder, "border-right"); }
         }
 
         // Cell width
@@ -786,7 +846,7 @@ public partial class WordHandler
 
     // ==================== CSS Helpers ====================
 
-    private static void RenderBorderCss(List<string> parts, OpenXmlElement? border, string cssProp)
+    private void RenderBorderCss(List<string> parts, OpenXmlElement? border, string cssProp)
     {
         if (border == null) return;
         var val = border.GetAttributes().FirstOrDefault(a => a.LocalName == "val").Value;
@@ -804,9 +864,46 @@ public partial class WordHandler
             "dotted" => "dotted",
             _ => "solid"
         };
-        var cssColor = (color != null && !color.Equals("auto", StringComparison.OrdinalIgnoreCase)) ? $"#{color}" : "#000";
+
+        // Resolve color: try direct color, then themeColor with tint/shade
+        string cssColor;
+        if (color != null && !color.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            cssColor = $"#{color}";
+        }
+        else
+        {
+            var themeColor = border.GetAttributes().FirstOrDefault(a => a.LocalName == "themeColor").Value;
+            if (themeColor != null && GetThemeColors().TryGetValue(themeColor, out var tcHex))
+            {
+                var tint = border.GetAttributes().FirstOrDefault(a => a.LocalName == "themeTint").Value;
+                var shade = border.GetAttributes().FirstOrDefault(a => a.LocalName == "themeShade").Value;
+                cssColor = ApplyTintShade(tcHex, tint, shade);
+            }
+            else
+            {
+                cssColor = "#000";
+            }
+        }
 
         parts.Add($"{cssProp}:{width} {style} {cssColor}");
+    }
+
+    /// <summary>Resolve a run Color element to a CSS color string, handling themeColor + tint/shade.</summary>
+    private string? ResolveRunColor(DocumentFormat.OpenXml.Wordprocessing.Color? color)
+    {
+        if (color == null) return null;
+        var colorVal = color.Val?.Value;
+        if (colorVal != null && colorVal != "auto")
+            return $"#{colorVal}";
+        var tcName = color.ThemeColor?.InnerText;
+        if (tcName != null && GetThemeColors().TryGetValue(tcName, out var tcHex))
+        {
+            var tint = color.GetAttributes().FirstOrDefault(a => a.LocalName == "themeTint").Value;
+            var shade = color.GetAttributes().FirstOrDefault(a => a.LocalName == "themeShade").Value;
+            return ApplyTintShade(tcHex, tint, shade);
+        }
+        return null;
     }
 
     private static double TwipsToPx(string twipsStr)

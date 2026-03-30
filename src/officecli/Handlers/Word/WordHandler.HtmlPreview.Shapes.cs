@@ -207,7 +207,7 @@ public partial class WordHandler
             if (IsFullPageSize(imgCxEmu, imgCyEmu))
             {
                 sb.Append($"<div style=\"position:absolute;top:0;left:0;width:100%;height:100%;z-index:-1;overflow:hidden\">");
-                sb.Append($"<img src=\"{dataUri}\" alt=\"{HtmlEncode(alt)}\" style=\"width:100%;height:100%;object-fit:cover\">");
+                sb.Append($"<img src=\"{dataUri}\" alt=\"{HtmlEncodeAttr(alt)}\" style=\"width:100%;height:100%;object-fit:cover\">");
                 sb.Append("</div>");
                 return;
             }
@@ -258,9 +258,9 @@ public partial class WordHandler
                         var cropVal = GetCropPercents(drawing);
                         var imgHtml = new StringBuilder();
                         if (cropVal.HasValue)
-                            RenderCroppedImage(imgHtml, dataUri, widthPx, heightPx, cropVal.Value.l, cropVal.Value.t, cropVal.Value.r, cropVal.Value.b, HtmlEncode(alt), fc);
+                            RenderCroppedImage(imgHtml, dataUri, widthPx, heightPx, cropVal.Value.l, cropVal.Value.t, cropVal.Value.r, cropVal.Value.b, HtmlEncodeAttr(alt), fc);
                         else
-                            imgHtml.Append($"<img src=\"{dataUri}\" alt=\"{HtmlEncode(alt)}\" width=\"{widthPx}\" height=\"{heightPx}\" style=\"max-width:100%;height:auto;{fc}\">");
+                            imgHtml.Append($"<img src=\"{dataUri}\" alt=\"{HtmlEncodeAttr(alt)}\" width=\"{widthPx}\" height=\"{heightPx}\" style=\"max-width:100%;height:auto;{fc}\">");
                         var markerId = $"TOP_ANCHOR_{_ctx.TopAnchoredImages.Count}";
                         _ctx.TopAnchoredImages.Add((markerId, imgHtml.ToString()));
                         sb.Append($"<!--{markerId}-->");
@@ -276,11 +276,11 @@ public partial class WordHandler
 
             if (crop.HasValue)
             {
-                RenderCroppedImage(sb, dataUri, widthPx, heightPx, crop.Value.l, crop.Value.t, crop.Value.r, crop.Value.b, HtmlEncode(alt), floatCss);
+                RenderCroppedImage(sb, dataUri, widthPx, heightPx, crop.Value.l, crop.Value.t, crop.Value.r, crop.Value.b, HtmlEncodeAttr(alt), floatCss);
             }
             else
             {
-                sb.Append($"<img src=\"{dataUri}\" alt=\"{HtmlEncode(alt)}\"{widthAttr}{heightAttr} style=\"{string.Join(";", styleParts)}\">");
+                sb.Append($"<img src=\"{dataUri}\" alt=\"{HtmlEncodeAttr(alt)}\"{widthAttr}{heightAttr} style=\"{string.Join(";", styleParts)}\">");
             }
         }
         catch

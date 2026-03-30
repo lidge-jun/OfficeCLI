@@ -41,7 +41,7 @@ public partial class WordHandler
         {
             var bmName = bm.Name?.Value;
             if (!string.IsNullOrEmpty(bmName) && !bmName.StartsWith("_GoBack"))
-                sb.Append($"<a id=\"{HtmlEncode(bmName)}\"></a>");
+                sb.Append($"<a id=\"{HtmlEncodeAttr(bmName)}\"></a>");
         }
 
         // Collect standalone images that precede a text box group (they overlay the group in Word)
@@ -121,7 +121,7 @@ public partial class WordHandler
                     url = $"#{hyperlink.Anchor.Value}";
 
                 if (url != null)
-                    sb.Append($"<a href=\"{HtmlEncode(url)}\"{(url.StartsWith("#") ? "" : " target=\"_blank\"")}>");
+                    sb.Append($"<a href=\"{HtmlEncodeAttr(url)}\"{(url.StartsWith("#") ? "" : " target=\"_blank\"")}>");
 
                 foreach (var hRun in hyperlink.Elements<Run>())
                     RenderRunHtml(sb, hRun, para);
@@ -132,7 +132,7 @@ public partial class WordHandler
             else if (child.LocalName == "oMath" || child is M.OfficeMath)
             {
                 var latex = FormulaParser.ToLatex(child);
-                sb.Append($"<span class=\"katex-formula\" data-formula=\"{HtmlEncode(latex)}\"></span>");
+                sb.Append($"<span class=\"katex-formula\" data-formula=\"{HtmlEncodeAttr(latex)}\"></span>");
             }
             else if (child.LocalName is "sdt" or "smartTag" or "customXml")
             {

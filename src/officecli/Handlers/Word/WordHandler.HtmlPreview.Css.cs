@@ -1060,6 +1060,17 @@ public partial class WordHandler
         return encoded;
     }
 
+    /// <summary>HTML-encode for attribute values without nbsp conversion (used for LaTeX formulas).</summary>
+    private static string HtmlEncodeAttr(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return text
+            .Replace("&", "&amp;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;")
+            .Replace("\"", "&quot;");
+    }
+
     // ==================== CSS Stylesheet ====================
 
     private static string GenerateWordCss(PageLayout pg, DocDef dd)

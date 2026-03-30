@@ -70,8 +70,10 @@ public partial class WordHandler
             ps.Orient = orient.ToLowerInvariant() == "landscape"
                 ? PageOrientationValues.Landscape
                 : PageOrientationValues.Portrait;
-            // Swap width/height for landscape if needed
+            // Swap width/height if dimensions don't match orientation
             if (ps.Orient == PageOrientationValues.Landscape && ps.Width < ps.Height)
+                (ps.Width!.Value, ps.Height!.Value) = (ps.Height.Value, ps.Width.Value);
+            if (ps.Orient == PageOrientationValues.Portrait && ps.Width > ps.Height)
                 (ps.Width!.Value, ps.Height!.Value) = (ps.Height.Value, ps.Width.Value);
         }
 

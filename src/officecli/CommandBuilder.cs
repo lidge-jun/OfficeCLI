@@ -1049,7 +1049,7 @@ static class CommandBuilder
                     }
                 }
             }
-            return 0;
+            return errors.Count > 0 ? 1 : 0;
         }, json); });
         rootCommand.Add(validateCommand);
 

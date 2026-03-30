@@ -97,10 +97,10 @@ public partial class WordHandler
             var margins = sectPr.GetFirstChild<PageMargin>();
             if (margins != null)
             {
-                if (margins.Top?.Value != null) node.Format["marginTop"] = margins.Top.Value;
-                if (margins.Bottom?.Value != null) node.Format["marginBottom"] = margins.Bottom.Value;
-                if (margins.Left?.Value != null) node.Format["marginLeft"] = margins.Left.Value;
-                if (margins.Right?.Value != null) node.Format["marginRight"] = margins.Right.Value;
+                if (margins.Top?.Value != null) node.Format["marginTop"] = FormatTwipsToCm((uint)Math.Abs(margins.Top.Value));
+                if (margins.Bottom?.Value != null) node.Format["marginBottom"] = FormatTwipsToCm((uint)Math.Abs(margins.Bottom.Value));
+                if (margins.Left?.Value != null) node.Format["marginLeft"] = FormatTwipsToCm(margins.Left.Value);
+                if (margins.Right?.Value != null) node.Format["marginRight"] = FormatTwipsToCm(margins.Right.Value);
             }
         }
 

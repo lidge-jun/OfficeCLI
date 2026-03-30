@@ -235,10 +235,10 @@ public partial class WordHandler
             secNode.Format["pageHeight"] = FormatTwipsToCm(pgH);
             if (pageSize?.Orient?.Value != null) secNode.Format["orientation"] = pageSize.Orient.InnerText;
             var margin = sectPr.GetFirstChild<PageMargin>();
-            if (margin?.Top?.Value != null) secNode.Format["marginTop"] = margin.Top.Value;
-            if (margin?.Bottom?.Value != null) secNode.Format["marginBottom"] = margin.Bottom.Value;
-            if (margin?.Left?.Value != null) secNode.Format["marginLeft"] = margin.Left.Value;
-            if (margin?.Right?.Value != null) secNode.Format["marginRight"] = margin.Right.Value;
+            if (margin?.Top?.Value != null) secNode.Format["marginTop"] = FormatTwipsToCm((uint)Math.Abs(margin.Top.Value));
+            if (margin?.Bottom?.Value != null) secNode.Format["marginBottom"] = FormatTwipsToCm((uint)Math.Abs(margin.Bottom.Value));
+            if (margin?.Left?.Value != null) secNode.Format["marginLeft"] = FormatTwipsToCm(margin.Left.Value);
+            if (margin?.Right?.Value != null) secNode.Format["marginRight"] = FormatTwipsToCm(margin.Right.Value);
 
             // Column properties
             var cols = sectPr.GetFirstChild<Columns>();

@@ -304,7 +304,12 @@ public partial class WordHandler
             {
                 var textInput = new TextInput();
                 if (ciProps.TryGetValue("default", out var defaultVal))
+                {
                     textInput.AppendChild(new DefaultTextBoxFormFieldString { Val = defaultVal });
+                    // Use default value as initial text if no explicit text/value provided
+                    if (string.IsNullOrEmpty(text))
+                        text = defaultVal;
+                }
                 if (ciProps.TryGetValue("maxlength", out var maxLenStr) && int.TryParse(maxLenStr, out var maxLen))
                     textInput.AppendChild(new MaxLength { Val = (short)maxLen });
                 ffData.AppendChild(textInput);

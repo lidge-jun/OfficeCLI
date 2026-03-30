@@ -172,7 +172,8 @@ public partial class WordHandler
         sb.AppendLine("document.addEventListener('DOMContentLoaded',function(){");
         sb.AppendLine("  if(typeof renderMathInElement!=='undefined'){");
         sb.AppendLine("    renderMathInElement(document.body,{delimiters:[");
-        sb.AppendLine("      {left:'$$',right:'$$',display:true}");
+        sb.AppendLine("      {left:'$$',right:'$$',display:true},");
+        sb.AppendLine("      {left:'$',right:'$',display:false}");
         sb.AppendLine("    ],throwOnError:false});");
         sb.AppendLine("  }");
         // CJK punctuation compression (~25% per JIS X4051): negative margin on punctuation

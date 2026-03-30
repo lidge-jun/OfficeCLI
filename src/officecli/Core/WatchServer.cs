@@ -121,6 +121,13 @@ public class WatchServer : IDisposable
                             ns.textContent = s.textContent;
                             document.body.appendChild(ns);
                         });
+                        // Re-render KaTeX math formulas after DOM replacement
+                        if (typeof renderMathInElement === 'function') {
+                            renderMathInElement(document.body, {delimiters:[
+                                {left:'$$',right:'$$',display:true},
+                                {left:'$',right:'$',display:false}
+                            ],throwOnError:false});
+                        }
                         // Apply scroll target (non-sheet)
                         if (msg.scrollTo && targetSheetIdx < 0) {
                             setTimeout(function() {

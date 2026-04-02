@@ -1071,6 +1071,14 @@ public partial class WordHandler
                     case "href":
                     {
                         var mainPartHl = _doc.MainDocumentPart!;
+                        // Delete old relationship to avoid storage bloat
+                        var oldRelId = hl.Id?.Value;
+                        if (oldRelId != null)
+                        {
+                            var oldRel = mainPartHl.HyperlinkRelationships.FirstOrDefault(r => r.Id == oldRelId);
+                            if (oldRel != null)
+                                mainPartHl.DeleteReferenceRelationship(oldRel);
+                        }
                         var uri = Uri.TryCreate(value, UriKind.Absolute, out var absUri)
                             ? absUri
                             : new Uri(value, UriKind.Relative);

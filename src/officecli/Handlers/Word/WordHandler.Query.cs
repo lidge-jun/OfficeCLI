@@ -261,7 +261,8 @@ public partial class WordHandler
             if (cols != null)
             {
                 secNode.Format["columns"] = cols.ColumnCount?.Value ?? 1;
-                if (cols.Space?.Value != null) secNode.Format["columnSpace"] = cols.Space.Value;
+                if (cols.Space?.Value != null && uint.TryParse(cols.Space.Value, out var colSpaceTwips))
+                    secNode.Format["columnSpace"] = FormatTwipsToCm(colSpaceTwips);
                 if (cols.EqualWidth?.Value != null) secNode.Format["equalWidth"] = cols.EqualWidth.Value;
                 if (cols.Separator?.Value == true) secNode.Format["separator"] = true;
                 var colDefs = cols.Elements<Column>().ToList();

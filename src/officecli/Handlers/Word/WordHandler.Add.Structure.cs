@@ -77,6 +77,22 @@ public partial class WordHandler
                 (ps.Width!.Value, ps.Height!.Value) = (ps.Height.Value, ps.Width.Value);
         }
 
+        // Columns support: "columns=2" or "columns=2,1cm"
+        if (properties.TryGetValue("columns", out var colsVal) || properties.TryGetValue("columns.count", out colsVal))
+        {
+            var parts = colsVal.Split(',');
+            var count = (short)int.Parse(parts[0].Trim());
+            var cols = new Columns { ColumnCount = count, EqualWidth = true };
+            if (parts.Length > 1)
+                cols.Space = ParseTwips(parts[1].Trim()).ToString();
+            sectPr.AppendChild(cols);
+        }
+        if (properties.TryGetValue("columns.space", out var colSpace))
+        {
+            var cols = sectPr.GetFirstChild<Columns>() ?? sectPr.AppendChild(new Columns());
+            cols.Space = ParseTwips(colSpace).ToString();
+        }
+
         sectPProps.AppendChild(sectPr);
         sectPara.AppendChild(sectPProps);
         AppendToParent(parent, sectPara);

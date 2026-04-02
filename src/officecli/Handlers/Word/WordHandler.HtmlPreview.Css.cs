@@ -277,6 +277,15 @@ public partial class WordHandler
                     parts.Add($"line-height:{Units.TwipsToPt(lv):0.##}pt");
                 }
             }
+
+            // If no explicit line-height was set, use font metrics ratio
+            if (!parts.Any(p => p.StartsWith("line-height")))
+            {
+                var paraFont = ResolveParaFontForLineHeight(para);
+                var ratio = FontMetricsReader.GetRatio(paraFont);
+                if (ratio > 1.01 || ratio < 0.99) // only if meaningfully different from 1.0
+                    parts.Add($"line-height:{ratio:0.##}");
+            }
         }
 
         // Shading / background (direct or from style)
@@ -1083,7 +1092,7 @@ public partial class WordHandler
             padding-bottom: 0.3em; }}
         .doc-footer {{ position: absolute; bottom: {pg.FooterDistancePt:0.#}pt; left: {mL}; right: {mR};
             padding-top: 0.3em; }}
-        h1, h2, h3, h4, h5, h6 {{ line-height: {FontMetricsReader.GetRatio(dd.Font):0.##}; }}
+        h1, h2, h3, h4, h5, h6 {{ line-height: normal; }}
         p {{ margin: 0; margin-bottom: {(HasLinkedStyles() ? "10pt" : "0")}; line-height: {(HasLinkedStyles() ? 1.15 : 1.0) * FontMetricsReader.GetRatio(dd.Font):0.##}; text-align: justify; text-justify: inter-character; text-autospace: ideograph-alpha ideograph-numeric; }}
         p.empty {{ margin: 0; min-height: 1em; }}
         a {{ color: #2B579A; }} a:hover {{ color: #1a3c6e; }}

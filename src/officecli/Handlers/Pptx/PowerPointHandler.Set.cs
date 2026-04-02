@@ -778,12 +778,8 @@ public partial class PowerPointHandler
                             if (savedEndParaRPr != null)
                                 savedEndParaRPr.Remove();
                             if (!string.IsNullOrEmpty(value))
-                            {
-                                var newRun = new Drawing.Run(
-                                    new Drawing.RunProperties { Language = "en-US" },
-                                    new Drawing.Text { Text = value });
-                                para.AppendChild(newRun);
-                            }
+                                foreach (var newRun in BuildSegmentedRuns(value))
+                                    para.AppendChild(newRun);
                             if (savedEndParaRPr != null)
                                 para.AppendChild(savedEndParaRPr);
                         }

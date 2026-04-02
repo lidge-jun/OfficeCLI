@@ -206,9 +206,8 @@ public partial class PowerPointHandler
                     };
                 }
 
-                newRun.RunProperties = rProps;
-                newRun.Text = new Drawing.Text { Text = paraText.Replace("\\n", "\n") };
-                newPara.Append(newRun);
+                foreach (var segmentedRun in BuildSegmentedRuns(paraText.Replace("\\n", "\n"), rProps))
+                    newPara.Append(segmentedRun);
 
                 if (index.HasValue && index.Value >= 0)
                 {
@@ -317,19 +316,21 @@ public partial class PowerPointHandler
                 else if (properties.TryGetValue("subscript", out var rSub))
                     rProps.Baseline = IsTruthy(rSub) ? -25000 : 0;
 
-                newRun.RunProperties = rProps;
-                newRun.Text = new Drawing.Text { Text = runText.Replace("\\n", "\n") };
+                var insertedRuns = BuildSegmentedRuns(runText.Replace("\\n", "\n"), rProps);
 
                 // Append run to paragraph (before EndParagraphRunProperties if present)
                 var endParaRun = targetPara.GetFirstChild<Drawing.EndParagraphRunProperties>();
-                if (endParaRun != null)
-                    targetPara.InsertBefore(newRun, endParaRun);
-                else
-                    targetPara.Append(newRun);
+                foreach (var segmentedRun in insertedRuns)
+                {
+                    if (endParaRun != null)
+                        targetPara.InsertBefore(segmentedRun, endParaRun);
+                    else
+                        targetPara.Append(segmentedRun);
+                }
 
                 var runCount = targetPara.Elements<Drawing.Run>().Count();
                 GetSlide(runSlidePart).Save();
-                return $"/slide[{runSlideIdx}]/shape[{runShapeIdx}]/paragraph[{targetParaIdx}]/run[{runCount}]";
+                return $"/slide[{runSlideIdx}]/shape[{runShapeIdx}]/paragraph[{targetParaIdx}]/run[{runCount - insertedRuns.Count + 1}]";
     }
 
 

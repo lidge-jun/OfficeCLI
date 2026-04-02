@@ -1,41 +1,16 @@
-## .NET
+# Build output
+build-local/
 bin/
 obj/
-out/
-
-## IDE
-.vs/
-.vscode/
 *.user
 *.suo
-*.userprefs
+*.pdb
 
-## OS
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# OS
 .DS_Store
 Thumbs.db
-
-## Build
-*.nupkg
-*.snupkg
-out/
-
-## Test samples
-test-samples/
-
-## Diff
-diff/
-
-## Tests (local only)
-tests/
-test-results/
-
-## Claude
-.claude/
-CLAUDE.md
-
-## Process files (local only)
-bug-reports/
-docs/
-iterations/
-scripts/
-.claude/teams/officecli-skills-iterative.json

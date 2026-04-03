@@ -100,7 +100,7 @@ public partial class WordHandler
 
     private static string GetParagraphText(Paragraph para)
     {
-        return string.Concat(para.Descendants<Text>().Select(t => t.Text));
+        return string.Concat(para.Elements<Run>().SelectMany(r => r.Elements<Text>()).Select(t => t.Text));
     }
 
     /// <summary>

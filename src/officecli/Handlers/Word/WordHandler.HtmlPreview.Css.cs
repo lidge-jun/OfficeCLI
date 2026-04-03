@@ -1079,12 +1079,12 @@ public partial class WordHandler
         return $@"
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ background: #f0f0f0; font-family: {font}; color: {dd.Color}; padding: 20px; }}
-        .page-wrapper {{ margin: 0 auto 40px; }}
+        .page-wrapper {{ margin: 0 auto 40px; transition: width 0.15s ease, height 0.15s ease; }}
         .page {{ background: white; margin: 0 auto; padding: {mT} {mR} {mB} {mL};
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-radius: 4px;
             min-height: {pageH}; line-height: {lh}; font-size: {sz}; position: relative; overflow-x: auto;
             display: flex; flex-direction: column; font-kerning: none; letter-spacing: 0;
-            transform-origin: left top;
+            transform-origin: left top; transition: transform 0.15s ease;
             }}
         .page-body {{ flex: 1; display: flex; flex-direction: column; text-autospace: ideograph-alpha ideograph-numeric; }}
         .page-body > :first-child {{ margin-top: 0 !important; }}

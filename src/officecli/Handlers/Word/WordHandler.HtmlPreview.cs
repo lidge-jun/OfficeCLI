@@ -356,23 +356,17 @@ public partial class WordHandler
 ");
         // Responsive scaling: shrink pages to fit viewport (like PPT's scaleSlides)
         sb.AppendLine(@"  function scalePages(){
+    var bs=getComputedStyle(document.body);
+    var availW=document.body.clientWidth-parseFloat(bs.paddingLeft)-parseFloat(bs.paddingRight);
     document.querySelectorAll('.page-wrapper').forEach(function(wrapper){
       var page=wrapper.querySelector('.page');
       if(!page||page.style.display==='none')return;
-      // Reset wrapper width first so it reflects true available space
-      wrapper.style.width='';
       var pageW=page.offsetWidth;
-      var availW=wrapper.clientWidth;
-      if(pageW>availW&&availW>0){
-        var s=availW/pageW;
-        page.style.transform='scale('+s+')';
-        wrapper.style.height=(page.offsetHeight*s)+'px';
-        wrapper.style.width=(pageW*s)+'px';
-      }else{
-        page.style.transform='';
-        wrapper.style.height='';
-        wrapper.style.width='';
-      }
+      var pageH=page.offsetHeight;
+      var s=Math.min(availW/pageW,1);
+      page.style.transform='scale('+s+')';
+      wrapper.style.height=(pageH*s)+'px';
+      wrapper.style.width=(pageW*s)+'px';
     });
   }
   var _resizeTimer;

@@ -1152,10 +1152,11 @@ public partial class WordHandler
 
     /// <summary>
     /// Generate a unique 8-character uppercase hex ID for w14:paraId / w14:textId.
+    /// OOXML spec requires value &lt; 0x80000000 (MaxExclusive).
     /// </summary>
     private static string GenerateParaId()
     {
-        return Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        return Random.Shared.Next(0, int.MaxValue).ToString("X8");
     }
 
     /// <summary>

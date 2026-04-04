@@ -78,7 +78,7 @@ That's it. The skill file teaches the agent how to install the binary and use al
 officecli install
 ```
 
-This copies the binary to your PATH and sets up auto-update — you're ready to go.
+This copies the binary to your PATH and installs the **officecli skill** into every AI coding agent it detects — Claude Code, Cursor, Windsurf, GitHub Copilot, and more. Your agent can immediately create, read, and edit Office documents on your behalf, no extra configuration needed.
 
 ## For Developers — See It Live in 30 Seconds
 

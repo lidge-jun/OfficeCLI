@@ -16,17 +16,9 @@ public class ResidentServer : IDisposable
     private readonly SemaphoreSlim _commandLock = new(1, 1);
     private readonly TimeSpan _idleTimeout = TimeSpan.FromMinutes(12);
     private CancellationTokenSource _idleCts = new();
-    private readonly ManualResetEventSlim _ready = new(false);
     private bool _disposed;
 
     public string PipeName => _pipeName;
-
-    /// <summary>
-    /// Blocks until the server is accepting connections, or the timeout expires.
-    /// For use by in-process callers that cannot connect through the named pipe
-    /// without deadlocking (same-process pipe read/write buffering issue on Windows).
-    /// </summary>
-    public bool WaitUntilReady(TimeSpan timeout) => _ready.Wait(timeout);
 
     public ResidentServer(string filePath, bool editable = true)
     {
@@ -54,9 +46,6 @@ public class ResidentServer : IDisposable
 
         // Start idle watchdog
         var idleTask = RunIdleWatchdogAsync(token);
-
-        // Signal that pipe listeners are up and the server is ready for connections
-        _ready.Set();
 
         // Main command loop - accept connections concurrently, serialize command execution
         while (!token.IsCancellationRequested)
@@ -706,14 +695,21 @@ public class ResidentServer : IDisposable
         return System.Text.Json.JsonSerializer.Serialize(response, ResidentJsonContext.Default.ResidentResponse);
     }
 
-    /// <summary>
-    /// Read a single newline-terminated line from a pipe using raw byte I/O.
-    /// Avoids StreamReader.ReadLineAsync(CancellationToken) which deadlocks on
-    /// Windows named pipes under certain .NET versions.  Safe cross-platform;
-    /// used on all OSes to avoid divergent code paths.
-    /// </summary>
+    // ==================== Pipe I/O helpers ====================
+    //
+    // On Windows, StreamReader/StreamWriter deadlock on named pipes under .NET 11
+    // preview.  Raw byte I/O avoids the issue.
+    // On Linux/macOS, StreamReader/StreamWriter work fine and are faster.
+
+    private const int MaxLineLength = 1_048_576; // 1 MB safety limit
+
     private static async Task<string?> ReadLineFromPipeAsync(Stream pipe, CancellationToken token)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
+            return await reader.ReadLineAsync(token);
+        }
         var buffer = new byte[1];
         var lineBytes = new List<byte>(256);
         while (true)
@@ -722,20 +718,24 @@ public class ResidentServer : IDisposable
             if (bytesRead == 0) return lineBytes.Count > 0 ? Encoding.UTF8.GetString(lineBytes.ToArray()) : null;
             if (buffer[0] == (byte)'\n')
             {
-                // Strip trailing \r if present
                 if (lineBytes.Count > 0 && lineBytes[^1] == (byte)'\r')
                     lineBytes.RemoveAt(lineBytes.Count - 1);
                 return Encoding.UTF8.GetString(lineBytes.ToArray());
             }
+            if (lineBytes.Count >= MaxLineLength)
+                return null;
             lineBytes.Add(buffer[0]);
         }
     }
 
-    /// <summary>
-    /// Write a line to a pipe using raw byte I/O (avoids StreamWriter buffering issues).
-    /// </summary>
     private static async Task WriteLineToPipeAsync(Stream pipe, string line, CancellationToken token)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            using var writer = new StreamWriter(pipe, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+            await writer.WriteLineAsync(line.AsMemory(), token);
+            return;
+        }
         var bytes = Encoding.UTF8.GetBytes(line + "\n");
         await pipe.WriteAsync(bytes, token);
         await pipe.FlushAsync(token);
@@ -776,7 +776,6 @@ public class ResidentServer : IDisposable
 
             _cts.Dispose();
             _idleCts.Dispose();
-            _ready.Dispose();
         }
     }
 

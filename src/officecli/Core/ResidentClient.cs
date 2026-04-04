@@ -85,7 +85,7 @@ public static class ResidentClient
         try
         {
             using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);
-            client.Connect(2000);
+            client.Connect(200);
 
             var request = new ResidentRequest { Command = "__close__" };
             var json = System.Text.Json.JsonSerializer.Serialize(request, ResidentJsonContext.Default.ResidentRequest);
@@ -109,12 +109,19 @@ public static class ResidentClient
     // preview — the managed stream wrapper's internal buffering stalls reads even
     // when bytes are available on the wire.  Raw byte I/O avoids the issue.
     //
-    // On Linux/macOS, StreamReader/StreamWriter work fine, but raw byte I/O is
-    // equally correct and avoids any future cross-platform divergence, so we use
-    // the same path everywhere.
+    // On Linux/macOS, StreamReader/StreamWriter work fine and are faster (buffered
+    // reads), so we keep using them.
+
+    private const int MaxLineLength = 1_048_576; // 1 MB safety limit
 
     private static void PipeWriteLine(Stream pipe, string line)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            using var writer = new StreamWriter(pipe, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+            writer.WriteLine(line);
+            return;
+        }
         var bytes = Encoding.UTF8.GetBytes(line + "\n");
         pipe.Write(bytes, 0, bytes.Length);
         pipe.Flush();
@@ -122,6 +129,11 @@ public static class ResidentClient
 
     private static string? PipeReadLine(Stream pipe)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
+            return reader.ReadLine();
+        }
         var buffer = new byte[1];
         var lineBytes = new List<byte>(256);
         while (true)
@@ -134,6 +146,8 @@ public static class ResidentClient
                     lineBytes.RemoveAt(lineBytes.Count - 1);
                 return Encoding.UTF8.GetString(lineBytes.ToArray());
             }
+            if (lineBytes.Count >= MaxLineLength)
+                return null;
             lineBytes.Add(buffer[0]);
         }
     }

@@ -313,8 +313,25 @@ static partial class CommandBuilder
             case "move":
             {
                 var path = item.Path ?? "/";
-                var resultPath = handler.Move(path, item.To, item.Index.HasValue ? InsertPosition.AtIndex(item.Index.Value) : null);
+                InsertPosition? movePos = null;
+                if (item.Index.HasValue) movePos = InsertPosition.AtIndex(item.Index.Value);
+                else if (!string.IsNullOrEmpty(item.After)) movePos = InsertPosition.AfterElement(item.After);
+                else if (!string.IsNullOrEmpty(item.Before)) movePos = InsertPosition.BeforeElement(item.Before);
+                var resultPath = handler.Move(path, item.To, movePos);
                 return $"Moved to {resultPath}";
+            }
+            case "swap":
+            {
+                if (string.IsNullOrEmpty(item.Path) || string.IsNullOrEmpty(item.To))
+                    throw new ArgumentException("'swap' command requires 'path' and 'to' fields. Example: {\"command\": \"swap\", \"path\": \"/slide[1]\", \"to\": \"/slide[2]\"}");
+                var (p1, p2) = handler switch
+                {
+                    OfficeCli.Handlers.PowerPointHandler ppt => ppt.Swap(item.Path, item.To),
+                    OfficeCli.Handlers.WordHandler word => word.Swap(item.Path, item.To),
+                    OfficeCli.Handlers.ExcelHandler excel => excel.Swap(item.Path, item.To),
+                    _ => throw new InvalidOperationException("swap not supported for this document type")
+                };
+                return $"Swapped {p1} <-> {p2}";
             }
             case "view":
             {
@@ -375,7 +392,7 @@ static partial class CommandBuilder
                         "Batch item missing required 'command' field. " +
                         "Valid commands: get, query, set, add, remove, move, view, raw, validate. " +
                         "Example: {\"command\": \"set\", \"path\": \"/Sheet1/A1\", \"props\": {\"value\": \"hello\"}}");
-                throw new InvalidOperationException($"Unknown command: '{item.Command}'. Valid commands: get, query, set, add, remove, move, view, raw, validate.");
+                throw new InvalidOperationException($"Unknown command: '{item.Command}'. Valid commands: get, query, set, add, remove, move, swap, view, raw, validate.");
         }
     }
 

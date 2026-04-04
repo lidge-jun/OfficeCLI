@@ -301,9 +301,37 @@ public partial class PowerPointHandler
                 throw new ArgumentException($"Slide {slideIdx} not found (total: {slideIds.Count})");
 
             var slideId = slideIds[slideIdx - 1];
+
+            // Resolve after/before anchor BEFORE removing
+            SlideId? afterAnchor = null, beforeAnchor = null;
+            if (position?.After != null)
+            {
+                var afterMatch = Regex.Match(position.After.StartsWith("/") ? position.After : "/" + position.After, @"/slide\[(\d+)\]");
+                if (afterMatch.Success)
+                {
+                    var ai = int.Parse(afterMatch.Groups[1].Value);
+                    if (ai >= 1 && ai <= slideIds.Count) afterAnchor = slideIds[ai - 1];
+                }
+                if (afterAnchor == null) throw new ArgumentException($"After anchor not found: {position.After}");
+            }
+            else if (position?.Before != null)
+            {
+                var beforeMatch = Regex.Match(position.Before.StartsWith("/") ? position.Before : "/" + position.Before, @"/slide\[(\d+)\]");
+                if (beforeMatch.Success)
+                {
+                    var bi = int.Parse(beforeMatch.Groups[1].Value);
+                    if (bi >= 1 && bi <= slideIds.Count) beforeAnchor = slideIds[bi - 1];
+                }
+                if (beforeAnchor == null) throw new ArgumentException($"Before anchor not found: {position.Before}");
+            }
+
             slideId.Remove();
 
-            if (index.HasValue)
+            if (afterAnchor != null)
+                afterAnchor.InsertAfterSelf(slideId);
+            else if (beforeAnchor != null)
+                beforeAnchor.InsertBeforeSelf(slideId);
+            else if (index.HasValue)
             {
                 var remaining = slideIdList.Elements<SlideId>().ToList();
                 if (index.Value >= 0 && index.Value < remaining.Count)

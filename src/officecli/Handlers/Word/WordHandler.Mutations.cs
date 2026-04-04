@@ -251,10 +251,28 @@ public partial class WordHandler
 
     public string Move(string sourcePath, string? targetParentPath, InsertPosition? position)
     {
-        var index = position?.Index;
         var srcParts = ParsePath(sourcePath);
         var element = NavigateToElement(srcParts)
             ?? throw new ArgumentException($"Source not found: {sourcePath}");
+
+        // Resolve after/before anchor BEFORE removing the element
+        OpenXmlElement? afterAnchor = null, beforeAnchor = null;
+        if (position?.After != null)
+        {
+            var anchorPath = position.After;
+            if (!anchorPath.StartsWith("/"))
+                anchorPath = (targetParentPath ?? "/body").TrimEnd('/') + "/" + anchorPath;
+            afterAnchor = NavigateToElement(ParsePath(anchorPath))
+                ?? throw new ArgumentException($"After anchor not found: {position.After}");
+        }
+        else if (position?.Before != null)
+        {
+            var anchorPath = position.Before;
+            if (!anchorPath.StartsWith("/"))
+                anchorPath = (targetParentPath ?? "/body").TrimEnd('/') + "/" + anchorPath;
+            beforeAnchor = NavigateToElement(ParsePath(anchorPath))
+                ?? throw new ArgumentException($"Before anchor not found: {position.Before}");
+        }
 
         // Determine target parent
         string effectiveParentPath;
@@ -283,13 +301,21 @@ public partial class WordHandler
 
         element.Remove();
 
-        // Insert at the specified position among same-type siblings (0-based index)
-        if (index.HasValue)
+        // Insert at the resolved position
+        if (afterAnchor != null)
+        {
+            afterAnchor.InsertAfterSelf(element);
+        }
+        else if (beforeAnchor != null)
+        {
+            beforeAnchor.InsertBeforeSelf(element);
+        }
+        else if (position?.Index is int index)
         {
             var sameTypeSiblings = targetParent.ChildElements
                 .Where(e => e.LocalName == element.LocalName).ToList();
-            if (index.Value >= 0 && index.Value < sameTypeSiblings.Count)
-                sameTypeSiblings[index.Value].InsertBeforeSelf(element);
+            if (index >= 0 && index < sameTypeSiblings.Count)
+                sameTypeSiblings[index].InsertBeforeSelf(element);
             else
                 AppendToParent(targetParent, element);
         }

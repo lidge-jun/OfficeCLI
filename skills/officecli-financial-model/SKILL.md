@@ -171,6 +171,20 @@ Before delivering the `.xlsx` file, verify all items:
 
 ---
 
+## Adjustments After Creation
+
+When the user requests changes after the model is built:
+
+| Request | Command |
+|---------|---------|
+| Swap two sheets | `officecli swap model.xlsx '/Sheet1' '/Sheet2'` |
+| Move a sheet after another | `officecli move model.xlsx '/Scenarios' --after '/Assumptions'` |
+| Edit a cell value | `officecli set model.xlsx '/SheetName/A1' --prop value="..."` |
+| Find & replace text | `officecli set model.xlsx / --prop find=OldText --prop replace=NewText` |
+| Remove a row | `officecli remove model.xlsx '/SheetName/row[N]'` |
+
+---
+
 ## Full Guide
 
 Read [creating.md](creating.md) and follow it step by step. It contains setup conventions, core financial statement patterns, advanced patterns (DCF, sensitivity, scenarios), chart recipes, QA checklist, and known issues with workarounds.

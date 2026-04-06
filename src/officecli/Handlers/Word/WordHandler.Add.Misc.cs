@@ -262,8 +262,9 @@ public partial class WordHandler
         return resultPath;
     }
 
-    private string AddField(OpenXmlElement parent, string parentPath, int? index, Dictionary<string, string> properties, string type)
+    private string AddField(OpenXmlElement parent, string parentPath, int? index, Dictionary<string, string>? properties, string type)
     {
+        properties ??= new Dictionary<string, string>();
         var body = _doc.MainDocumentPart?.Document?.Body
             ?? throw new InvalidOperationException("Document body not found");
 

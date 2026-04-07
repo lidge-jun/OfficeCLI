@@ -11,7 +11,7 @@ static partial class CommandBuilder
     private static Command BuildGetCommand(Option<bool> jsonOption)
     {
         var getFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var pathArg = new Argument<string>("path") { Description = "DOM path (e.g. /body/p[1])" };
+        var pathArg = new Argument<string>("path") { Description = "DOM path (e.g. /body/p[1]) or 'selected' to read the current watch selection" };
         pathArg.DefaultValueFactory = _ => "/";
         var depthOpt = new Option<int>("--depth") { Description = "Depth of child nodes to include" };
         depthOpt.DefaultValueFactory = _ => 1;

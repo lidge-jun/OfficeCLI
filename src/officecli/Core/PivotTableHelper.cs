@@ -575,6 +575,15 @@ internal static class PivotTableHelper
             // check). We also Trim before storing so "  MyPivot " doesn't
             // persist the surrounding noise.
             explicitName = explicitName.Trim();
+            // R8-5: ASCII control characters (0x00-0x1F and 0x7F) produce
+            // invalid XML identifiers and confusing Excel UI. Reject them
+            // up front — same error shape as whitespace/collision paths.
+            foreach (var ch in explicitName)
+            {
+                if (ch < 0x20 || ch == 0x7F)
+                    throw new ArgumentException(
+                        "pivot name contains invalid control characters");
+            }
             // R6-1: user-supplied name must be unique within the workbook.
             // Throw ArgumentException rather than silently allowing the
             // collision (Excel would auto-rename on open, but the on-disk

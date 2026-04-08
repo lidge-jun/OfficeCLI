@@ -3433,9 +3433,17 @@ internal static class PivotTableHelper
     ///     col-axis subtotal.
     ///   - Grand total: &lt;i t="grand"&gt; with bare &lt;x/&gt;, always r=0.
     ///
-    /// K=1 only in this implementation; multi-data + N≥3 col fields would
-    /// further multiply the col positions and require additional encoding
-    /// (the i="d" attribute on each repeated entry). Tracked as future work.
+    /// For K>1 on the column axis, each logical entry (leaf, subtotal, grand)
+    /// is multiplied by K, mirroring the BuildMultiColItems pattern:
+    ///   - Leaf d=0: LCP-compressed path + 1 extra &lt;x/&gt; for data field 0.
+    ///   - Leaf d∈[1,K): r=path.Length, i=d, 1 &lt;x v=d/&gt;. (The whole
+    ///     non-data path is inherited from d=0; i=d flags this as "same
+    ///     cell position, different data field".)
+    ///   - Subtotal d=0: as in K=1 (r=0 + 1 x child for path[last]).
+    ///   - Subtotal d∈[1,K): same x child, add i=d attribute.
+    ///   - Grand d=0: bare &lt;x/&gt;. Grand d∈[1,K): bare &lt;x/&gt; + i=d.
+    /// Row axis is never K-multiplied regardless of K — verified against
+    /// 2x1x1 vs 2x1xK baselines where rowItems.count is identical.
     /// </summary>
     private static OpenXmlElement BuildTreeAxisItems(
         List<int> fieldIndices, List<string[]> columnData, bool isRow, int dataFieldCount)
@@ -3494,19 +3502,31 @@ internal static class PivotTableHelper
         Walk(tree);
         entries.Add((Array.Empty<string>(), "grand"));
 
+        // K>1 multiplies col-axis entries by K (one per data field). Row axis
+        // stays 1 entry per logical row regardless of K.
+        int K = Math.Max(1, dataFieldCount);
+        bool kMultiply = !isRow && K > 1;
+
         // Emit entries with LCP compression. Col-axis subtotals are special-cased
         // to always emit r=0 + 1 x child for the outer index (Excel's empirical
         // convention — col subtotals "reset" the inheritance chain).
         string[] prevPath = Array.Empty<string>();
+        int emittedCount = 0;
         foreach (var (path, kind) in entries)
         {
-            var item = new RowItem();
-
             if (kind == "grand")
             {
-                item.ItemType = ItemValues.Grand;
-                item.AppendChild(new MemberPropertyIndex());
-                container.AppendChild(item);
+                // K entries on col axis, 1 entry on row axis. Each is a bare
+                // <x/> (v=0), with i=d on d∈[1,K) for col axis.
+                int grandCount = kMultiply ? K : 1;
+                for (int d = 0; d < grandCount; d++)
+                {
+                    var gt = new RowItem { ItemType = ItemValues.Grand };
+                    if (d > 0) gt.Index = (uint)d;
+                    gt.AppendChild(new MemberPropertyIndex());
+                    container.AppendChild(gt);
+                    emittedCount++;
+                }
                 prevPath = path;
                 continue;
             }
@@ -3515,13 +3535,19 @@ internal static class PivotTableHelper
             {
                 // Col-axis subtotal: always r=0 + 1 x child for the deepest
                 // index in the path (the immediate-parent value). Verified
-                // against multi_col_authored.xlsx.
-                item.ItemType = ItemValues.Default;
+                // against multi_col_authored.xlsx. For K>1, emit K of these
+                // with i=d attribute on d∈[1,K).
                 int lastLevel = path.Length - 1;
                 int lastIdx = perLevelOrder[lastLevel].TryGetValue(path[lastLevel], out var li) ? li : 0;
-                if (lastIdx == 0) item.AppendChild(new MemberPropertyIndex());
-                else item.AppendChild(new MemberPropertyIndex { Val = lastIdx });
-                container.AppendChild(item);
+                for (int d = 0; d < K; d++)
+                {
+                    var sub = new RowItem { ItemType = ItemValues.Default };
+                    if (d > 0) sub.Index = (uint)d;
+                    if (lastIdx == 0) sub.AppendChild(new MemberPropertyIndex());
+                    else sub.AppendChild(new MemberPropertyIndex { Val = lastIdx });
+                    container.AppendChild(sub);
+                    emittedCount++;
+                }
                 // Reset prev so the next entry doesn't try to inherit through
                 // the subtotal's truncated path. The next leaf in a new outer
                 // group will write a fresh path from r=0.
@@ -3530,6 +3556,7 @@ internal static class PivotTableHelper
             }
 
             // Leaf entries (both row and col) and row subtotals use LCP encoding.
+            var item = new RowItem();
             int lcp = 0;
             while (lcp < path.Length && lcp < prevPath.Length && path[lcp] == prevPath[lcp]) lcp++;
             if (lcp > 0) item.RepeatedItemCount = (uint)lcp;
@@ -3539,16 +3566,42 @@ internal static class PivotTableHelper
                 if (idx == 0) item.AppendChild(new MemberPropertyIndex());
                 else item.AppendChild(new MemberPropertyIndex { Val = idx });
             }
+            // For col-axis leaves with K>1, append one extra <x/> for the
+            // first data field (index 0 = bare <x/>). The K-1 subsequent
+            // entries below handle the remaining data fields.
+            if (kMultiply && kind == "leaf")
+            {
+                item.AppendChild(new MemberPropertyIndex());
+            }
             // Defensive: an entry with no x children (e.g. an empty path with
             // no LCP slack) would be malformed. Always ensure at least one.
             if (!item.Elements<MemberPropertyIndex>().Any())
                 item.AppendChild(new MemberPropertyIndex());
 
             container.AppendChild(item);
+            emittedCount++;
+
+            // K>1 col-axis leaf: emit K-1 more entries that inherit the full
+            // path (r=path.Length) and carry i=d to mark the data field.
+            if (kMultiply && kind == "leaf")
+            {
+                for (int d = 1; d < K; d++)
+                {
+                    var rep = new RowItem
+                    {
+                        RepeatedItemCount = (uint)path.Length,
+                        Index = (uint)d
+                    };
+                    rep.AppendChild(new MemberPropertyIndex { Val = d });
+                    container.AppendChild(rep);
+                    emittedCount++;
+                }
+            }
+
             prevPath = path;
         }
 
-        SetAxisCount(container, entries.Count);
+        SetAxisCount(container, emittedCount);
         return container;
     }
 

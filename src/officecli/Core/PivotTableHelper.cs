@@ -954,6 +954,16 @@ internal static partial class PivotTableHelper
         // carry the correct style.
         var columnNumFmtIds = ResolveColumnNumFmtIds(workbookPart, columnStyleIds);
 
+        // Page filters occupy rows ABOVE the pivot body. Ensure position leaves
+        // enough headroom for filterCount filter rows + 1 blank separator row.
+        if (filterFields.Count > 0)
+        {
+            var (posCol, posRow) = ParseCellRef(position);
+            int minBodyRow = filterFields.Count + 2; // 1-based
+            if (posRow < minBodyRow)
+                position = $"{posCol}{minBodyRow}";
+        }
+
         var pivotDef = BuildPivotTableDefinition(
             pivotName, cacheId, position, headers, columnData,
             rowFields, colFields, filterFields, valueFields, style, columnNumFmtIds, dateGroups);

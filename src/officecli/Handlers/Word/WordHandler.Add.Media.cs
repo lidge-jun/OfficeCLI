@@ -229,6 +229,8 @@ public partial class WordHandler
             {
                 imgPara = new Paragraph(imgRun);
                 AssignParaId(imgPara);
+                imgPara.PrependChild(new ParagraphProperties(
+                    new SpacingBetweenLines { Line = "240", LineRule = LineSpacingRuleValues.Auto }));
                 imgCell.AppendChild(imgPara);
             }
             var imgPIdx = imgCell.Elements<Paragraph>().ToList().IndexOf(imgPara) + 1;
@@ -238,17 +240,24 @@ public partial class WordHandler
         {
             imgPara = new Paragraph(imgRun);
             AssignParaId(imgPara);
-            var imgParaCount = parent.Elements<Paragraph>().Count();
-            if (index.HasValue && index.Value < imgParaCount)
+            // Prevent fixed line spacing (inherited from Normal style) from clipping the image
+            imgPara.PrependChild(new ParagraphProperties(
+                new SpacingBetweenLines { Line = "240", LineRule = LineSpacingRuleValues.Auto }));
+            // Use ChildElements for index lookup to match ResolveAnchorPosition
+            // which computes indices against ChildElements (not just Paragraphs)
+            var allChildren = parent.ChildElements.ToList();
+            if (index.HasValue && index.Value < allChildren.Count)
             {
-                var refPara = parent.Elements<Paragraph>().ElementAt(index.Value);
-                parent.InsertBefore(imgPara, refPara);
-                resultPath = $"{parentPath}/{BuildParaPathSegment(imgPara, index.Value + 1)}";
+                var refElement = allChildren[index.Value];
+                parent.InsertBefore(imgPara, refElement);
+                var imgPIdx = parent.Elements<Paragraph>().ToList().IndexOf(imgPara) + 1;
+                resultPath = $"{parentPath}/{BuildParaPathSegment(imgPara, imgPIdx)}";
             }
             else
             {
                 AppendToParent(parent, imgPara);
-                resultPath = $"{parentPath}/{BuildParaPathSegment(imgPara, imgParaCount + 1)}";
+                var imgPIdx = parent.Elements<Paragraph>().Count();
+                resultPath = $"{parentPath}/{BuildParaPathSegment(imgPara, imgPIdx)}";
             }
         }
         return resultPath;

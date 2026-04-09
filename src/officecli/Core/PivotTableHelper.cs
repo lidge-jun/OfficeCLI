@@ -70,6 +70,98 @@ internal static class PivotTableHelper
         return sb?.ToString() ?? s;
     }
 
+    // ==================== Pivot property key canonicalization ====================
+    //
+    // R12-2 / R12-3: pivot property keys arrive from three sources
+    // (CLI --prop, batch JSON, programmatic Dictionary) with varying case
+    // and legacy singular/plural spellings. Normalize them all through one
+    // helper so every downstream lookup site sees the same canonical key.
+    //
+    // Canonical keys (matches the Get readback and the ParseFieldList sites):
+    //   source, src, name, position, pos, rows, cols, filters, values,
+    //   aggregate, showdataas, topn, style, sort, grandtotals,
+    //   rowgrandtotals, colgrandtotals
+    //
+    // Aliases that normalize TO a canonical key:
+    //   row, rowfield, rowfields             → rows
+    //   col, column, columns, colfield,
+    //   colfields, columnfield, columnfields → cols
+    //   filter, filterfield, filterfields    → filters
+    //   value, valuefield, valuefields       → values
+    //   columngrandtotals                    → colgrandtotals
+    //
+    // CONSISTENCY(compatibility-aliases): matches CLAUDE.md rule that Add/Set
+    // may accept legacy aliases so old scripts (e.g. Round 3's rowFields key)
+    // keep round-tripping. Get continues to emit only the canonical form.
+    private static readonly Dictionary<string, string> _pivotKeyAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            // rows aliases
+            ["row"]          = "rows",
+            ["rowfield"]     = "rows",
+            ["rowfields"]    = "rows",
+            // cols aliases
+            ["col"]          = "cols",
+            ["column"]       = "cols",
+            ["columns"]      = "cols",
+            ["colfield"]     = "cols",
+            ["colfields"]    = "cols",
+            ["columnfield"]  = "cols",
+            ["columnfields"] = "cols",
+            // filters aliases
+            ["filter"]       = "filters",
+            ["filterfield"]  = "filters",
+            ["filterfields"] = "filters",
+            // values aliases
+            ["value"]        = "values",
+            ["valuefield"]   = "values",
+            ["valuefields"]  = "values",
+            // grand totals
+            ["columngrandtotals"] = "colgrandtotals",
+        };
+
+    /// <summary>
+    /// Map a pivot property key to its canonical form. Returns the lower-cased
+    /// key if no alias applies. Used by both CreatePivotTable (Add) and
+    /// SetPivotTableProperties (Set) so every downstream `properties["rows"]`
+    /// lookup binds to user input written as `row` / `rowFields` / `ROWS`.
+    /// </summary>
+    internal static string NormalizePivotPropKey(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return key;
+        var lower = key.ToLowerInvariant();
+        return _pivotKeyAliases.TryGetValue(lower, out var canonical) ? canonical : lower;
+    }
+
+    /// <summary>
+    /// Normalize a user-supplied pivot properties dict into a new dict whose
+    /// alias keys are rewritten to their canonical form. Keys that are
+    /// already canonical and keys that don't match any known alias are
+    /// preserved VERBATIM so the downstream unsupported-list reports the
+    /// original spelling (matches the CLI contract that Set return values
+    /// echo the caller's key). Collisions between an alias and an already-
+    /// present canonical key are resolved first-seen-wins.
+    /// </summary>
+    internal static Dictionary<string, string> NormalizePivotProperties(
+        Dictionary<string, string> properties)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (properties == null) return result;
+        foreach (var (rawKey, value) in properties)
+        {
+            // Only rewrite keys that the alias table knows about; everything
+            // else (canonical keys, typos, non-ASCII) passes through with
+            // the original spelling so error messages can echo it.
+            var lower = rawKey?.ToLowerInvariant() ?? string.Empty;
+            var outKey = _pivotKeyAliases.TryGetValue(lower, out var canonical)
+                ? canonical
+                : rawKey!;
+            if (!result.ContainsKey(outKey))
+                result[outKey] = value;
+        }
+        return result;
+    }
+
     // ==================== Axis sort options ====================
     //
     // Axis labels on every level are sorted through a single comparer that
@@ -377,6 +469,12 @@ internal static class PivotTableHelper
         string position,
         Dictionary<string, string> properties)
     {
+        // R12-2 / R12-3: normalize alias keys (row→rows, rowFields→rows,
+        // columngrandtotals→colgrandtotals, etc.) so every downstream
+        // lookup below reads from the canonical dict. `row=Cat` then
+        // binds to the same code path as `rows=Cat`.
+        properties = NormalizePivotProperties(properties);
+
         // Publish the axis sort mode (asc/desc/locale/locale-desc) so every
         // sort site below — cache builder, pivotField items writer, per-level
         // index maps, specialized renderers — reads the same comparer.
@@ -5104,6 +5202,11 @@ internal static class PivotTableHelper
 
     internal static List<string> SetPivotTableProperties(PivotTablePart pivotPart, Dictionary<string, string> properties)
     {
+        // R12-2 / R12-3: normalize alias keys (row→rows, rowFields→rows,
+        // columngrandtotals→colgrandtotals) so Set accepts the same aliases
+        // as Add and the switch below binds to canonical keys.
+        properties = NormalizePivotProperties(properties);
+
         // Publish sort mode for this Set operation so the re-rendered items /
         // renderers use the requested order. Sort only affects the rendered
         // layout — sharedItems order in the cache is fixed at Create time.

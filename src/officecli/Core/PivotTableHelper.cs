@@ -1210,16 +1210,22 @@ internal static class PivotTableHelper
             totalCols = dataFieldCount;
 
             // Header rows:
-            //   colN == 0: a SINGLE combined row carrying the row-label caption
-            //              in col A plus the K data field names across cols B..B+K-1.
-            //              Matches Excel's canonical compact-form layout for
-            //              (N row × 0 col × K data) pivots (verified against
-            //              Excel-authored test_encrypted.xlsx).
+            //   colN == 0 && K == 1: single header row with row label caption
+            //              + data field name.
+            //   colN == 0 && K >  1: TWO header rows — R0 carries the "Values"
+            //              axis caption at col B (Excel injects a synthetic
+            //              col field for multi-data pivots, and dataCaption
+            //              appears at this row), R1 carries the row-label
+            //              caption at col A plus the K data field names
+            //              across cols B..B+K-1. Verified against Excel-
+            //              authored pivot files (ref="A3:F36",
+            //              firstHeaderRow=1, firstDataRow=2).
             //   colN >= 1: 1 caption + N_col field-label rows + optional dfRow
             //              when K>1.
-            headerRows = colFieldIndices.Count == 0
-                ? 1
-                : (1 + colFieldIndices.Count + (dataFieldCount > 1 ? 1 : 0));
+            if (colFieldIndices.Count == 0)
+                headerRows = dataFieldCount > 1 ? 2 : 1;
+            else
+                headerRows = 1 + colFieldIndices.Count + (dataFieldCount > 1 ? 1 : 0);
         }
         else if (colFieldIndices.Count >= 2)
         {
@@ -1310,8 +1316,22 @@ internal static class PivotTableHelper
         uint firstDataRow;
         if (colFieldIndices.Count == 0)
         {
-            firstHeaderRow = 0u;
-            firstDataRow = 1u;
+            // colN==0 && K==1: single header row at the top (firstHeaderRow=0,
+            // firstDataRow=1). colN==0 && K>1: two header rows — "Values" axis
+            // caption at R0 and row-field caption + data field names at R1
+            // (firstHeaderRow=1, firstDataRow=2). Matches Excel's canonical
+            // shape verified against encrypted_replica_2.xlsx and
+            // pivot_multi_data_authored_reference.xlsx.
+            if (valueFields.Count > 1)
+            {
+                firstHeaderRow = 1u;
+                firstDataRow = 2u;
+            }
+            else
+            {
+                firstHeaderRow = 0u;
+                firstDataRow = 1u;
+            }
         }
         else
         {
@@ -3282,34 +3302,61 @@ internal static class PivotTableHelper
         int grandTotalColStart = firstDataCol + colCells;  // unused when !emitRowGrand
 
         // Header rows. Layout depends on (N_col, K):
-        //   - colN == 0: a SINGLE combined row with row-label caption in col A
-        //                plus K data field names across cols B..B+K-1. Matches
-        //                Excel's canonical (N row × 0 col × K data) compact-form
-        //                layout (verified against Excel-authored test_encrypted.xlsx).
-        //                Must stay in sync with ComputePivotGeometry and BuildLocation.
-        //   - colN >= 1: 1 caption row + N_col field-label rows + optional dfRow
-        //                when K>1.
-        int headerRows = colFieldIndices.Count == 0
-            ? 1
-            : (1 + colFieldIndices.Count + (K > 1 ? 1 : 0));
+        //   - colN == 0 && K == 1: single header row with row-label caption
+        //                          + data field name.
+        //   - colN == 0 && K >  1: two header rows — R0 carries the "Values"
+        //                          axis caption at col B, R1 carries the
+        //                          row-label caption at col A plus K data
+        //                          field names across cols B..B+K-1. Excel
+        //                          injects a synthetic col field (x=-2) for
+        //                          multi-data no-col pivots; the rendered
+        //                          sheetData must match that axis shape.
+        //   - colN >= 1: 1 caption row + N_col field-label rows + optional
+        //                dfRow when K>1.
+        //   Must stay in sync with ComputePivotGeometry and BuildLocation.
+        int headerRows;
+        if (colFieldIndices.Count == 0)
+            headerRows = K > 1 ? 2 : 1;
+        else
+            headerRows = 1 + colFieldIndices.Count + (K > 1 ? 1 : 0);
 
         if (colFieldIndices.Count == 0)
         {
-            // Single header row: row-label caption at col A, then K data field
-            // names at cols B..B+K-1 (which is where grandTotalColStart maps to
-            // when colPositions is empty — there's no body col block).
-            var headerRow = new Row { RowIndex = (uint)anchorRow };
             var rowLabelCaption = rowFieldIndices.Count > 0
                 ? headers[rowFieldIndices[0]]
-                : "行标签";
-            headerRow.AppendChild(MakeStringCell(anchorColIdx, anchorRow, rowLabelCaption));
-            if (emitRowGrand)
+                : "Row Labels";
+
+            if (K > 1)
             {
-                for (int d = 0; d < K; d++)
-                    headerRow.AppendChild(MakeStringCell(grandTotalColStart + d, anchorRow,
-                        valueFields[d].name));
+                // R0: "Values" axis caption at col B (first data col).
+                var valuesCaptionRow = new Row { RowIndex = (uint)anchorRow };
+                valuesCaptionRow.AppendChild(MakeStringCell(firstDataCol, anchorRow, "Values"));
+                sheetData.AppendChild(valuesCaptionRow);
+
+                // R1: row-label caption at col A, K data field names at cols
+                // B..B+K-1 (which is where grandTotalColStart maps to when
+                // colPositions is empty — there's no body col block).
+                int dfHeaderRowIdx = anchorRow + 1;
+                var dfHeaderRow = new Row { RowIndex = (uint)dfHeaderRowIdx };
+                dfHeaderRow.AppendChild(MakeStringCell(anchorColIdx, dfHeaderRowIdx, rowLabelCaption));
+                if (emitRowGrand)
+                {
+                    for (int d = 0; d < K; d++)
+                        dfHeaderRow.AppendChild(MakeStringCell(grandTotalColStart + d, dfHeaderRowIdx,
+                            valueFields[d].name));
+                }
+                sheetData.AppendChild(dfHeaderRow);
             }
-            sheetData.AppendChild(headerRow);
+            else
+            {
+                // Single header row: row-label caption at col A, single data
+                // field name at col B.
+                var headerRow = new Row { RowIndex = (uint)anchorRow };
+                headerRow.AppendChild(MakeStringCell(anchorColIdx, anchorRow, rowLabelCaption));
+                if (emitRowGrand)
+                    headerRow.AppendChild(MakeStringCell(grandTotalColStart, anchorRow, valueFields[0].name));
+                sheetData.AppendChild(headerRow);
+            }
         }
         else
         {

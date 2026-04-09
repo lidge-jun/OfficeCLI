@@ -88,6 +88,35 @@ public partial class ExcelHandler
         var wbStylesPart = _doc.WorkbookPart?.WorkbookStylesPart;
         var stylesheet = wbStylesPart?.Stylesheet;
 
+        // If any sheet has a pivot table, open an editable in-memory copy so we
+        // can re-materialize cells from the pivot cache. The copy's WorksheetParts
+        // replace the originals for rendering; styles/theme come from _doc (identical).
+        MemoryStream? pivotMs = null;
+        SpreadsheetDocument? pivotDoc = null;
+        List<(string Name, WorksheetPart Part)>? pivotSheets = null;
+        if (sheets.Any(s => s.Part.PivotTableParts.Any()))
+        {
+            pivotMs = new MemoryStream();
+            // Use FileShare.ReadWrite to avoid conflicting with the handler's
+            // open editable handle on the same file. File.OpenRead() uses
+            // FileShare.Read which fails when another handle has write access.
+            using (var fs = new FileStream(_filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                fs.CopyTo(pivotMs);
+            pivotMs.Position = 0;
+            pivotDoc = SpreadsheetDocument.Open(pivotMs, isEditable: true);
+            pivotSheets = GetWorksheets(pivotDoc);
+
+            foreach (var (_, wsPart) in pivotSheets)
+            {
+                if (wsPart.PivotTableParts.Any())
+                    OfficeCli.Core.PivotTableHelper.RefreshPivotCellsForView(wsPart);
+            }
+
+            // Use the copy's stylesheet so new indent styles created by the
+            // pivot refresh are visible to the HTML renderer.
+            stylesheet = pivotDoc.WorkbookPart?.WorkbookStylesPart?.Stylesheet;
+        }
+
         sb.AppendLine("<!DOCTYPE html>");
         sb.AppendLine("<html>");
         sb.AppendLine("<head>");
@@ -108,14 +137,17 @@ public partial class ExcelHandler
         for (int sheetIdx = 0; sheetIdx < sheets.Count; sheetIdx++)
         {
             var (sheetName, worksheetPart) = sheets[sheetIdx];
+            // Use the pivot-refreshed copy's WorksheetPart when available
+            var renderPart = pivotSheets != null && sheetIdx < pivotSheets.Count
+                ? pivotSheets[sheetIdx].Part : worksheetPart;
             var activeClass = sheetIdx == 0 ? " active" : "";
             // Check if sheet is RTL
-            var sheetView = GetSheet(worksheetPart).GetFirstChild<SheetViews>()?.GetFirstChild<SheetView>();
+            var sheetView = GetSheet(renderPart).GetFirstChild<SheetViews>()?.GetFirstChild<SheetView>();
             var isRtl = sheetView?.RightToLeft?.Value == true;
             var dirAttr = isRtl ? " dir=\"rtl\"" : "";
             sb.AppendLine($"<div class=\"sheet-content{activeClass}\" data-sheet=\"{sheetIdx}\"{dirAttr}>");
             var charts = CollectSheetCharts(worksheetPart);
-            RenderSheetTable(sb, sheetName, worksheetPart, stylesheet, charts);
+            RenderSheetTable(sb, sheetName, renderPart, stylesheet, charts);
             sb.AppendLine("</div>");
         }
         sb.AppendLine("</div>");
@@ -145,6 +177,9 @@ public partial class ExcelHandler
 
         sb.AppendLine("</body>");
         sb.AppendLine("</html>");
+
+        pivotDoc?.Dispose();
+        pivotMs?.Dispose();
 
         return sb.ToString();
     }

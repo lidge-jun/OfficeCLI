@@ -1573,6 +1573,36 @@ public partial class ExcelHandler
                     ptPosition = $"{nextCol}1";
                 }
 
+                // R26-1: validate that the pivot output fits within sheet dimensions
+                // before writing any cache/pivot parts. A position near the sheet edge
+                // can produce an end-location beyond XFD1048576, which causes a
+                // partial-write: cache parts are already saved when the render stage
+                // discovers the overflow and throws, leaving a corrupt zip.
+                {
+                    const int ExcelMaxCol = 16384; // XFD
+                    const int ExcelMaxRow = 1048576;
+                    var srcRefParts = sourceRef.Replace("$", "").Split(':');
+                    if (srcRefParts.Length == 2)
+                    {
+                        var (srcStartCol, srcStartRow) = ParseCellReference(srcRefParts[0].Trim().ToUpperInvariant());
+                        var (srcEndCol, srcEndRow)     = ParseCellReference(srcRefParts[1].Trim().ToUpperInvariant());
+                        int nSourceCols = ColumnNameToIndex(srcEndCol) - ColumnNameToIndex(srcStartCol) + 1;
+                        int nDataRows   = srcEndRow - srcStartRow; // header excluded
+                        var (anchorColStr, anchorRow) = ParseCellReference(ptPosition.ToUpperInvariant());
+                        int anchorColIdx = ColumnNameToIndex(anchorColStr);
+                        // Conservative lower-bound: pivot needs at least nSourceCols columns
+                        // (row-label cols + value cols + grand-total col) and at least
+                        // nDataRows + 2 rows (header + data rows + grand-total row).
+                        int minEndColIdx = anchorColIdx + nSourceCols - 1;
+                        int minEndRow    = anchorRow + nDataRows + 1;
+                        if (minEndColIdx > ExcelMaxCol || minEndRow > ExcelMaxRow)
+                        {
+                            throw new ArgumentException(
+                                $"pivot at {ptPosition} does not fit: computed end col={minEndColIdx} row={minEndRow} exceeds sheet dimensions (max XFD1048576)");
+                        }
+                    }
+                }
+
                 var ptIdx = PivotTableHelper.CreatePivotTable(
                     _doc.WorkbookPart!, ptWorksheet, sourceWorksheet,
                     sourceSheetName, sourceRef, ptPosition, properties);

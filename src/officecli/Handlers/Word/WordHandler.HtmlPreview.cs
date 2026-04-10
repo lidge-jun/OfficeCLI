@@ -1081,7 +1081,10 @@ public partial class WordHandler
                             for (int lk = 0; lk <= hIlvl; lk++)
                                 numStr = numStr.Replace($"%{lk + 1}",
                                     headingCounters.GetValueOrDefault(lk, 0).ToString());
-                            sb.Append($"<span class=\"heading-num\" style=\"margin-right:0.5em\">{HtmlEncode(numStr)}</span>");
+                            // Skip if paragraph text already starts with the number (avoid duplication)
+                            var paraText = GetParagraphText(para).TrimStart();
+                            if (!paraText.StartsWith(numStr, StringComparison.Ordinal))
+                                sb.Append($"<span class=\"heading-num\" style=\"margin-right:0.5em\">{HtmlEncode(numStr)}</span>");
                         }
                     }
 

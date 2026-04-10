@@ -2037,15 +2037,12 @@ internal static partial class PivotTableHelper
             }
 
             // Grand total column header label appears at the LAST col header row
-            // (or in the K>1 case it's spread across all data field columns).
-            if (level == colFieldIndices.Count && emitRowGrand)
+            // for K=1. For K>1 the label belongs on the data-field-name row
+            // below (alongside "Sum of Sales"/"Sum of Qty"), not on the col
+            // header row — see the K>1 block right after this loop.
+            if (level == colFieldIndices.Count && emitRowGrand && K == 1)
             {
-                if (K == 1)
-                    headerRow.AppendChild(MakeStringCell(grandTotalColStart, headerRowIdx, totalLabel));
-                else
-                    for (int d = 0; d < K; d++)
-                        headerRow.AppendChild(MakeStringCell(grandTotalColStart + d, headerRowIdx,
-                            $"Total {valueFields[d].name}"));
+                headerRow.AppendChild(MakeStringCell(grandTotalColStart, headerRowIdx, totalLabel));
             }
             sheetData.AppendChild(headerRow);
         }
@@ -2066,6 +2063,17 @@ internal static partial class PivotTableHelper
                 if (isSubtotal) continue; // Subtotal cols already labelled in their header row above.
                 for (int d = 0; d < K; d++)
                     dfRow.AppendChild(MakeStringCell(colIdxByPosition[p, d], dfRowIdx, valueFields[d].name));
+            }
+            // K>1 grand total column captions ("Total Sum of Sales" /
+            // "Total Sum of Qty") sit on the data-field-name row, NOT on the
+            // col-header row above — that row carries the col-axis labels
+            // (Q1/Q2/...) and would visually misalign the grand total caption
+            // with its values otherwise.
+            if (emitRowGrand)
+            {
+                for (int d = 0; d < K; d++)
+                    dfRow.AppendChild(MakeStringCell(grandTotalColStart + d, dfRowIdx,
+                        $"Total {valueFields[d].name}"));
             }
             sheetData.AppendChild(dfRow);
         }

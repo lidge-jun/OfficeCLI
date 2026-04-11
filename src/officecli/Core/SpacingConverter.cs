@@ -27,7 +27,7 @@ namespace OfficeCli.Core;
 ///   lineSpacing multiplier   → "1.5x"
 ///   lineSpacing fixed        → "18pt"
 /// </summary>
-public static class SpacingConverter
+internal static class SpacingConverter
 {
     private const double PointsPerCm = 72.0 / 2.54; // ~28.3465
     private const double PointsPerInch = 72.0;

@@ -36,9 +36,10 @@ public partial class PowerPointHandler
         sb.AppendLine("<meta charset=\"UTF-8\">");
         sb.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">");
         sb.AppendLine($"<title>{HtmlEncode(Path.GetFileName(_filePath))}</title>");
-        sb.AppendLine("<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css\">");
-        sb.AppendLine("<script defer src=\"https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js\"></script>");
-        // Three.js for 3D model rendering (importmap for ES module support)
+        // KaTeX for math rendering (graceful degradation: shows raw LaTeX when offline)
+        sb.AppendLine("<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css\" onerror=\"this.remove()\">");
+        sb.AppendLine("<script defer src=\"https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js\" onerror=\"document.querySelectorAll('.katex-formula').forEach(function(el){el.textContent=el.dataset.formula;el.style.fontFamily='monospace';el.style.color='#666'})\"></script>");
+        // Three.js for 3D model rendering (graceful degradation: shows placeholder when offline)
         sb.AppendLine(@"<script type=""importmap"">{""imports"":{""three"":""https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"",""three/addons/"":""https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/""}}</script>");
         sb.AppendLine("<style>");
         sb.AppendLine(GenerateCss(slideWidthPt, slideHeightPt));
@@ -115,8 +116,19 @@ public partial class PowerPointHandler
         sb.AppendLine("</script>");
         sb.AppendLine("<script>");
         sb.AppendLine(@"(function() {
+    var _katexRetries = 0;
+    function fallbackKatex() {
+        document.querySelectorAll('.katex-formula:not(.katex-rendered)').forEach(function(el) {
+            el.textContent = el.dataset.formula;
+            el.style.fontFamily = 'monospace';
+            el.style.color = '#666';
+        });
+    }
     function renderKatex() {
-        if (typeof katex === 'undefined') { setTimeout(renderKatex, 100); return; }
+        if (typeof katex === 'undefined') {
+            if (++_katexRetries > 20) { fallbackKatex(); return; }
+            setTimeout(renderKatex, 100); return;
+        }
         document.querySelectorAll('.katex-formula:not(.katex-rendered)').forEach(function(el) {
             try {
                 katex.render(el.dataset.formula, el, { throwOnError: false, displayMode: true });
@@ -339,28 +351,45 @@ public partial class PowerPointHandler
         var shapeTree = GetSlide(slidePart).CommonSlideData?.ShapeTree;
         if (shapeTree == null) return;
 
+        // Per-element-type positional counters used to build the data-path of each
+        // top-level element. We prefer @id= when the element has a cNvPr id (stable
+        // across edits), and fall back to positional [N] otherwise.
+        int shapeIdx = 0, picIdx = 0, tableIdx = 0, chartIdx = 0, cxnIdx = 0, groupIdx = 0;
+        string PathFor(string typeName, OpenXmlElement el, int positional)
+            => $"/slide[{slideNum}]/{BuildElementPathSegment(typeName, el, positional)}";
+
         // Collect all content elements in z-order (as they appear in XML)
         foreach (var element in shapeTree.ChildElements)
         {
             switch (element)
             {
                 case Shape shape:
-                    RenderShape(sb, shape, slidePart, themeColors);
+                    shapeIdx++;
+                    RenderShape(sb, shape, slidePart, themeColors, dataPath: PathFor("shape", shape, shapeIdx));
                     break;
                 case Picture pic:
-                    RenderPicture(sb, pic, slidePart, themeColors);
+                    picIdx++;
+                    RenderPicture(sb, pic, slidePart, themeColors, dataPath: PathFor("picture", pic, picIdx));
                     break;
                 case GraphicFrame gf:
                     if (gf.Descendants<Drawing.Table>().Any())
-                        RenderTable(sb, gf, themeColors);
+                    {
+                        tableIdx++;
+                        RenderTable(sb, gf, themeColors, dataPath: PathFor("table", gf, tableIdx));
+                    }
                     else if (gf.Descendants().Any(e => e.LocalName == "chart" && e.NamespaceUri.Contains("chart")))
-                        RenderChart(sb, gf, slidePart, themeColors);
+                    {
+                        chartIdx++;
+                        RenderChart(sb, gf, slidePart, themeColors, dataPath: PathFor("chart", gf, chartIdx));
+                    }
                     break;
                 case ConnectionShape cxn:
-                    RenderConnector(sb, cxn, themeColors);
+                    cxnIdx++;
+                    RenderConnector(sb, cxn, themeColors, dataPath: PathFor("connector", cxn, cxnIdx));
                     break;
                 case GroupShape grp:
-                    RenderGroup(sb, grp, slidePart, themeColors);
+                    groupIdx++;
+                    RenderGroup(sb, grp, slidePart, themeColors, dataPath: PathFor("group", grp, groupIdx));
                     break;
                 default:
                     // mc:AlternateContent — render 3D models, zoom, etc.
@@ -451,8 +480,7 @@ public partial class PowerPointHandler
         // Also render pictures from layout/master (logos, decorative images)
         foreach (var pic in shapeTree.Elements<Picture>())
         {
-            if (part is SlidePart sp)
-                RenderPicture(sb, pic, sp, themeColors);
+            RenderPicture(sb, pic, part, themeColors);
         }
     }
 

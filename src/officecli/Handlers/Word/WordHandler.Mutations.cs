@@ -203,7 +203,22 @@ public partial class WordHandler
             }
         }
 
+        // If removing an oMathPara (M.Paragraph) whose parent w:p has no other
+        // meaningful content, remove the wrapper w:p too to avoid zombie paragraphs.
+        var wrapperPara = (element is M.Paragraph && element.Parent is Paragraph wp
+            && wp.ChildElements.All(c => c == element || c is ParagraphProperties))
+            ? wp : null;
+
+        // Refresh textId on parent paragraph if removing a child element (e.g. run)
+        var parentPara = element.Ancestors<Paragraph>().FirstOrDefault();
+
         element.Remove();
+
+        wrapperPara?.Remove();
+
+        if (parentPara != null)
+            parentPara.TextId = GenerateParaId();
+
         _doc.MainDocumentPart?.WordprocessingCommentsPart?.Comments?.Save();
         _doc.MainDocumentPart?.Document?.Save();
         return null;
@@ -234,11 +249,39 @@ public partial class WordHandler
         }
     }
 
-    public string Move(string sourcePath, string? targetParentPath, int? index)
+    public string Move(string sourcePath, string? targetParentPath, InsertPosition? position)
     {
         var srcParts = ParsePath(sourcePath);
         var element = NavigateToElement(srcParts)
             ?? throw new ArgumentException($"Source not found: {sourcePath}");
+
+        // Infer --to from --after/--before full path if not specified
+        var anchorFullPath = position?.After ?? position?.Before;
+        if (string.IsNullOrEmpty(targetParentPath) && anchorFullPath != null && anchorFullPath.StartsWith("/"))
+        {
+            var lastSlash = anchorFullPath.LastIndexOf('/');
+            if (lastSlash > 0)
+                targetParentPath = anchorFullPath[..lastSlash];
+        }
+
+        // Resolve after/before anchor BEFORE removing the element
+        OpenXmlElement? afterAnchor = null, beforeAnchor = null;
+        if (position?.After != null)
+        {
+            var anchorPath = position.After;
+            if (!anchorPath.StartsWith("/"))
+                anchorPath = (targetParentPath ?? "/body").TrimEnd('/') + "/" + anchorPath;
+            afterAnchor = NavigateToElement(ParsePath(anchorPath))
+                ?? throw new ArgumentException($"After anchor not found: {position.After}");
+        }
+        else if (position?.Before != null)
+        {
+            var anchorPath = position.Before;
+            if (!anchorPath.StartsWith("/"))
+                anchorPath = (targetParentPath ?? "/body").TrimEnd('/') + "/" + anchorPath;
+            beforeAnchor = NavigateToElement(ParsePath(anchorPath))
+                ?? throw new ArgumentException($"Before anchor not found: {position.Before}");
+        }
 
         // Determine target parent
         string effectiveParentPath;
@@ -267,13 +310,21 @@ public partial class WordHandler
 
         element.Remove();
 
-        // Insert at the specified position among same-type siblings (0-based index)
-        if (index.HasValue)
+        // Insert at the resolved position
+        if (afterAnchor != null)
+        {
+            afterAnchor.InsertAfterSelf(element);
+        }
+        else if (beforeAnchor != null)
+        {
+            beforeAnchor.InsertBeforeSelf(element);
+        }
+        else if (position?.Index is int index)
         {
             var sameTypeSiblings = targetParent.ChildElements
                 .Where(e => e.LocalName == element.LocalName).ToList();
-            if (index.Value >= 0 && index.Value < sameTypeSiblings.Count)
-                sameTypeSiblings[index.Value].InsertBeforeSelf(element);
+            if (index >= 0 && index < sameTypeSiblings.Count)
+                sameTypeSiblings[index].InsertBeforeSelf(element);
             else
                 AppendToParent(targetParent, element);
         }
@@ -316,13 +367,24 @@ public partial class WordHandler
         return ($"{parentPath}/{elem1.LocalName}[{newIdx1}]", $"{parentPath}/{elem2.LocalName}[{newIdx2}]");
     }
 
-    public string CopyFrom(string sourcePath, string targetParentPath, int? index)
+    public string CopyFrom(string sourcePath, string targetParentPath, InsertPosition? position)
     {
+        var index = position?.Index;
         var srcParts = ParsePath(sourcePath);
         var element = NavigateToElement(srcParts)
             ?? throw new ArgumentException($"Source not found: {sourcePath}");
 
         var clone = element.CloneNode(true);
+
+        // Regenerate paraIds on cloned paragraphs to ensure uniqueness
+        var clonedParas = clone is Paragraph cp
+            ? new[] { cp }
+            : clone.Descendants<Paragraph>().ToArray();
+        foreach (var p in clonedParas)
+        {
+            p.ParagraphId = GenerateParaId();
+            p.TextId = GenerateParaId();
+        }
 
         OpenXmlElement targetParent;
         if (targetParentPath is "/" or "" or "/body")
@@ -351,11 +413,11 @@ public partial class WordHandler
             if (index.Value >= 0 && index.Value < children.Count)
                 children[index.Value].InsertBeforeSelf(element);
             else
-                parent.AppendChild(element);
+                AppendToParent(parent, element);
         }
         else
         {
-            parent.AppendChild(element);
+            AppendToParent(parent, element);
         }
     }
 

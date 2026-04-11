@@ -19,8 +19,10 @@ public partial class PowerPointHandler
     /// with the adjusted coordinates — the original element is NEVER modified.
     /// </summary>
     private static void RenderShape(StringBuilder sb, Shape shape, OpenXmlPart part,
-        Dictionary<string, string> themeColors, (long x, long y, long cx, long cy)? overridePos = null)
+        Dictionary<string, string> themeColors, (long x, long y, long cx, long cy)? overridePos = null,
+        string? dataPath = null)
     {
+        var dataPathAttr = string.IsNullOrEmpty(dataPath) ? "" : $" data-path=\"{HtmlEncode(dataPath)}\"";
         var xfrm = shape.ShapeProperties?.Transform2D;
 
         long x, y, cx, cy;
@@ -183,7 +185,7 @@ public partial class PowerPointHandler
         var sp3d = shape.ShapeProperties?.GetFirstChild<Drawing.Shape3DType>();
         if (sp3d?.BevelTop != null)
         {
-            var bevelW = sp3d.BevelTop.Width?.HasValue == true ? sp3d.BevelTop.Width.Value / 12700.0 : 4;
+            var bevelW = sp3d.BevelTop.Width?.HasValue == true ? sp3d.BevelTop.Width.Value / 12700.0 : 6; // OOXML default 76200 EMU = 6pt
             var bW = Math.Max(1, bevelW * 0.5);
             styles.Add($"box-shadow:inset {bW:0.#}px {bW:0.#}px {bW * 1.5:0.#}px rgba(255,255,255,0.25),inset -{bW:0.#}px -{bW:0.#}px {bW * 1.5:0.#}px rgba(0,0,0,0.15)");
         }
@@ -198,9 +200,9 @@ public partial class PowerPointHandler
         long rIns = bodyPr?.RightInset?.Value ?? 91440;
         long bIns = bodyPr?.BottomInset?.Value ?? 45720;
 
-        // For clip-path shapes (non-rectangular), add extra inner padding
+        // For non-rectangular shapes (clip-path or border-radius), add extra inner padding
         // so text doesn't appear outside the visible shape area.
-        if (!string.IsNullOrEmpty(clipPathCss) && presetGeom?.Preset?.HasValue == true)
+        if ((!string.IsNullOrEmpty(clipPathCss) || !string.IsNullOrEmpty(borderRadiusCss)) && presetGeom?.Preset?.HasValue == true)
         {
             var (pctL, pctT, pctR, pctB) = GetShapeTextInsetPercent(presetGeom.Preset!.InnerText!);
             if (pctL > 0 || pctT > 0 || pctR > 0 || pctB > 0)
@@ -252,7 +254,7 @@ public partial class PowerPointHandler
                 else
                     outerStyles.Add(s);
             }
-            sb.Append($"    <div class=\"{shapeClass}\" style=\"{string.Join(";", outerStyles)}\">");
+            sb.Append($"    <div class=\"{shapeClass}\"{dataPathAttr} style=\"{string.Join(";", outerStyles)}\">");
             // Fill layer (clipped)
             if (fillStyles.Count > 0)
                 sb.Append($"<div style=\"position:absolute;inset:0;{clipPathCss};{string.Join(";", fillStyles)}\"></div>");
@@ -272,7 +274,7 @@ public partial class PowerPointHandler
         }
         else
         {
-            sb.Append($"    <div class=\"{shapeClass}\" style=\"{string.Join(";", styles)}\">");
+            sb.Append($"    <div class=\"{shapeClass}\"{dataPathAttr} style=\"{string.Join(";", styles)}\">");
         }
 
         // Text content
@@ -511,6 +513,7 @@ public partial class PowerPointHandler
         "moon" => (0.15, 0, 0, 0),
         "cube" => (0, 0.08, 0.08, 0),
         "donut" => (0.25, 0.25, 0.25, 0.25),
+        "roundRect" => (0.07, 0.07, 0.07, 0.07),
         "wedgeRectCallout" or "wedgeRoundRectCallout" or "wedgeEllipseCallout" => (0.08, 0.08, 0.08, 0.08),
         "curvedRightArrow" or "curvedLeftArrow" or "curvedUpArrow" or "curvedDownArrow" => (0.12, 0.12, 0.12, 0.12),
         _ => (0, 0, 0, 0)
@@ -621,9 +624,11 @@ public partial class PowerPointHandler
     /// Render a picture element to HTML. When called from a group, pass overridePos
     /// with the adjusted coordinates — the original element is NEVER modified.
     /// </summary>
-    private static void RenderPicture(StringBuilder sb, Picture pic, SlidePart slidePart,
-        Dictionary<string, string> themeColors, (long x, long y, long cx, long cy)? overridePos = null)
+    private static void RenderPicture(StringBuilder sb, Picture pic, OpenXmlPart slidePart,
+        Dictionary<string, string> themeColors, (long x, long y, long cx, long cy)? overridePos = null,
+        string? dataPath = null)
     {
+        var dataPathAttr = string.IsNullOrEmpty(dataPath) ? "" : $" data-path=\"{HtmlEncode(dataPath)}\"";
         var xfrm = pic.ShapeProperties?.Transform2D;
         if (xfrm?.Offset == null || xfrm?.Extents == null) return;
 
@@ -673,7 +678,7 @@ public partial class PowerPointHandler
                 styles.Add(geomCss);
         }
 
-        sb.Append($"    <div class=\"picture\" style=\"{string.Join(";", styles)}\">");
+        sb.Append($"    <div class=\"picture\"{dataPathAttr} style=\"{string.Join(";", styles)}\">");
 
         // Extract image data
         var blipFill = pic.BlipFill;
@@ -720,7 +725,7 @@ public partial class PowerPointHandler
 
     // ==================== Connector Rendering ====================
 
-    private static void RenderConnector(StringBuilder sb, ConnectionShape cxn, Dictionary<string, string> themeColors)
+    private static void RenderConnector(StringBuilder sb, ConnectionShape cxn, Dictionary<string, string> themeColors, string? dataPath = null)
     {
         var xfrm = cxn.ShapeProperties?.Transform2D;
         if (xfrm?.Offset == null || xfrm?.Extents == null) return;
@@ -834,7 +839,8 @@ public partial class PowerPointHandler
             markerDefs = defs.ToString();
         }
 
-        sb.AppendLine($"    <div class=\"connector\" style=\"left:{Units.EmuToPt(renderX)}pt;top:{Units.EmuToPt(renderY)}pt;width:{widthPt}pt;height:{heightPt}pt\">");
+        var dataPathAttr = string.IsNullOrEmpty(dataPath) ? "" : $" data-path=\"{HtmlEncode(dataPath)}\"";
+        sb.AppendLine($"    <div class=\"connector\"{dataPathAttr} style=\"left:{Units.EmuToPt(renderX)}pt;top:{Units.EmuToPt(renderY)}pt;width:{widthPt}pt;height:{heightPt}pt\">");
         sb.AppendLine($"      <svg width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" style=\"overflow:visible\">");
         if (!string.IsNullOrEmpty(markerDefs))
             sb.AppendLine($"        {markerDefs}");
@@ -845,7 +851,7 @@ public partial class PowerPointHandler
 
     // ==================== Group Rendering ====================
 
-    private void RenderGroup(StringBuilder sb, GroupShape grp, SlidePart slidePart, Dictionary<string, string> themeColors)
+    private void RenderGroup(StringBuilder sb, GroupShape grp, SlidePart slidePart, Dictionary<string, string> themeColors, string? dataPath = null)
     {
         var grpXfrm = grp.GroupShapeProperties?.TransformGroup;
         if (grpXfrm?.Offset == null || grpXfrm?.Extents == null) return;
@@ -863,7 +869,12 @@ public partial class PowerPointHandler
         var offX = childOff?.X?.Value ?? 0;
         var offY = childOff?.Y?.Value ?? 0;
 
-        sb.AppendLine($"    <div class=\"group\" style=\"left:{Units.EmuToPt(x)}pt;top:{Units.EmuToPt(y)}pt;width:{Units.EmuToPt(cx)}pt;height:{Units.EmuToPt(cy)}pt\">");
+        // Group is selected as a whole. Children inside the group don't get their own
+        // data-path because nested @id= addressing isn't currently supported by
+        // ResolveIdPath — clicks inside walk up via closest('[data-path]') and select
+        // the group container.
+        var dataPathAttr = string.IsNullOrEmpty(dataPath) ? "" : $" data-path=\"{HtmlEncode(dataPath)}\"";
+        sb.AppendLine($"    <div class=\"group\"{dataPathAttr} style=\"left:{Units.EmuToPt(x)}pt;top:{Units.EmuToPt(y)}pt;width:{Units.EmuToPt(cx)}pt;height:{Units.EmuToPt(cy)}pt\">");
 
         foreach (var child in grp.ChildElements)
         {
@@ -1125,8 +1136,16 @@ public partial class PowerPointHandler
         sb.AppendLine("    </div>");
 
         sb.AppendLine($@"    <script type=""module"">
-    import * as THREE from 'three';
-    import {{ GLTFLoader }} from 'three/addons/loaders/GLTFLoader.js';
+    let THREE, GLTFLoader;
+    try {{
+      THREE = await import('three');
+      ({{ GLTFLoader }} = await import('three/addons/loaders/GLTFLoader.js'));
+    }} catch(e) {{
+      // Three.js unavailable (offline) — show fallback image
+      const c = document.getElementById('{canvasId}');
+      if (c) {{ c.style.display='none'; const fb=c.parentElement?.querySelector('.m3d-fallback'); if(fb) fb.style.display='block'; }}
+      throw e; // stop execution of this module
+    }}
     (function() {{
       const canvas = document.getElementById('{canvasId}');
       if (!canvas) return;

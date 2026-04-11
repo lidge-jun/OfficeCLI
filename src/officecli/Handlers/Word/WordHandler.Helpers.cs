@@ -98,9 +98,29 @@ public partial class WordHandler
     private static double ParseFontSize(string value) =>
         ParseHelpers.ParseFontSize(value);
 
+    /// <summary>
+    /// Get footnote/endnote text, skipping the reference mark run and its trailing space.
+    /// </summary>
+    private static string GetFootnoteText(OpenXmlElement fnOrEn)
+    {
+        return string.Join("", fnOrEn.Descendants<Run>()
+            .Where(r => r.GetFirstChild<FootnoteReferenceMark>() == null
+                     && r.GetFirstChild<EndnoteReferenceMark>() == null)
+            .SelectMany(r => r.Elements<Text>())
+            .Select(t => t.Text)).TrimStart();
+    }
+
     private static string GetParagraphText(Paragraph para)
     {
-        return string.Concat(para.Descendants<Text>().Select(t => t.Text));
+        var sb = new StringBuilder();
+        foreach (var child in para.ChildElements)
+        {
+            if (child is Run run)
+                sb.Append(string.Concat(run.Elements<Text>().Select(t => t.Text)));
+            else if (child is Hyperlink hyperlink)
+                sb.Append(string.Concat(hyperlink.Descendants<Text>().Select(t => t.Text)));
+        }
+        return sb.ToString();
     }
 
     /// <summary>
@@ -190,7 +210,7 @@ public partial class WordHandler
         {
             var hasRange = paragraphs[i].Descendants<CommentRangeStart>()
                 .Any(rs => rs.Id?.Value == commentId);
-            if (hasRange) return $"/body/p[{i + 1}]";
+            if (hasRange) return $"/body/{BuildParaPathSegment(paragraphs[i], i + 1)}";
         }
         return null;
     }
@@ -483,30 +503,120 @@ public partial class WordHandler
                 break;
             case "bold":
                 props.RemoveAllChildren<Bold>();
-                if (IsTruthy(value)) props.AppendChild(new Bold());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Bold());
                 break;
             case "italic":
                 props.RemoveAllChildren<Italic>();
-                if (IsTruthy(value)) props.AppendChild(new Italic());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Italic());
                 break;
             case "color":
                 props.RemoveAllChildren<Color>();
-                props.AppendChild(new Color { Val = SanitizeHex(value) });
+                InsertRunPropInSchemaOrder(props, new Color { Val = SanitizeHex(value) });
                 break;
             case "highlight":
                 props.RemoveAllChildren<Highlight>();
-                props.AppendChild(new Highlight { Val = ParseHighlightColor(value) });
+                InsertRunPropInSchemaOrder(props, new Highlight { Val = ParseHighlightColor(value) });
                 break;
             case "underline":
                 props.RemoveAllChildren<Underline>();
                 var ulMapped = value.ToLowerInvariant() switch { "true" => "single", "false" or "none" => "none", _ => value };
-                props.AppendChild(new Underline { Val = new UnderlineValues(ulMapped) });
+                InsertRunPropInSchemaOrder(props, new Underline { Val = new UnderlineValues(ulMapped) });
                 break;
             case "strike":
                 props.RemoveAllChildren<Strike>();
-                if (IsTruthy(value)) props.AppendChild(new Strike());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Strike());
+                break;
+            case "charspacing" or "charSpacing" or "letterspacing" or "letterSpacing" or "spacing":
+                var csPt = value.EndsWith("pt", StringComparison.OrdinalIgnoreCase)
+                    ? ParseHelpers.SafeParseDouble(value[..^2], "charspacing")
+                    : ParseHelpers.SafeParseDouble(value, "charspacing");
+                props.RemoveAllChildren<Spacing>();
+                InsertRunPropInSchemaOrder(props, new Spacing { Val = (int)Math.Round(csPt * 20, MidpointRounding.AwayFromZero) });
+                break;
+            case "shading" or "shd":
+                props.RemoveAllChildren<Shading>();
+                var shdParts = value.Split(';');
+                if (shdParts.Length == 1)
+                    props.AppendChild(new Shading { Val = ShadingPatternValues.Clear, Fill = SanitizeHex(shdParts[0]) });
+                else
+                {
+                    var shd = new Shading { Val = new ShadingPatternValues(shdParts[0]), Fill = SanitizeHex(shdParts[1]) };
+                    if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                    props.AppendChild(shd);
+                }
+                break;
+            case "superscript":
+                props.RemoveAllChildren<VerticalTextAlignment>();
+                if (IsTruthy(value))
+                    props.AppendChild(new VerticalTextAlignment { Val = VerticalPositionValues.Superscript });
+                break;
+            case "subscript":
+                props.RemoveAllChildren<VerticalTextAlignment>();
+                if (IsTruthy(value))
+                    props.AppendChild(new VerticalTextAlignment { Val = VerticalPositionValues.Subscript });
+                break;
+            case "caps":
+                props.RemoveAllChildren<Caps>();
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Caps());
+                break;
+            case "smallcaps":
+                props.RemoveAllChildren<SmallCaps>();
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new SmallCaps());
+                break;
+            case "vanish":
+                props.RemoveAllChildren<Vanish>();
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Vanish());
                 break;
         }
+    }
+
+    /// <summary>
+    /// Insert a run property element in the correct CT_RPr schema position.
+    /// CT_RPr order: rFonts, b, bCs, i, iCs, caps, smallCaps, strike, dstrike, outline, shadow,
+    /// emboss, imprint, noProof, snapToGrid, vanish, webHidden, color, spacing, w, kern, position,
+    /// sz, szCs, highlight, u, effect, ...
+    /// </summary>
+    private static void InsertRunPropInSchemaOrder(OpenXmlCompositeElement props, OpenXmlElement elem)
+    {
+        // Map element types to their position in the CT_RPr schema sequence.
+        // Only the types we actually use are listed; unlisted types get a high index (appended at end).
+        static int SchemaIndex(OpenXmlElement e) => e switch
+        {
+            RunFonts => 0,
+            Bold => 1,
+            BoldComplexScript => 2,
+            Italic => 3,
+            ItalicComplexScript => 4,
+            Caps => 5,
+            SmallCaps => 6,
+            Strike => 7,
+            // dstrike, outline, shadow, emboss, imprint, noProof, snapToGrid
+            Vanish => 14,
+            // webHidden = 15
+            Color => 16,
+            Spacing => 17,
+            // w = 18, kern = 19, position = 20
+            FontSize => 21,
+            FontSizeComplexScript => 22,
+            Highlight => 23,
+            Underline => 24,
+            // effect, ...
+            _ => 100,
+        };
+
+        int targetIdx = SchemaIndex(elem);
+
+        // Find the first existing child whose schema position is after the element we're inserting
+        foreach (var child in props.ChildElements)
+        {
+            if (SchemaIndex(child) > targetIdx)
+            {
+                child.InsertBeforeSelf(elem);
+                return;
+            }
+        }
+        // No later element found — append at end
+        props.AppendChild(elem);
     }
 
     private static string GetBookmarkText(BookmarkStart bkStart)
@@ -527,55 +637,18 @@ public partial class WordHandler
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Find and replace text across the document. Returns the number of replacements made.
-    /// Handles text split across multiple runs within a paragraph.
-    /// </summary>
-    private int FindAndReplace(string find, string replace, string scope = "all")
-    {
-        if (string.IsNullOrEmpty(find)) return 0;
-        int totalCount = 0;
-
-        // Collect all paragraphs to process based on scope
-        var paragraphs = new List<Paragraph>();
-        var mainPart = _doc.MainDocumentPart;
-
-        if (scope is "all" or "body" or "")
-        {
-            if (mainPart?.Document?.Body != null)
-                paragraphs.AddRange(mainPart.Document.Body.Descendants<Paragraph>());
-        }
-        if (scope is "all" or "headers")
-        {
-            foreach (var hp in mainPart?.HeaderParts ?? Enumerable.Empty<DocumentFormat.OpenXml.Packaging.HeaderPart>())
-                if (hp.Header != null) paragraphs.AddRange(hp.Header.Descendants<Paragraph>());
-        }
-        if (scope is "all" or "footers")
-        {
-            foreach (var fp in mainPart?.FooterParts ?? Enumerable.Empty<DocumentFormat.OpenXml.Packaging.FooterPart>())
-                if (fp.Footer != null) paragraphs.AddRange(fp.Footer.Descendants<Paragraph>());
-        }
-
-        foreach (var para in paragraphs)
-        {
-            totalCount += ReplaceInParagraph(para, find, replace);
-        }
-
-        return totalCount;
-    }
+    // ==================== Find / Format / Replace ====================
 
     /// <summary>
-    /// Replace text within a paragraph, handling text split across multiple runs.
+    /// Build a flat list of (Run, Text, charStart, charEnd) spans for a paragraph.
+    /// Uses Descendants to include runs inside hyperlinks, w:ins, w:del, etc.
+    /// Shared by ProcessFindInParagraph, SplitRunsAtRange, etc.
     /// </summary>
-    private static int ReplaceInParagraph(Paragraph para, string find, string replace)
+    private static List<(Run Run, Text TextElement, int Start, int End)> BuildRunTexts(Paragraph para)
     {
-        var runs = para.Elements<Run>().ToList();
-        if (runs.Count == 0) return 0;
-
-        // Build concatenated text with run boundaries
         var runTexts = new List<(Run Run, Text TextElement, int Start, int End)>();
         int pos = 0;
-        foreach (var run in runs)
+        foreach (var run in para.Descendants<Run>())
         {
             foreach (var text in run.Elements<Text>())
             {
@@ -585,55 +658,598 @@ public partial class WordHandler
                 pos += len;
             }
         }
+        return runTexts;
+    }
 
-        if (runTexts.Count == 0) return 0;
-        var fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
-
-        // Find all occurrences
-        var indices = new List<int>();
-        int idx = 0;
-        while ((idx = fullText.IndexOf(find, idx, StringComparison.Ordinal)) >= 0)
+    /// <summary>
+    /// Parse a find pattern: plain text or regex (r"..." prefix).
+    /// Returns (pattern, isRegex).
+    /// </summary>
+    private static (string Pattern, bool IsRegex) ParseFindPattern(string value)
+    {
+        // r"..." or r'...' → regex
+        if (value.Length >= 3 && value[0] == 'r' && (value[1] == '"' || value[1] == '\''))
         {
-            indices.Add(idx);
-            idx += find.Length;
+            var quote = value[1];
+            var endIdx = value.LastIndexOf(quote);
+            if (endIdx > 1)
+                return (value[2..endIdx], true);
+        }
+        return (value, false);
+    }
+
+    /// <summary>
+    /// Find all match ranges in fullText using either plain text or regex.
+    /// Returns list of (start, length) pairs, sorted by start ascending.
+    /// </summary>
+    private static List<(int Start, int Length)> FindMatchRanges(string fullText, string pattern, bool isRegex)
+    {
+        var ranges = new List<(int Start, int Length)>();
+        if (isRegex)
+        {
+            try
+            {
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(fullText, pattern))
+                {
+                    if (m.Length > 0) // skip zero-length matches
+                        ranges.Add((m.Index, m.Length));
+                }
+            }
+            catch (System.Text.RegularExpressions.RegexParseException ex)
+            {
+                throw new ArgumentException($"Invalid regex pattern '{pattern}': {ex.Message}", ex);
+            }
+        }
+        else
+        {
+            int idx = 0;
+            while ((idx = fullText.IndexOf(pattern, idx, StringComparison.Ordinal)) >= 0)
+            {
+                ranges.Add((idx, pattern.Length));
+                idx += pattern.Length;
+            }
+        }
+        return ranges;
+    }
+
+    /// <summary>
+    /// Split a run at a character offset within its text content.
+    /// Returns the new right-side run (inserted after the original).
+    /// The original run keeps text [0..charOffset), new run gets [charOffset..).
+    /// RunProperties are deep-cloned. rsidR is cleared on the new run.
+    /// </summary>
+    private static Run SplitRunAtOffset(Run run, int charOffset)
+    {
+        // Find the Text element containing the split point
+        int pos = 0;
+        foreach (var text in run.Elements<Text>().ToList())
+        {
+            var len = text.Text?.Length ?? 0;
+            if (pos + len > charOffset && charOffset > pos)
+            {
+                var localOffset = charOffset - pos;
+                var leftText = text.Text![..localOffset];
+                var rightText = text.Text![localOffset..];
+
+                // Clone the run for the right side
+                var rightRun = (Run)run.CloneNode(true);
+                // Clear rsidR on cloned run
+                rightRun.RsidRunProperties = null;
+                rightRun.RsidRunAddition = null;
+
+                // Set left run text
+                text.Text = leftText;
+                text.Space = SpaceProcessingModeValues.Preserve;
+
+                // Set right run text — find corresponding Text in clone
+                var rightTexts = rightRun.Elements<Text>().ToList();
+                // The cloned run has same structure; find the matching Text node
+                int textIdx = run.Elements<Text>().ToList().IndexOf(text);
+                if (textIdx >= 0 && textIdx < rightTexts.Count)
+                {
+                    rightTexts[textIdx].Text = rightText;
+                    rightTexts[textIdx].Space = SpaceProcessingModeValues.Preserve;
+                    // Remove any Text elements before the split Text in right run
+                    for (int i = 0; i < textIdx; i++)
+                        rightTexts[i].Text = "";
+                }
+
+                // Insert right run after original
+                run.InsertAfterSelf(rightRun);
+                return rightRun;
+            }
+            pos += len;
+        }
+        // charOffset is at boundary — shouldn't normally be called, return run itself
+        return run;
+    }
+
+    /// <summary>
+    /// Split runs in a paragraph so that the character range [charStart, charEnd)
+    /// is covered by dedicated runs. Returns the list of runs covering that range.
+    /// </summary>
+    private static List<Run> SplitRunsAtRange(Paragraph para, int charStart, int charEnd)
+    {
+        // Split at charEnd first (so charStart offsets remain valid)
+        var runTexts = BuildRunTexts(para);
+        foreach (var rt in runTexts)
+        {
+            if (charEnd > rt.Start && charEnd < rt.End)
+            {
+                var localOffset = charEnd - rt.Start;
+                SplitRunAtOffset(rt.Run, localOffset);
+                break;
+            }
         }
 
-        if (indices.Count == 0) return 0;
-
-        // Process replacements from end to start to preserve positions
-        for (int i = indices.Count - 1; i >= 0; i--)
+        // Rebuild after split, then split at charStart
+        runTexts = BuildRunTexts(para);
+        foreach (var rt in runTexts)
         {
-            var matchStart = indices[i];
-            var matchEnd = matchStart + find.Length;
-
-            // Find which run-texts are affected
-            bool first = true;
-            foreach (var rt in runTexts)
+            if (charStart > rt.Start && charStart < rt.End)
             {
-                if (rt.End <= matchStart || rt.Start >= matchEnd)
-                    continue; // not affected
+                var localOffset = charStart - rt.Start;
+                SplitRunAtOffset(rt.Run, localOffset);
+                break;
+            }
+        }
 
-                var textStr = rt.TextElement.Text ?? "";
-                var localStart = Math.Max(0, matchStart - rt.Start);
-                var localEnd = Math.Min(textStr.Length, matchEnd - rt.Start);
+        // Rebuild and collect runs covering [charStart, charEnd)
+        runTexts = BuildRunTexts(para);
+        var result = new List<Run>();
+        foreach (var rt in runTexts)
+        {
+            if (rt.Start >= charStart && rt.End <= charEnd)
+                result.Add(rt.Run);
+        }
+        return result;
+    }
 
-                if (first)
+    /// <summary>
+    /// Unified find operation on a paragraph: replace text and/or apply formatting.
+    /// Returns the number of matches processed.
+    /// </summary>
+    private static int ProcessFindInParagraph(
+        Paragraph para,
+        string pattern,
+        bool isRegex,
+        string? replace,
+        Dictionary<string, string>? formatProps)
+    {
+        var runTexts = BuildRunTexts(para);
+        if (runTexts.Count == 0) return 0;
+
+        var fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
+        var matches = FindMatchRanges(fullText, pattern, isRegex);
+        if (matches.Count == 0) return 0;
+
+        // Process from end to start to preserve character offsets
+        for (int i = matches.Count - 1; i >= 0; i--)
+        {
+            var (matchStart, matchLen) = matches[i];
+            var matchEnd = matchStart + matchLen;
+
+            if (replace != null)
+            {
+                // Step 1: Replace text in affected runs (same logic as old ReplaceInParagraph)
+                var currentRunTexts = BuildRunTexts(para);
+                bool first = true;
+                foreach (var rt in currentRunTexts)
                 {
-                    // First affected run: replace the matched portion with replacement text
-                    rt.TextElement.Text = textStr[..localStart] + replace + textStr[localEnd..];
-                    rt.TextElement.Space = SpaceProcessingModeValues.Preserve;
-                    first = false;
+                    if (rt.End <= matchStart || rt.Start >= matchEnd)
+                        continue;
+
+                    var textStr = rt.TextElement.Text ?? "";
+                    var localStart = Math.Max(0, matchStart - rt.Start);
+                    var localEnd = Math.Min(textStr.Length, matchEnd - rt.Start);
+
+                    if (first)
+                    {
+                        rt.TextElement.Text = textStr[..localStart] + replace + textStr[localEnd..];
+                        rt.TextElement.Space = SpaceProcessingModeValues.Preserve;
+                        first = false;
+                    }
+                    else
+                    {
+                        rt.TextElement.Text = textStr[..Math.Max(0, matchStart - rt.Start)] + textStr[localEnd..];
+                        rt.TextElement.Space = SpaceProcessingModeValues.Preserve;
+                    }
                 }
-                else
+
+                // Step 2: If format props, split at the replaced text position and apply
+                if (formatProps != null && formatProps.Count > 0)
                 {
-                    // Subsequent runs: just remove the matched portion
-                    rt.TextElement.Text = textStr[..Math.Max(0, matchStart - rt.Start)] + textStr[localEnd..];
-                    rt.TextElement.Space = SpaceProcessingModeValues.Preserve;
+                    // The replaced text now starts at matchStart with length = replace.Length
+                    var replacedEnd = matchStart + replace.Length;
+                    if (replace.Length > 0)
+                    {
+                        var targetRuns = SplitRunsAtRange(para, matchStart, replacedEnd);
+                        foreach (var run in targetRuns)
+                        {
+                            var rPr = EnsureRunProperties(run);
+                            foreach (var (key, value) in formatProps)
+                                ApplyRunFormatting(rPr, key, value);
+                        }
+                    }
+                }
+            }
+            else if (formatProps != null && formatProps.Count > 0)
+            {
+                // No replace, just split and format
+                var targetRuns = SplitRunsAtRange(para, matchStart, matchEnd);
+                foreach (var run in targetRuns)
+                {
+                    var rPr = EnsureRunProperties(run);
+                    foreach (var (key, value) in formatProps)
+                        ApplyRunFormatting(rPr, key, value);
                 }
             }
         }
 
-        return indices.Count;
+        return matches.Count;
+    }
+
+    /// <summary>
+    /// Unified find operation: process find/replace/format across paragraphs resolved from a path.
+    /// Called from Set when 'find' key is present.
+    /// Returns (matchCount, unsupportedKeys).
+    /// </summary>
+    private int ProcessFind(
+        string path,
+        string findValue,
+        string? replace,
+        Dictionary<string, string> formatProps)
+    {
+        var (pattern, isRegex) = ParseFindPattern(findValue);
+        if (string.IsNullOrEmpty(pattern) && !isRegex) return 0;
+
+        // Resolve paragraphs from path
+        var paragraphs = ResolveParagraphsForFind(path);
+
+        int totalCount = 0;
+        foreach (var para in paragraphs)
+        {
+            var count = ProcessFindInParagraph(para, pattern, isRegex, replace, formatProps.Count > 0 ? formatProps : null);
+            if (count > 0)
+                para.TextId = GenerateParaId();
+            totalCount += count;
+        }
+
+        return totalCount;
+    }
+
+    /// <summary>
+    /// Resolve paragraphs for a find operation based on path.
+    /// "/" or "/body" → body paragraphs; "/header[N]" → header N; "/footer[N]" → footer N;
+    /// "/paragraph[N]" → specific paragraph; selector → query results.
+    /// </summary>
+    private List<Paragraph> ResolveParagraphsForFind(string path)
+    {
+        var paragraphs = new List<Paragraph>();
+        var mainPart = _doc.MainDocumentPart;
+
+        if (path is "/" or "" or "/body")
+        {
+            if (mainPart?.Document?.Body != null)
+                paragraphs.AddRange(mainPart.Document.Body.Descendants<Paragraph>());
+        }
+        else if (path.StartsWith("/header[", StringComparison.OrdinalIgnoreCase))
+        {
+            var idx = ParseHelpers.SafeParseInt(path.Split('[', ']')[1], "header index") - 1;
+            var headerPart = mainPart?.HeaderParts.ElementAtOrDefault(idx);
+            if (headerPart?.Header != null)
+                paragraphs.AddRange(headerPart.Header.Descendants<Paragraph>());
+        }
+        else if (path.StartsWith("/footer[", StringComparison.OrdinalIgnoreCase))
+        {
+            var idx = ParseHelpers.SafeParseInt(path.Split('[', ']')[1], "footer index") - 1;
+            var footerPart = mainPart?.FooterParts.ElementAtOrDefault(idx);
+            if (footerPart?.Footer != null)
+                paragraphs.AddRange(footerPart.Footer.Descendants<Paragraph>());
+        }
+        else if (path.StartsWith("/"))
+        {
+            // Specific element path — navigate to it and collect its paragraphs
+            var element = NavigateToElement(ParsePath(path));
+            if (element is Paragraph p)
+                paragraphs.Add(p);
+            else if (element != null)
+                paragraphs.AddRange(element.Descendants<Paragraph>());
+        }
+        else
+        {
+            // Selector — query and resolve each result's paragraphs
+            var targets = Query(path);
+            foreach (var target in targets)
+            {
+                var elem = NavigateToElement(ParsePath(target.Path));
+                if (elem is Paragraph tp)
+                    paragraphs.Add(tp);
+                else if (elem != null)
+                    paragraphs.AddRange(elem.Descendants<Paragraph>());
+            }
+        }
+
+        return paragraphs;
+    }
+
+    // ==================== Add at find position ====================
+
+    private static readonly HashSet<string> InlineTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "run", "r", "picture", "image", "img", "hyperlink", "link",
+        "field", "pagenum", "pagenumber", "page", "numpages", "date", "author",
+        "pagebreak", "columnbreak", "break", "footnote", "endnote",
+        "equation", "formula", "math", "bookmark", "formfield"
+    };
+
+    /// <summary>
+    /// Add an element at a text-find position within a paragraph.
+    /// For inline types: split the run at the find position and insert inline.
+    /// For block types: split the paragraph at the find position and insert the block element between.
+    /// </summary>
+    private string AddAtFindPosition(
+        OpenXmlElement parent,
+        string parentPath,
+        string type,
+        string findValue,
+        bool isAfter, // true = after-find, false = before-find
+        InsertPosition? position,
+        Dictionary<string, string> properties)
+    {
+        // Support regex=true prop as alternative to r"..." prefix
+        // CONSISTENCY(find-regex): mirror of WordHandler.Set.cs:60-61. grep
+        // "CONSISTENCY(find-regex)" for every project-wide call site.
+        if (properties.TryGetValue("regex", out var regexFlag) && ParseHelpers.IsTruthySafe(regexFlag) && !findValue.StartsWith("r\"") && !findValue.StartsWith("r'"))
+            findValue = $"r\"{findValue}\"";
+
+        var (pattern, isRegex) = ParseFindPattern(findValue);
+
+        // Resolve to a paragraph — either the parent itself, or the first
+        // descendant paragraph of a container (body/cell/sdt) whose text
+        // matches the pattern.
+        Paragraph para;
+        string paraPath;
+        if (parent is Paragraph p)
+        {
+            para = p;
+            paraPath = parentPath;
+        }
+        else
+        {
+            var hit = FindParagraphContainingText(parent, parentPath, pattern, isRegex)
+                ?? throw new ArgumentException(
+                    $"Text '{findValue}' not found in any paragraph under {parentPath}.");
+            para = hit.Para;
+            paraPath = hit.Path;
+        }
+
+        var runTexts = BuildRunTexts(para);
+        if (runTexts.Count == 0)
+            throw new ArgumentException("Paragraph has no text content to search.");
+
+        var fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
+        var matches = FindMatchRanges(fullText, pattern, isRegex);
+        if (matches.Count == 0)
+            throw new ArgumentException($"Text '{findValue}' not found in paragraph.");
+
+        // Use first match
+        var (matchStart, matchLen) = matches[0];
+        var splitPoint = isAfter ? matchStart + matchLen : matchStart;
+
+        bool isInline = InlineTypes.Contains(type);
+
+        if (isInline)
+        {
+            return AddInlineAtSplitPoint(para, paraPath, splitPoint, type, position, properties);
+        }
+        else
+        {
+            return AddBlockAtSplitPoint(para, paraPath, splitPoint, type, position, properties);
+        }
+    }
+
+    /// <summary>
+    /// Walk the child paragraphs of a container and return the first paragraph
+    /// (plus its constructed path) whose text matches the given pattern.
+    /// Used to let body-level find: anchors resolve without requiring the
+    /// caller to spell out a specific paragraph path.
+    /// </summary>
+    private (Paragraph Para, string Path)? FindParagraphContainingText(
+        OpenXmlElement container, string containerPath, string pattern, bool isRegex)
+    {
+        var paragraphs = container.Elements<Paragraph>().ToList();
+        for (int i = 0; i < paragraphs.Count; i++)
+        {
+            var candidate = paragraphs[i];
+            var runTexts = BuildRunTexts(candidate);
+            if (runTexts.Count == 0) continue;
+
+            var fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
+            if (FindMatchRanges(fullText, pattern, isRegex).Count > 0)
+            {
+                var paraPath = $"{containerPath}/{BuildParaPathSegment(candidate, i + 1)}";
+                return (candidate, paraPath);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Insert an inline element at a character split point within a paragraph.
+    /// Splits the run at the position and inserts the element.
+    /// </summary>
+    private string AddInlineAtSplitPoint(
+        Paragraph para,
+        string parentPath,
+        int splitPoint,
+        string type,
+        InsertPosition? position,
+        Dictionary<string, string> properties)
+    {
+        // Split runs at the point
+        var runTexts = BuildRunTexts(para);
+        Run? insertAfterRun = null;
+
+        foreach (var rt in runTexts)
+        {
+            if (splitPoint >= rt.Start && splitPoint <= rt.End)
+            {
+                if (splitPoint == rt.Start)
+                {
+                    // Insert before this run — find previous run
+                    insertAfterRun = rt.Run.PreviousSibling<Run>();
+                }
+                else if (splitPoint == rt.End)
+                {
+                    // Insert after this run
+                    insertAfterRun = rt.Run;
+                }
+                else
+                {
+                    // Split the run at the offset
+                    var localOffset = splitPoint - rt.Start;
+                    SplitRunAtOffset(rt.Run, localOffset);
+                    insertAfterRun = rt.Run; // insert after the left portion
+                }
+                break;
+            }
+        }
+
+        // Calculate run-based index for insertion
+        var runs = para.Elements<Run>().ToList();
+        int runIndex;
+        if (insertAfterRun != null)
+        {
+            var idx = runs.IndexOf(insertAfterRun);
+            runIndex = idx >= 0 ? idx + 1 : runs.Count;
+        }
+        else
+        {
+            runIndex = 0; // insert before all runs
+        }
+
+        // Delegate to normal Add with calculated run index
+        return Add(parentPath, type, InsertPosition.AtIndex(runIndex), properties);
+    }
+
+    /// <summary>
+    /// Insert a block element at a character split point within a paragraph.
+    /// Splits the paragraph into two and inserts the block element between them.
+    /// </summary>
+    private string AddBlockAtSplitPoint(
+        Paragraph para,
+        string parentPath,
+        int splitPoint,
+        string type,
+        InsertPosition? position,
+        Dictionary<string, string> properties)
+    {
+        var runTexts = BuildRunTexts(para);
+        var fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
+
+        // If split point is at the very end, just insert after the paragraph
+        if (splitPoint >= fullText.Length)
+        {
+            var bodyPath = parentPath.Contains('/') ? parentPath[..parentPath.LastIndexOf('/')] : "/body";
+            return Add(bodyPath, type, InsertPosition.AfterElement(parentPath.Split('/').Last()), properties);
+        }
+
+        // If split point is at the very beginning, just insert before the paragraph
+        if (splitPoint <= 0)
+        {
+            var bodyPath = parentPath.Contains('/') ? parentPath[..parentPath.LastIndexOf('/')] : "/body";
+            return Add(bodyPath, type, InsertPosition.BeforeElement(parentPath.Split('/').Last()), properties);
+        }
+
+        // Split runs at the point
+        foreach (var rt in runTexts)
+        {
+            if (splitPoint > rt.Start && splitPoint < rt.End)
+            {
+                var localOffset = splitPoint - rt.Start;
+                SplitRunAtOffset(rt.Run, localOffset);
+                break;
+            }
+        }
+
+        // Rebuild run list after split
+        runTexts = BuildRunTexts(para);
+        fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
+
+        // Find the first run that starts at or after splitPoint
+        Run? firstRightRun = null;
+        foreach (var rt in runTexts)
+        {
+            if (rt.Start >= splitPoint)
+            {
+                firstRightRun = rt.Run;
+                break;
+            }
+        }
+
+        if (firstRightRun == null)
+        {
+            // All text before split — insert after paragraph
+            var bodyPath = parentPath.Contains('/') ? parentPath[..parentPath.LastIndexOf('/')] : "/body";
+            return Add(bodyPath, type, InsertPosition.AfterElement(parentPath.Split('/').Last()), properties);
+        }
+
+        // Create a new paragraph for the right portion, inheriting paragraph properties
+        var rightPara = new Paragraph();
+        if (para.ParagraphProperties != null)
+            rightPara.ParagraphProperties = (ParagraphProperties)para.ParagraphProperties.CloneNode(true);
+        AssignParaId(rightPara);
+
+        // Move runs from firstRightRun onwards to the new paragraph
+        var runsToMove = new List<OpenXmlElement>();
+        OpenXmlElement? current = firstRightRun;
+        while (current != null)
+        {
+            runsToMove.Add(current);
+            current = current.NextSibling();
+            // Stop if we hit another paragraph-level structure (shouldn't happen normally)
+        }
+        // Filter: only move runs and inline elements, not ParagraphProperties
+        foreach (var elem in runsToMove)
+        {
+            if (elem is ParagraphProperties) continue;
+            elem.Remove();
+            rightPara.AppendChild(elem);
+        }
+
+        // Collect existing children before Add, so we can find the newly added element
+        var parentOfPara = para.Parent!;
+        var childrenBefore = new HashSet<OpenXmlElement>(parentOfPara.ChildElements);
+
+        // Insert rightPara after the original paragraph
+        para.InsertAfterSelf(rightPara);
+
+        // Add the block element via normal Add (appends before sectPr)
+        var bodyParentPath = parentPath.Contains('/') ? parentPath[..parentPath.LastIndexOf('/')] : "/body";
+        var result = Add(bodyParentPath, type, null, properties);
+
+        // Find the newly added element (the one not in childrenBefore and not rightPara)
+        OpenXmlElement? addedElement = null;
+        foreach (var child in parentOfPara.ChildElements)
+        {
+            if (!childrenBefore.Contains(child) && child != rightPara)
+            {
+                addedElement = child;
+                break;
+            }
+        }
+
+        // Move it between para and rightPara
+        if (addedElement != null)
+        {
+            addedElement.Remove();
+            parentOfPara.InsertAfter(addedElement, para);
+        }
+
+        _doc.MainDocumentPart?.Document?.Save();
+        return result;
     }
 
     /// <summary>
@@ -1030,6 +1646,7 @@ public partial class WordHandler
     {
         public ChartPart? StandardPart { get; set; }
         public ExtendedChartPart? ExtendedPart { get; set; }
+        public DW.DocProperties? DocProperties { get; set; }
         public bool IsExtended => ExtendedPart != null;
     }
 
@@ -1047,6 +1664,8 @@ public partial class WordHandler
             var graphicData = inline.Descendants<A.GraphicData>().FirstOrDefault();
             if (graphicData == null) continue;
 
+            var docProps = inline.Descendants<DW.DocProperties>().FirstOrDefault();
+
             if (graphicData.Uri == WordChartUri)
             {
                 // Standard chart
@@ -1055,7 +1674,7 @@ public partial class WordHandler
                 try
                 {
                     var chartPart = (ChartPart)mainPart.GetPartById(chartRef.Id.Value);
-                    result.Add(new WordChartInfo { StandardPart = chartPart });
+                    result.Add(new WordChartInfo { StandardPart = chartPart, DocProperties = docProps });
                 }
                 catch { /* skip invalid references */ }
             }
@@ -1067,7 +1686,7 @@ public partial class WordHandler
                 try
                 {
                     var extPart = (ExtendedChartPart)mainPart.GetPartById(relId);
-                    result.Add(new WordChartInfo { ExtendedPart = extPart });
+                    result.Add(new WordChartInfo { ExtendedPart = extPart, DocProperties = docProps });
                 }
                 catch { /* skip invalid references */ }
             }
@@ -1142,5 +1761,181 @@ public partial class WordHandler
 
         // comments/trackedChanges → not typically editable
         return false;
+    }
+
+    /// <summary>
+    /// Generate a unique 8-character uppercase hex ID for w14:paraId / w14:textId.
+    /// OOXML spec requires value &lt; 0x80000000 (MaxExclusive).
+    /// Uses deterministic increment from _nextParaId, wraps around on overflow,
+    /// skips IDs already in use.
+    /// </summary>
+    private string GenerateParaId()
+    {
+        const int maxExclusive = 0x7FFFFFFF; // OOXML spec limit
+        const int minStartId = 0x100000;
+        var startId = _nextParaId;
+        while (true)
+        {
+            var id = _nextParaId.ToString("X8");
+            _nextParaId++;
+            if (_nextParaId > maxExclusive)
+                _nextParaId = minStartId;
+            if (_usedParaIds.Add(id))
+                return id;
+            // Safety: if we've wrapped all the way around, something is very wrong
+            if (_nextParaId == startId)
+                throw new InvalidOperationException("No available paraId slots");
+        }
+    }
+
+    /// <summary>
+    /// Assign paraId and textId to a paragraph if not already set.
+    /// </summary>
+    private void AssignParaId(Paragraph para)
+    {
+        if (string.IsNullOrEmpty(para.ParagraphId?.Value))
+            para.ParagraphId = GenerateParaId();
+        if (string.IsNullOrEmpty(para.TextId?.Value))
+            para.TextId = GenerateParaId();
+    }
+
+    /// <summary>
+    /// Ensure all paragraphs in the document have w14:paraId and w14:textId.
+    /// Called on document open.
+    /// </summary>
+    private void EnsureAllParaIds()
+    {
+        var mainPart = _doc.MainDocumentPart;
+        if (mainPart?.Document?.Body == null) return;
+
+        _usedParaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Collect all paragraphs from body + headers + footers
+        var allParagraphs = mainPart.Document.Body.Descendants<Paragraph>().AsEnumerable();
+        foreach (var headerPart in mainPart.HeaderParts)
+            if (headerPart.Header != null)
+                allParagraphs = allParagraphs.Concat(headerPart.Header.Descendants<Paragraph>());
+        foreach (var footerPart in mainPart.FooterParts)
+            if (footerPart.Footer != null)
+                allParagraphs = allParagraphs.Concat(footerPart.Footer.Descendants<Paragraph>());
+
+        var paragraphs = allParagraphs.ToList();
+
+        // Collect existing IDs, detect duplicates, and track max for deterministic increment
+        var paraIdSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int maxId = 0;
+
+        foreach (var para in paragraphs)
+        {
+            // Fix duplicate paraId: if already seen, clear it so it gets reassigned below
+            if (!string.IsNullOrEmpty(para.ParagraphId?.Value))
+            {
+                if (!paraIdSeen.Add(para.ParagraphId.Value))
+                {
+                    para.ParagraphId = null!; // duplicate — will be reassigned
+                }
+                else
+                {
+                    _usedParaIds.Add(para.ParagraphId.Value);
+                    if (int.TryParse(para.ParagraphId.Value, System.Globalization.NumberStyles.HexNumber, null, out var numId) && numId > maxId)
+                        maxId = numId;
+                }
+            }
+            if (!string.IsNullOrEmpty(para.TextId?.Value))
+            {
+                _usedParaIds.Add(para.TextId.Value);
+                if (int.TryParse(para.TextId.Value, System.Globalization.NumberStyles.HexNumber, null, out var numId) && numId > maxId)
+                    maxId = numId;
+            }
+        }
+
+        // Start deterministic increment from max+1, minimum 0x100000 to avoid conflicts with small IDs
+        const int minStartId = 0x100000;
+        _nextParaId = Math.Max(maxId + 1, minStartId);
+        if (_nextParaId > 0x7FFFFFFF) _nextParaId = minStartId;
+
+        // Assign IDs to paragraphs that don't have them (including cleared duplicates)
+        foreach (var para in paragraphs)
+        {
+            if (string.IsNullOrEmpty(para.ParagraphId?.Value))
+                para.ParagraphId = GenerateParaId();
+            if (string.IsNullOrEmpty(para.TextId?.Value))
+                para.TextId = GenerateParaId();
+        }
+
+        // Ensure mc:Ignorable includes "w14" so Word 2007 skips w14:paraId/textId attributes
+        var doc = mainPart.Document;
+        const string mcNs = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+        if (doc.LookupNamespace("mc") == null)
+            doc.AddNamespaceDeclaration("mc", mcNs);
+        if (doc.LookupNamespace("w14") == null)
+            doc.AddNamespaceDeclaration("w14", "http://schemas.microsoft.com/office/word/2010/wordml");
+        var ignorable = doc.MCAttributes?.Ignorable?.Value ?? "";
+        if (!ignorable.Contains("w14"))
+        {
+            doc.MCAttributes ??= new DocumentFormat.OpenXml.MarkupCompatibilityAttributes();
+            doc.MCAttributes.Ignorable = string.IsNullOrEmpty(ignorable) ? "w14" : $"{ignorable} w14";
+        }
+    }
+
+    // ==================== SDT IDs (content controls) ====================
+
+    /// <summary>
+    /// Generate a deterministic unique SdtId by scanning max existing value + 1.
+    /// </summary>
+    private int NextSdtId()
+    {
+        const int overflowReset = 872011;
+        int maxId = 0;
+        var body = _doc.MainDocumentPart?.Document?.Body;
+        if (body != null)
+        {
+            foreach (var sdtId in body.Descendants<SdtId>())
+            {
+                if (sdtId.Val?.HasValue == true && sdtId.Val.Value > maxId)
+                    maxId = sdtId.Val.Value;
+            }
+        }
+        var next = maxId + 1;
+        return next > int.MaxValue - 1 ? overflowReset : next;
+    }
+
+    // ==================== DocPr IDs (pictures, charts) ====================
+
+    /// <summary>
+    /// Ensure all DocProperties in the document have unique IDs.
+    /// Called on document open.
+    /// </summary>
+    private void EnsureDocPropIds()
+    {
+        var mainPart = _doc.MainDocumentPart;
+        if (mainPart?.Document?.Body == null) return;
+
+        var allDocProps = mainPart.Document.Body.Descendants<DW.DocProperties>().ToList();
+
+        foreach (var headerPart in mainPart.HeaderParts)
+            if (headerPart.Header != null)
+                allDocProps.AddRange(headerPart.Header.Descendants<DW.DocProperties>());
+        foreach (var footerPart in mainPart.FooterParts)
+            if (footerPart.Footer != null)
+                allDocProps.AddRange(footerPart.Footer.Descendants<DW.DocProperties>());
+
+        var usedIds = new HashSet<uint>();
+        var duplicates = new List<DW.DocProperties>();
+
+        foreach (var dp in allDocProps)
+        {
+            if (dp.Id?.HasValue == true && !usedIds.Add(dp.Id.Value))
+                duplicates.Add(dp);
+            else if (dp.Id?.HasValue != true)
+                duplicates.Add(dp);
+        }
+
+        foreach (var dp in duplicates)
+        {
+            uint newId = 1;
+            while (!usedIds.Add(newId)) newId++;
+            dp.Id = newId;
+        }
     }
 }

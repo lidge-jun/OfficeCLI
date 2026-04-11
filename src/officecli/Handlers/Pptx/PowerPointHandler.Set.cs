@@ -15,6 +15,7 @@ public partial class PowerPointHandler
     public List<string> Set(string path, Dictionary<string, string> properties)
     {
         path = NormalizeCellPath(path);
+        path = ResolveIdPath(path);
 
         // Batch Set: if path looks like a selector (not starting with /), Query → Set each
         if (!string.IsNullOrEmpty(path) && !path.StartsWith("/"))
@@ -35,20 +36,33 @@ public partial class PowerPointHandler
         if (path.Equals("/theme", StringComparison.OrdinalIgnoreCase))
             return SetThemeProperties(properties);
 
+        // Unified find: if 'find' key is present, route to ProcessPptFind
+        if (properties.TryGetValue("find", out var findText))
+        {
+            var replace = properties.TryGetValue("replace", out var r) ? r : null;
+            var formatProps = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
+            formatProps.Remove("find");
+            formatProps.Remove("replace");
+            formatProps.Remove("scope");
+            formatProps.Remove("regex");
+
+            if (replace == null && formatProps.Count == 0)
+                throw new ArgumentException("'find' requires either 'replace' and/or format properties (e.g. bold, color, size).");
+
+            // Support regex=true as an alternative to r"..." prefix.
+            // CONSISTENCY(find-regex): mirror of WordHandler.Set.cs:60-61. grep
+            // "CONSISTENCY(find-regex)" for every project-wide call site.
+            if (properties.TryGetValue("regex", out var regexFlag) && ParseHelpers.IsTruthySafe(regexFlag) && !findText.StartsWith("r\"") && !findText.StartsWith("r'"))
+                findText = $"r\"{findText}\"";
+
+            var matchCount = ProcessPptFind(path, findText, replace, formatProps);
+            LastFindMatchCount = matchCount;
+            return [];
+        }
+
         // Presentation-level properties: / or /presentation
         if (path is "/" or "" or "/presentation")
         {
-            // Find & Replace: special handling before presentation properties
-            if (properties.TryGetValue("find", out var findText) && properties.TryGetValue("replace", out var replaceText))
-            {
-                var count = FindAndReplace(findText, replaceText);
-                var remaining = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
-                remaining.Remove("find");
-                remaining.Remove("replace");
-                if (remaining.Count > 0)
-                    return Set(path, remaining);
-                return [];
-            }
 
             var presentation = _doc.PresentationPart?.Presentation
                 ?? throw new InvalidOperationException("No presentation");
@@ -168,10 +182,18 @@ public partial class PowerPointHandler
                         break;
                     }
                     default:
-                        if (unsupported.Count == 0)
-                            unsupported.Add($"{key} (valid presentation props: slideWidth, slideHeight, slideSize, width, height, title, author, subject, description, category, keywords, lastModifiedBy, revision, defaultFont)");
-                        else
-                            unsupported.Add(key);
+                        var lowerKey = key.ToLowerInvariant();
+                        if (!TrySetPresentationSetting(lowerKey, value)
+                            && !Core.ThemeHandler.TrySetTheme(
+                                _doc.PresentationPart?.SlideMasterParts?.FirstOrDefault()?.ThemePart, lowerKey, value)
+                            && !Core.ExtendedPropertiesHandler.TrySetExtendedProperty(
+                                Core.ExtendedPropertiesHandler.GetOrCreateExtendedPart(_doc), lowerKey, value))
+                        {
+                            if (unsupported.Count == 0)
+                                unsupported.Add($"{key} (valid presentation props: slideWidth, slideHeight, slideSize, title, author, defaultFont, firstSlideNum, rtl, compatMode, print.*, show.*)");
+                            else
+                                unsupported.Add(key);
+                        }
                         break;
                 }
             }
@@ -750,6 +772,28 @@ public partial class PowerPointHandler
                     case "height":
                         row.Height = ParseEmu(value);
                         break;
+                    case "text":
+                    {
+                        // Two behaviors based on presence of tab:
+                        //  - No tab: broadcast the same text to all cells in the row
+                        //  - Tab-delimited: distribute tokens across cells by position
+                        //    ("X1\tX2\tX3" → tc[1]="X1", tc[2]="X2", tc[3]="X3")
+                        // Extra tokens beyond cell count are dropped; cells beyond token
+                        // count are left unchanged.
+                        var rowCells = row.Elements<Drawing.TableCell>().ToList();
+                        if (value.Contains('\t'))
+                        {
+                            var tokens = value.Split('\t');
+                            for (int i = 0; i < rowCells.Count && i < tokens.Length; i++)
+                                ReplaceCellText(rowCells[i], tokens[i]);
+                        }
+                        else
+                        {
+                            foreach (var c in rowCells)
+                                ReplaceCellText(c, value);
+                        }
+                        break;
+                    }
                     default:
                         // c1, c2, ... shorthand: set text of specific cell by index
                         if (key.Length >= 2 && key[0] == 'c' && int.TryParse(key.AsSpan(1), out var cIdx))
@@ -757,31 +801,7 @@ public partial class PowerPointHandler
                             var rowCells = row.Elements<Drawing.TableCell>().ToList();
                             if (cIdx < 1 || cIdx > rowCells.Count)
                                 throw new ArgumentException($"Cell c{cIdx} out of range (row has {rowCells.Count} cells)");
-                            var targetCell = rowCells[cIdx - 1];
-                            // Replace text in first paragraph's first run, or create one
-                            var txBody = targetCell.TextBody;
-                            if (txBody == null)
-                            {
-                                txBody = new Drawing.TextBody(
-                                    new Drawing.BodyProperties(),
-                                    new Drawing.ListStyle(),
-                                    new Drawing.Paragraph());
-                                targetCell.AppendChild(txBody);
-                            }
-                            var para = txBody.Elements<Drawing.Paragraph>().FirstOrDefault()
-                                ?? txBody.AppendChild(new Drawing.Paragraph());
-                            para.RemoveAllChildren<Drawing.Run>();
-                            para.RemoveAllChildren<Drawing.Break>();
-                            // Remove EndParagraphRunProperties before appending Run,
-                            // then re-add after — schema requires Run before EndParagraphRunProperties
-                            var savedEndParaRPr = para.Elements<Drawing.EndParagraphRunProperties>().FirstOrDefault();
-                            if (savedEndParaRPr != null)
-                                savedEndParaRPr.Remove();
-                            if (!string.IsNullOrEmpty(value))
-                                foreach (var newRun in BuildSegmentedRuns(value))
-                                    para.AppendChild(newRun);
-                            if (savedEndParaRPr != null)
-                                para.AppendChild(savedEndParaRPr);
+                            ReplaceCellText(rowCells[cIdx - 1], value);
                         }
                         else
                         {
@@ -997,24 +1017,46 @@ public partial class PowerPointHandler
                             {
                                 var cropVals = new double[4];
                                 for (int ci = 0; ci < 4; ci++)
+                                {
                                     cropVals[ci] = ParseHelpers.SafeParseDouble(parts[ci].Trim(), "crop");
+                                    if (cropVals[ci] < 0 || cropVals[ci] > 100)
+                                        throw new ArgumentException($"Invalid 'crop' value: '{parts[ci].Trim()}'. Crop percentage must be between 0 and 100.");
+                                }
                                 srcRect.Left = (int)(cropVals[0] * 1000);
                                 srcRect.Top = (int)(cropVals[1] * 1000);
                                 srcRect.Right = (int)(cropVals[2] * 1000);
                                 srcRect.Bottom = (int)(cropVals[3] * 1000);
                             }
+                            else if (parts.Length == 2)
+                            {
+                                // 2-value: vertical,horizontal (top/bottom, left/right)
+                                var vCrop = ParseHelpers.SafeParseDouble(parts[0].Trim(), "crop");
+                                var hCrop = ParseHelpers.SafeParseDouble(parts[1].Trim(), "crop");
+                                if (vCrop < 0 || vCrop > 100 || hCrop < 0 || hCrop > 100)
+                                    throw new ArgumentException($"Invalid 'crop' value: '{value}'. Crop percentages must be between 0 and 100.");
+                                srcRect.Top = (int)(vCrop * 1000); srcRect.Bottom = (int)(vCrop * 1000);
+                                srcRect.Left = (int)(hCrop * 1000); srcRect.Right = (int)(hCrop * 1000);
+                            }
                             else if (parts.Length == 1)
                             {
                                 if (!double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var cropVal))
                                     throw new ArgumentException($"Invalid 'crop' value: '{value}'. Expected a percentage (e.g. 10 = 10% from each edge).");
+                                if (cropVal < 0 || cropVal > 100)
+                                    throw new ArgumentException($"Invalid 'crop' value: '{value}'. Crop percentage must be between 0 and 100.");
                                 var cropPct = (int)(cropVal * 1000);
                                 srcRect.Left = cropPct; srcRect.Top = cropPct; srcRect.Right = cropPct; srcRect.Bottom = cropPct;
+                            }
+                            else
+                            {
+                                throw new ArgumentException($"Invalid 'crop' value: '{value}'. Expected 1 value (symmetric), 2 values (vertical,horizontal), or 4 values (left,top,right,bottom).");
                             }
                         }
                         else
                         {
                             if (!double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var cropSingle))
                                 throw new ArgumentException($"Invalid '{key}' value: '{value}'. Expected a percentage (0-100).");
+                            if (cropSingle < 0 || cropSingle > 100)
+                                throw new ArgumentException($"Invalid '{key}' value: '{value}'. Crop percentage must be between 0 and 100.");
                             var pct = (int)(cropSingle * 1000); // percent (0-100) → 1/1000ths
                             switch (key.ToLowerInvariant())
                             {

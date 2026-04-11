@@ -40,7 +40,13 @@ public partial class ExcelHandler
             {
                 var sheetNode = new DocumentNode { Path = $"/{name}", Type = "sheet", Preview = name };
                 var sheetData = GetSheet(part).GetFirstChild<SheetData>();
-                var rowCount = sheetData?.Elements<Row>().Count() ?? 0;
+                // R6-5: dedupe by RowIndex so a pivot placed on its own source
+                // sheet doesn't double-count row children.
+                var rowCount = sheetData?.Elements<Row>()
+                    .Select(r => r.RowIndex?.Value ?? 0u)
+                    .Where(i => i != 0)
+                    .Distinct()
+                    .Count() ?? 0;
                 var chartCount = part.DrawingsPart != null ? CountExcelCharts(part.DrawingsPart) : 0;
                 sheetNode.ChildCount = rowCount + chartCount;
 
@@ -51,6 +57,11 @@ public partial class ExcelHandler
 
                 node.Children.Add(sheetNode);
             }
+            // Workbook-level settings
+            PopulateWorkbookSettings(node);
+            Core.ThemeHandler.PopulateTheme(_doc.WorkbookPart?.ThemePart, node);
+            Core.ExtendedPropertiesHandler.PopulateExtendedProperties(_doc.ExtendedFilePropertiesPart, node);
+
             node.ChildCount = node.Children.Count;
             return node;
         }
@@ -124,7 +135,7 @@ public partial class ExcelHandler
                 Path = path,
                 Type = "sheet",
                 Preview = sheetNameFromPath,
-                ChildCount = data.Elements<Row>().Count() + (worksheet.DrawingsPart != null ? CountExcelCharts(worksheet.DrawingsPart) : 0)
+                ChildCount = data.Elements<Row>().Select(r => r.RowIndex?.Value ?? 0u).Where(i => i != 0).Distinct().Count() + (worksheet.DrawingsPart != null ? CountExcelCharts(worksheet.DrawingsPart) : 0)
             };
 
             // Include freeze pane info
@@ -308,6 +319,7 @@ public partial class ExcelHandler
             // Include cells in this column as children (non-empty rows only)
             if (depth > 0)
             {
+                var eval = new Core.FormulaEvaluator(data, _doc.WorkbookPart);
                 foreach (var row in data.Elements<Row>().OrderBy(r => r.RowIndex?.Value ?? 0))
                 {
                     var cell = row.Elements<Cell>().FirstOrDefault(c =>
@@ -317,7 +329,7 @@ public partial class ExcelHandler
                         return cn.Equals(colName, StringComparison.OrdinalIgnoreCase);
                     });
                     if (cell != null)
-                        colNode.Children.Add(CellToNode(sheetNameFromPath, cell, worksheet));
+                        colNode.Children.Add(CellToNode(sheetNameFromPath, cell, worksheet, eval));
                 }
                 colNode.ChildCount = colNode.Children.Count;
             }
@@ -342,8 +354,11 @@ public partial class ExcelHandler
                 rowNode.Format["outlineLevel"] = (int)row.OutlineLevel.Value;
             if (row.Collapsed?.Value == true) rowNode.Format["collapsed"] = true;
             if (depth > 0)
+            {
+                var eval = new Core.FormulaEvaluator(data, _doc.WorkbookPart);
                 foreach (var c in row.Elements<Cell>())
-                    rowNode.Children.Add(CellToNode(sheetNameFromPath, c, worksheet));
+                    rowNode.Children.Add(CellToNode(sheetNameFromPath, c, worksheet, eval));
+            }
             return rowNode;
         }
 
@@ -468,6 +483,10 @@ public partial class ExcelHandler
                     if (rule.TimePeriod?.HasValue == true) cfNode.Format["period"] = rule.TimePeriod.InnerText;
                     if (rule.FormatId?.Value != null) cfNode.Format["dxfId"] = rule.FormatId.Value;
                 }
+
+                // Resolve dxfId to actual fill/font colors from the stylesheet
+                if (rule.FormatId?.Value != null)
+                    PopulateCfNodeFromDxf(cfNode, (int)rule.FormatId.Value);
             }
             return cfNode;
         }
@@ -542,8 +561,20 @@ public partial class ExcelHandler
             var pivotPart = pivotParts[ptIdx - 1];
             var ptNode = new DocumentNode { Path = path, Type = "pivottable" };
             if (pivotPart.PivotTableDefinition != null)
-                PivotTableHelper.ReadPivotTableProperties(pivotPart.PivotTableDefinition, ptNode);
+                PivotTableHelper.ReadPivotTableProperties(pivotPart.PivotTableDefinition, ptNode, pivotPart);
             return ptNode;
+        }
+
+        // Slicer path: /Sheet1/slicer[N]
+        var slicerMatch = Regex.Match(cellRef, @"^slicer\[(\d+)\]$", RegexOptions.IgnoreCase);
+        if (slicerMatch.Success)
+        {
+            var slIdx = int.Parse(slicerMatch.Groups[1].Value);
+            if (!TryFindSlicerByIndex(worksheet, slIdx, out var slicerElem, out var slicerCache) || slicerElem == null)
+                throw new ArgumentException($"slicer[{slIdx}] not found on sheet '{sheetNameFromPath}'");
+            var slNode = new DocumentNode { Path = path, Type = "slicer" };
+            ReadSlicerProperties(slicerElem, slicerCache, slNode);
+            return slNode;
         }
 
         // Comment path: /Sheet1/comment[N]
@@ -653,7 +684,27 @@ public partial class ExcelHandler
             ParseCellReference(cellRef);
             var cell = FindCell(data, cellRef);
             if (cell == null)
-                return new DocumentNode { Path = path, Type = "cell", Text = "(empty)", Preview = cellRef };
+            {
+                var emptyNode = new DocumentNode { Path = path, Type = "cell", Text = "(empty)", Preview = cellRef };
+                // Still check merge status for empty cells — they may be part of a merged range
+                if (worksheet != null)
+                {
+                    var mergeCells = GetSheet(worksheet).GetFirstChild<MergeCells>();
+                    if (mergeCells != null)
+                    {
+                        var mergeCell = mergeCells.Elements<MergeCell>()
+                            .FirstOrDefault(m => IsCellInMergeRange(cellRef, m.Reference?.Value));
+                        if (mergeCell != null)
+                        {
+                            var mergeRef = mergeCell.Reference?.Value ?? "";
+                            emptyNode.Format["merge"] = mergeRef;
+                            if (mergeRef.Split(':')[0].Equals(cellRef, StringComparison.OrdinalIgnoreCase))
+                                emptyNode.Format["mergeAnchor"] = true;
+                        }
+                    }
+                }
+                return emptyNode;
+            }
             return CellToNode(sheetNameFromPath, cell, worksheet);
         }
     }
@@ -673,7 +724,7 @@ public partial class ExcelHandler
         var elementMatch = Regex.Match(selectorForType, @"^(\w+)");
         var elementName = elementMatch.Success ? elementMatch.Groups[1].Value : "";
         bool isKnownType = string.IsNullOrEmpty(elementName)
-            || elementName is "cell" or "row" or "sheet" or "validation" or "comment" or "note" or "table" or "listobject" or "chart" or "pivottable" or "pivot" or "shape" or "picture" or "sparkline" or "namedrange" or "definedname" or "media" or "image"
+            || elementName is "cell" or "row" or "sheet" or "validation" or "comment" or "note" or "table" or "listobject" or "chart" or "pivottable" or "pivot" or "slicer" or "shape" or "picture" or "sparkline" or "namedrange" or "definedname" or "media" or "image"
             || (elementName.Length <= 3 && Regex.IsMatch(elementName, @"^[A-Z]+$", RegexOptions.IgnoreCase));
         if (!isKnownType)
         {
@@ -823,12 +874,47 @@ public partial class ExcelHandler
                     var node = new DocumentNode { Path = $"/{sheetName}/pivottable[{i + 1}]", Type = "pivottable" };
                     var pivotDef = pivotParts[i].PivotTableDefinition;
                     if (pivotDef != null)
-                        PivotTableHelper.ReadPivotTableProperties(pivotDef, node);
+                        PivotTableHelper.ReadPivotTableProperties(pivotDef, node, pivotParts[i]);
 
                     if (parsed.ValueContains != null)
                     {
                         var name = node.Format.TryGetValue("name", out var n) ? n?.ToString() : null;
                         if (name == null || !name.Contains(parsed.ValueContains, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                    }
+                    results.Add(node);
+                }
+            }
+            return results;
+        }
+
+        // Handle slicer queries
+        if (elementName == "slicer")
+        {
+            foreach (var (sheetName, worksheetPart) in GetWorksheets())
+            {
+                if (parsed.Sheet != null && !sheetName.Equals(parsed.Sheet, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var slicersPart = worksheetPart.GetPartsOfType<SlicersPart>().FirstOrDefault();
+                if (slicersPart?.Slicers == null) continue;
+
+                var slicers = slicersPart.Slicers.Elements<X14.Slicer>().ToList();
+                for (int i = 0; i < slicers.Count; i++)
+                {
+                    if (!TryFindSlicerByIndex(worksheetPart, i + 1, out var slElem, out var slCache) || slElem == null)
+                        continue;
+                    var node = new DocumentNode
+                    {
+                        Path = $"/{sheetName}/slicer[{i + 1}]",
+                        Type = "slicer"
+                    };
+                    ReadSlicerProperties(slElem, slCache, node);
+
+                    if (parsed.ValueContains != null)
+                    {
+                        var nm = node.Format.TryGetValue("name", out var n) ? n?.ToString() : null;
+                        if (nm == null || !nm.Contains(parsed.ValueContains, StringComparison.OrdinalIgnoreCase))
                             continue;
                     }
                     results.Add(node);
@@ -960,7 +1046,7 @@ public partial class ExcelHandler
                         if (part != null)
                         {
                             node.Format["contentType"] = part.ContentType;
-                            node.Format["size"] = part.GetStream().Length;
+                            node.Format["fileSize"] = part.GetStream().Length;
                         }
                     }
                     results.Add(node);
@@ -1012,13 +1098,14 @@ public partial class ExcelHandler
             var sheetData = GetSheet(worksheetPart).GetFirstChild<SheetData>();
             if (sheetData == null) continue;
 
+            var eval = new Core.FormulaEvaluator(sheetData, _doc.WorkbookPart);
             foreach (var row in sheetData.Elements<Row>())
             {
                 foreach (var cell in row.Elements<Cell>())
                 {
                     if (MatchesCellSelector(cell, sheetName, parsed))
                     {
-                        var node = CellToNode(sheetName, cell, worksheetPart);
+                        var node = CellToNode(sheetName, cell, worksheetPart, eval);
                         if (MatchesFormatAttributes(node, parsed))
                             results.Add(node);
                     }
@@ -1027,5 +1114,53 @@ public partial class ExcelHandler
         }
 
         return results;
+    }
+
+    // ==================== CF DXF resolution ====================
+
+    /// <summary>
+    /// Resolves a conditional formatting rule's dxfId to fill and font colors
+    /// from the workbook stylesheet, and populates the DocumentNode accordingly.
+    /// </summary>
+    private void PopulateCfNodeFromDxf(DocumentNode cfNode, int dxfId)
+    {
+        var stylesheet = _doc.WorkbookPart?.WorkbookStylesPart?.Stylesheet;
+        if (stylesheet == null) return;
+
+        var dxfs = stylesheet.GetFirstChild<DifferentialFormats>();
+        if (dxfs == null) return;
+
+        var dxfList = dxfs.Elements<DifferentialFormat>().ToList();
+        if (dxfId < 0 || dxfId >= dxfList.Count) return;
+
+        var dxf = dxfList[dxfId];
+
+        // Resolve fill color
+        var fill = dxf.GetFirstChild<Fill>();
+        if (fill != null)
+        {
+            var patternFill = fill.GetFirstChild<PatternFill>();
+            if (patternFill != null)
+            {
+                var bgColor = patternFill.GetFirstChild<BackgroundColor>();
+                if (bgColor?.Rgb?.Value != null)
+                    cfNode.Format["fill"] = ParseHelpers.FormatHexColor(bgColor.Rgb.Value);
+                else
+                {
+                    var fgColor = patternFill.GetFirstChild<ForegroundColor>();
+                    if (fgColor?.Rgb?.Value != null)
+                        cfNode.Format["fill"] = ParseHelpers.FormatHexColor(fgColor.Rgb.Value);
+                }
+            }
+        }
+
+        // Resolve font color
+        var font = dxf.GetFirstChild<Font>();
+        if (font != null)
+        {
+            var fontColor = font.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.Color>();
+            if (fontColor?.Rgb?.Value != null)
+                cfNode.Format["font.color"] = ParseHelpers.FormatHexColor(fontColor.Rgb.Value);
+        }
     }
 }

@@ -33,7 +33,7 @@ namespace OfficeCli.Core;
 ///   \alpha \beta \gamma \delta \pi \theta \sigma \omega \lambda \mu \epsilon
 ///   Single-char shorthand: H_2 x^2 (braces optional for single char)
 /// </summary>
-public static class FormulaParser
+internal static class FormulaParser
 {
     // ==================== LaTeX → OMML ====================
 
@@ -43,6 +43,9 @@ public static class FormulaParser
     {
         try
         {
+            // Preprocess: fix double-escaped backslashes (common AI/JSON over-escaping)
+            // \\frac → \frac, \\sqrt → \sqrt, etc. (only when \\ is directly followed by a letter)
+            latex = FixDoubleEscapedCommands(latex);
             // Preprocess: convert {a \over b} to \frac{a}{b}
             latex = RewriteOver(latex);
             var tokens = Tokenize(latex);
@@ -55,6 +58,35 @@ public static class FormulaParser
             throw new FormulaParseException(
                 $"Failed to parse formula: {ex.Message} {KatexDocsHint}", ex);
         }
+    }
+
+    /// <summary>
+    /// Fix double-escaped backslashes from AI/JSON over-escaping.
+    /// Converts \\cmd → \cmd when \\ is directly followed by a letter sequence.
+    /// Safe because \\letter is not valid LaTeX (line break immediately followed by
+    /// a bare word has no mathematical meaning). Legitimate usage like \\ \frac always
+    /// has a space between the line break and the next command.
+    /// </summary>
+    private static string FixDoubleEscapedCommands(string latex)
+    {
+        // Replace \\ followed directly by a letter with \ (single pass, left to right)
+        var sb = new System.Text.StringBuilder(latex.Length);
+        int i = 0;
+        while (i < latex.Length)
+        {
+            if (i + 2 < latex.Length && latex[i] == '\\' && latex[i + 1] == '\\' && char.IsLetter(latex[i + 2]))
+            {
+                // Collapse \\ to \ before the command
+                sb.Append('\\');
+                i += 2; // skip both backslashes, the letter will be consumed in the next iteration
+            }
+            else
+            {
+                sb.Append(latex[i]);
+                i++;
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>
@@ -135,21 +167,37 @@ public static class FormulaParser
                 var text = tElem?.InnerText ?? "";
                 // Check for math style in run properties (mathbf, mathrm, etc.)
                 var rPr = element.ChildElements.FirstOrDefault(e => e.LocalName == "rPr");
+                // Check for w:rPr with w:color (used by \color{})
+                var wRPr = element.ChildElements.FirstOrDefault(e =>
+                    e is DocumentFormat.OpenXml.Wordprocessing.RunProperties);
+                string? colorHex = null;
+                if (wRPr != null)
+                {
+                    var colorEl = wRPr.ChildElements.FirstOrDefault(e => e.LocalName == "color");
+                    colorHex = colorEl?.GetAttribute("val", "http://schemas.openxmlformats.org/wordprocessingml/2006/main").Value;
+                }
+                string result;
                 if (rPr != null)
                 {
                     var sty = rPr.ChildElements.FirstOrDefault(e => e.LocalName == "sty");
                     var styVal = sty?.GetAttribute("val", "http://schemas.openxmlformats.org/officeDocument/2006/math").Value;
                     var hasNor = rPr.ChildElements.Any(e => e.LocalName == "nor");
                     if (hasNor)
-                        return $"\\text{{{EscapeLatex(text)}}}";
-                    if (styVal == "b")
-                        return $"\\mathbf{{{EscapeLatex(text)}}}";
-                    if (styVal == "bi")
-                        return $"\\boldsymbol{{{EscapeLatex(text)}}}";
-                    if (styVal == "p")
-                        return $"\\mathrm{{{EscapeLatex(text)}}}";
+                        result = $"\\text{{{EscapeLatex(text)}}}";
+                    else if (styVal == "b")
+                        result = $"\\mathbf{{{EscapeLatex(text)}}}";
+                    else if (styVal == "bi")
+                        result = $"\\boldsymbol{{{EscapeLatex(text)}}}";
+                    else if (styVal == "p")
+                        result = $"\\mathrm{{{EscapeLatex(text)}}}";
+                    else
+                        result = EscapeLatex(text);
                 }
-                return EscapeLatex(text);
+                else
+                    result = EscapeLatex(text);
+                if (colorHex != null)
+                    result = $"\\textcolor{{#{colorHex}}}{{{result}}}";
+                return result;
             }
 
             case "sSub":
@@ -297,8 +345,40 @@ public static class FormulaParser
                 var matrixRows = element.ChildElements.Where(e => e.LocalName == "mr").ToList();
                 var rowStrings = matrixRows.Select(mr =>
                     string.Join(" & ", mr.ChildElements.Where(e => e.LocalName == "e").Select(ArgToLatex)));
-                // Detect delimiter wrapping from parent
-                return string.Join(" \\\\ ", rowStrings);
+                var content = string.Join(" \\\\ ", rowStrings);
+                // Standalone matrix (not inside a delimiter) needs environment wrapper
+                if (element.Parent?.LocalName != "e" || element.Parent?.Parent?.LocalName != "d")
+                    return $"\\begin{{matrix}}{content}\\end{{matrix}}";
+                return content;
+            }
+
+            case "borderBox":
+            {
+                var baseText = ArgToLatex(element.ChildElements.FirstOrDefault(e => e.LocalName == "e"));
+                var bbPr = element.ChildElements.FirstOrDefault(e => e.LocalName == "borderBoxPr");
+                var hasStrikeTLBR = bbPr?.ChildElements.Any(e => e.LocalName == "strikeTLBR") ?? false;
+                var hasStrikeBLTR = bbPr?.ChildElements.Any(e => e.LocalName == "strikeBLTR") ?? false;
+                var hasStrikeH = bbPr?.ChildElements.Any(e => e.LocalName == "strikeH") ?? false;
+                if (hasStrikeTLBR && hasStrikeBLTR)
+                    return $"\\cancel{{{baseText}}}"; // xcancel → KaTeX uses \cancel for visual
+                if (hasStrikeTLBR || hasStrikeBLTR || hasStrikeH)
+                    return $"\\cancel{{{baseText}}}";
+                return $"\\boxed{{{baseText}}}";
+            }
+
+            case "groupChr":
+            {
+                var baseText = ArgToLatex(element.ChildElements.FirstOrDefault(e => e.LocalName == "e"));
+                var gcPr = element.ChildElements.FirstOrDefault(e => e.LocalName == "groupChrPr");
+                var chrEl = gcPr?.ChildElements.FirstOrDefault(e => e.LocalName == "chr");
+                var chr = chrEl?.GetAttribute("val", "http://schemas.openxmlformats.org/officeDocument/2006/math").Value;
+                var posEl = gcPr?.ChildElements.FirstOrDefault(e => e.LocalName == "pos");
+                var pos = posEl?.GetAttribute("val", "http://schemas.openxmlformats.org/officeDocument/2006/math").Value;
+                if (chr == "\u23DF" || pos == "bot") // ⏟
+                    return $"\\underbrace{{{baseText}}}";
+                if (chr == "\u23DE" || pos == "top") // ⏞
+                    return $"\\overbrace{{{baseText}}}";
+                return baseText;
             }
 
             default:
@@ -802,9 +882,43 @@ public static class FormulaParser
                     if (pos < tokens.Count) pos++; // skip }
                 }
 
-                if (envName is "matrix" or "pmatrix" or "bmatrix" or "Bmatrix" or "vmatrix" or "cases")
+                if (envName is "matrix" or "pmatrix" or "bmatrix" or "Bmatrix" or "vmatrix" or "cases"
+                    or "array")
                 {
-                    return ParseMatrix(envName, tokens, ref pos);
+                    // For array, skip optional column spec like {cc}
+                    if (envName == "array" && pos < tokens.Count && tokens[pos].Type == TokenType.LBrace)
+                    {
+                        pos++; // skip {
+                        while (pos < tokens.Count && tokens[pos].Type != TokenType.RBrace) pos++;
+                        if (pos < tokens.Count) pos++; // skip }
+                    }
+                    var matrixResult = ParseMatrix(envName, tokens, ref pos);
+                    // array should render without implicit delimiters
+                    if (envName == "array" && matrixResult is M.Delimiter arrDelim)
+                    {
+                        var innerMatrix = arrDelim.GetFirstChild<M.Base>()?.GetFirstChild<M.Matrix>();
+                        if (innerMatrix != null)
+                            return innerMatrix.CloneNode(true);
+                    }
+                    return matrixResult;
+                }
+                if (envName is "align" or "align*" or "aligned" or "gathered" or "eqnarray"
+                    or "eqnarray*" or "split")
+                {
+                    // Multi-line equation environments mapped via matrix parser (m:m)
+                    // These use \\ for row breaks and & for alignment points
+                    var matrixEl = ParseMatrix(envName, tokens, ref pos);
+                    // ParseMatrix wraps some environments in a delimiter
+                    // For align/gathered, we want the raw m:m (matrix) without delimiters
+                    if (matrixEl is M.Delimiter delim)
+                    {
+                        // Extract the matrix from inside the delimiter
+                        var innerBase = delim.GetFirstChild<M.Base>();
+                        var innerMatrix = innerBase?.GetFirstChild<M.Matrix>();
+                        if (innerMatrix != null)
+                            return innerMatrix.CloneNode(true);
+                    }
+                    return matrixEl;
                 }
 
                 // Unknown environment, render as text
@@ -825,7 +939,23 @@ public static class FormulaParser
             {
                 // Get opening delimiter character from next token
                 var openChar = "(";
-                if (pos < tokens.Count && tokens[pos].Type == TokenType.Text)
+                if (pos < tokens.Count && tokens[pos].Type == TokenType.Command)
+                {
+                    // Handle \left\langle, \left\lfloor, \left\lceil, \left\lvert, \left\|
+                    var delimCmd = tokens[pos].Value;
+                    var mapped = delimCmd switch
+                    {
+                        "langle" => "\u27E8",
+                        "lceil" => "\u2308",
+                        "lfloor" => "\u230A",
+                        "lvert" => "|",
+                        "lVert" => "\u2016",
+                        "|" => "\u2016",
+                        _ => null
+                    };
+                    if (mapped != null) { openChar = mapped; pos++; }
+                }
+                else if (pos < tokens.Count && tokens[pos].Type == TokenType.Text)
                 {
                     openChar = tokens[pos].Value[..1];
                     if (tokens[pos].Value.Length > 1)
@@ -841,14 +971,30 @@ public static class FormulaParser
 
                 // Parse content until \right
                 var content = new List<OpenXmlElement>();
-                var closeChar = openChar switch { "(" => ")", "[" => "]", "{" => "}", "|" => "|", _ => ")" };
+                var closeChar = openChar switch { "(" => ")", "[" => "]", "{" => "}", "|" => "|", "\u27E8" => "\u27E9", "\u2308" => "\u2309", "\u230A" => "\u230B", "\u2016" => "\u2016", _ => ")" };
                 while (pos < tokens.Count)
                 {
                     if (tokens[pos].Type == TokenType.Command && tokens[pos].Value == "right")
                     {
                         pos++;
                         // Get closing delimiter character — capture the actual delimiter
-                        if (pos < tokens.Count && tokens[pos].Type == TokenType.Text)
+                        if (pos < tokens.Count && tokens[pos].Type == TokenType.Command)
+                        {
+                            // Handle \right\rangle, \right\rfloor, \right\rceil, etc.
+                            var rDelimCmd = tokens[pos].Value;
+                            var rMapped = rDelimCmd switch
+                            {
+                                "rangle" => "\u27E9",
+                                "rceil" => "\u2309",
+                                "rfloor" => "\u230B",
+                                "rvert" => "|",
+                                "rVert" => "\u2016",
+                                "|" => "\u2016",
+                                _ => null
+                            };
+                            if (rMapped != null) { closeChar = rMapped; pos++; }
+                        }
+                        else if (pos < tokens.Count && tokens[pos].Type == TokenType.Text)
                         {
                             closeChar = tokens[pos].Value[..1];
                             if (tokens[pos].Value.Length > 1)
@@ -1118,10 +1264,156 @@ public static class FormulaParser
             case "xcancel":
             case "cancelto":
             {
-                // Feynman slash notation: \cancel{D} → D followed by combining long solidus overlay (U+0338)
+                // Cancel/strikethrough: use m:borderBox with strike properties
+                // \cancelto{value}{expr} takes two args — we discard the target value
+                if (cmd is "cancelto")
+                    ParseBracedArg(tokens, ref pos); // skip target value
                 var cancelArg = ParseBracedArg(tokens, ref pos);
-                var cancelText = ExtractText(cancelArg);
-                return MakeMathRun(cancelText + "\u0338");
+                var bbPr = new M.BorderBoxProperties(
+                    new M.HideTop { Val = M.BooleanValues.True },
+                    new M.HideBottom { Val = M.BooleanValues.True },
+                    new M.HideLeft { Val = M.BooleanValues.True },
+                    new M.HideRight { Val = M.BooleanValues.True }
+                );
+                if (cmd is "cancel" or "cancelto")
+                    bbPr.AppendChild(new M.StrikeTopLeftToBottomRight { Val = M.BooleanValues.True });
+                else if (cmd is "bcancel")
+                    bbPr.AppendChild(new M.StrikeBottomLeftToTopRight { Val = M.BooleanValues.True });
+                else // xcancel — both diagonals
+                {
+                    bbPr.AppendChild(new M.StrikeTopLeftToBottomRight { Val = M.BooleanValues.True });
+                    bbPr.AppendChild(new M.StrikeBottomLeftToTopRight { Val = M.BooleanValues.True });
+                }
+                return new M.BorderBox(bbPr, new M.Base(ExtractChildren(cancelArg)));
+            }
+            case "boxed":
+            {
+                // \boxed{expr} → m:borderBox (all four sides)
+                var arg = ParseBracedArg(tokens, ref pos);
+                return new M.BorderBox(
+                    new M.BorderBoxProperties(),
+                    new M.Base(ExtractChildren(arg))
+                );
+            }
+            case "underbrace":
+            {
+                // \underbrace{expr}_{label} → m:groupChr with ⏟ below
+                var arg = ParseBracedArg(tokens, ref pos);
+                var groupChr = new M.GroupChar(
+                    new M.GroupCharProperties(
+                        new M.AccentChar { Val = "\u23DF" },
+                        new M.Position { Val = M.VerticalJustificationValues.Bottom }
+                    ),
+                    new M.Base(ExtractChildren(arg))
+                );
+                // Check for subscript label
+                if (pos < tokens.Count && tokens[pos].Type == TokenType.Sub)
+                {
+                    pos++;
+                    var label = ParseSingleArg(tokens, ref pos);
+                    return new M.LimitLower(
+                        new M.LimitLowerProperties(),
+                        new M.Base(groupChr),
+                        new M.Limit(ExtractChildren(label))
+                    );
+                }
+                return groupChr;
+            }
+            case "overbrace":
+            {
+                // \overbrace{expr}^{label} → m:groupChr with ⏞ above
+                var arg = ParseBracedArg(tokens, ref pos);
+                var groupChr = new M.GroupChar(
+                    new M.GroupCharProperties(
+                        new M.AccentChar { Val = "\u23DE" },
+                        new M.Position { Val = M.VerticalJustificationValues.Top }
+                    ),
+                    new M.Base(ExtractChildren(arg))
+                );
+                // Check for superscript label
+                if (pos < tokens.Count && tokens[pos].Type == TokenType.Sup)
+                {
+                    pos++;
+                    var label = ParseSingleArg(tokens, ref pos);
+                    return new M.LimitUpper(
+                        new M.LimitUpperProperties(),
+                        new M.Base(groupChr),
+                        new M.Limit(ExtractChildren(label))
+                    );
+                }
+                return groupChr;
+            }
+            case "color":
+            case "textcolor":
+            {
+                // \color{red}{expr} / \textcolor{red}{expr} → preserve math structure, apply color to all runs
+                var colorArg = ParseBracedArg(tokens, ref pos);
+                var colorName = ExtractText(colorArg);
+                var contentArg = ParseBracedArg(tokens, ref pos);
+                var colorHex = NamedColorToHex(colorName);
+                ApplyColorToRuns(contentArg, colorHex);
+                return contentArg;
+            }
+            case "pmod":
+            {
+                // \pmod{n} → (mod n) with upright "mod"
+                var arg = ParseBracedArg(tokens, ref pos);
+                var modRun = new M.Run(
+                    new M.RunProperties(new M.NormalText()),
+                    new M.Text("mod") { Space = SpaceProcessingModeValues.Preserve }
+                );
+                var spaceRun = MakeMathRun("\u2003");
+                var baseChildren = new List<OpenXmlElement> { modRun, spaceRun };
+                baseChildren.AddRange(ExtractChildren(arg));
+                var delimiter = new M.Delimiter(
+                    new M.DelimiterProperties(),
+                    new M.Base(baseChildren)
+                );
+                return delimiter;
+            }
+            case "bmod":
+            {
+                // \bmod → upright "mod" (binary operator form)
+                return new M.Run(
+                    new M.RunProperties(new M.NormalText()),
+                    new M.Text("\u2003mod\u2003") { Space = SpaceProcessingModeValues.Preserve }
+                );
+            }
+            case "arcsin" or "arccos" or "arctan" or "arccot" or "arcsec" or "arccsc":
+            {
+                // Arc-trig functions: render upright like \sin, \cos, etc.
+                var funcRun = new M.Run(
+                    new M.RunProperties(new M.NormalText()),
+                    new M.Text(cmd) { Space = SpaceProcessingModeValues.Preserve }
+                );
+                return funcRun;
+            }
+            case "operatorname":
+            {
+                // \operatorname{name} → upright function name with limit support
+                var arg = ParseBracedArg(tokens, ref pos);
+                var opText = ExtractText(arg);
+                OpenXmlElement result = new M.Run(
+                    new M.RunProperties(new M.NormalText()),
+                    new M.Text(opText) { Space = SpaceProcessingModeValues.Preserve }
+                );
+                // Parse sub/superscript limits (like \lim)
+                OpenXmlElement? subArg = null, supArg = null;
+                for (var i = 0; i < 2 && pos < tokens.Count; i++)
+                {
+                    if (tokens[pos].Type == TokenType.Sub && subArg == null)
+                    { pos++; subArg = ParseSingleArg(tokens, ref pos); }
+                    else if (tokens[pos].Type == TokenType.Sup && supArg == null)
+                    { pos++; supArg = ParseSingleArg(tokens, ref pos); }
+                    else break;
+                }
+                if (subArg != null)
+                    result = new M.LimitLower(new M.LimitLowerProperties(),
+                        new M.Base(result), new M.Limit(ExtractChildren(subArg)));
+                if (supArg != null)
+                    result = new M.LimitUpper(new M.LimitUpperProperties(),
+                        new M.Base(result), new M.Limit(ExtractChildren(supArg)));
+                return result;
             }
 
             default:
@@ -1296,11 +1588,62 @@ public static class FormulaParser
         return math;
     }
 
+    private static void ApplyColorToRuns(OpenXmlElement element, string colorHex)
+    {
+        if (element is M.Run run)
+        {
+            var rPr = run.GetFirstChild<DocumentFormat.OpenXml.Wordprocessing.RunProperties>();
+            if (rPr == null)
+            {
+                rPr = new DocumentFormat.OpenXml.Wordprocessing.RunProperties();
+                run.InsertAt(rPr, 0);
+            }
+            rPr.Color = new DocumentFormat.OpenXml.Wordprocessing.Color { Val = colorHex };
+            return;
+        }
+        foreach (var child in element.ChildElements)
+            ApplyColorToRuns(child, colorHex);
+    }
+
     private static OpenXmlElement[] ExtractChildren(OpenXmlElement element)
     {
         if (element is M.OfficeMath math)
             return math.ChildElements.Select(e => e.CloneNode(true)).ToArray();
         return new[] { element.CloneNode(true) };
+    }
+
+    private static string NamedColorToHex(string color)
+    {
+        // Strip # prefix if present, return 6-digit hex
+        color = color.Trim().TrimStart('#');
+        if (color.Length == 6 && color.All(c => "0123456789ABCDEFabcdef".Contains(c)))
+            return color.ToUpperInvariant();
+        return color.ToLowerInvariant() switch
+        {
+            "red" => "FF0000",
+            "blue" => "0000FF",
+            "green" => "008000",
+            "black" => "000000",
+            "white" => "FFFFFF",
+            "orange" => "FF8C00",
+            "purple" => "800080",
+            "brown" => "8B4513",
+            "gray" or "grey" => "808080",
+            "cyan" => "00FFFF",
+            "magenta" => "FF00FF",
+            "yellow" => "FFD700",
+            "darkred" => "8B0000",
+            "darkblue" => "00008B",
+            "darkgreen" => "006400",
+            "lightblue" => "ADD8E6",
+            "lightgreen" => "90EE90",
+            "pink" => "FFC0CB",
+            "teal" => "008080",
+            "navy" => "000080",
+            "maroon" => "800000",
+            "olive" => "808000",
+            _ => "000000"
+        };
     }
 
     private static string ExtractText(OpenXmlElement element)
@@ -1398,9 +1741,32 @@ public static class FormulaParser
         "ldots" => "…",
         "vdots" => "⋮",
         "ddots" => "⋱",
+        // Delimiters (when used standalone, not with \left/\right)
+        "langle" => "\u27E8",     // ⟨ mathematical left angle bracket
+        "rangle" => "\u27E9",     // ⟩ mathematical right angle bracket
+        "lceil" => "\u2308",      // ⌈ left ceiling
+        "rceil" => "\u2309",      // ⌉ right ceiling
+        "lfloor" => "\u230A",     // ⌊ left floor
+        "rfloor" => "\u230B",     // ⌋ right floor
+        "lvert" => "|",
+        "rvert" => "|",
+        "lVert" => "\u2016",      // ‖ double vertical line
+        "rVert" => "\u2016",
+        "vert" => "|",
+        "Vert" => "\u2016",
+        // Set notation
+        "emptyset" => "∅",
+        "varnothing" => "∅",
+        "setminus" => "∖",
+        "complement" => "∁",
+        "cap" => "∩",
+        "cup" => "∪",
         // Spacing
         "quad" => "\u2003",    // em space
         "qquad" => "\u2003\u2003", // double em space
+        "," => "\u2009",       // thin space
+        ";" => "\u2005",       // medium mathematical space
+        "!" => "",             // negative thin space (approximate with nothing)
         // Greek lowercase
         "alpha" => "α",
         "beta" => "β",
@@ -1484,7 +1850,7 @@ public static class FormulaParser
 /// <summary>
 /// Exception thrown when FormulaParser fails to parse a LaTeX formula.
 /// </summary>
-public class FormulaParseException : Exception
+internal class FormulaParseException : Exception
 {
     public FormulaParseException(string message, Exception innerException)
         : base(message, innerException) { }

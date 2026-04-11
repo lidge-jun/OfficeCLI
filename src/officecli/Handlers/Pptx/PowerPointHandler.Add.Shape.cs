@@ -30,13 +30,8 @@ public partial class PowerPointHandler
                     ?? throw new InvalidOperationException("Slide has no shape tree");
 
                 var text = properties.GetValueOrDefault("text", "");
-                // Use max existing ID + 1 to avoid collisions after element deletion
-                var maxExistingId = shapeTree.ChildElements
-                    .Select(e => e.Descendants<NonVisualDrawingProperties>().FirstOrDefault()?.Id?.Value ?? 0)
-                    .DefaultIfEmpty(1U)
-                    .Max();
-                var shapeId = maxExistingId + 1;
-                var shapeName = properties.GetValueOrDefault("name", $"TextBox {shapeId}");
+                var shapeId = GenerateUniqueShapeId(shapeTree);
+                var shapeName = properties.GetValueOrDefault("name", $"TextBox {shapeTree.Elements<Shape>().Count() + 1}");
 
                 // Auto-add !! prefix if the slide (or the next slide) has a morph transition
                 if (!shapeName.StartsWith("!!") && !shapeName.StartsWith("TextBox ") && !shapeName.StartsWith("Content ") && shapeName != "")
@@ -238,8 +233,7 @@ public partial class PowerPointHandler
                 // Position and size (in EMU, 1cm = 360000 EMU; or parse as cm/in)
                 {
                     long xEmu = 0, yEmu = 0;
-                    var (titleSlideW, _) = GetSlideSize();
-                    long cxEmu = titleSlideW, cyEmu = 1800000; // default: slide width x 5cm
+                    long cxEmu = 3600000, cyEmu = 1800000; // default: 10cm x 5cm (avoid full-slide overlap when width unspecified)
                     if (properties.TryGetValue("x", out var xStr) || properties.TryGetValue("left", out xStr)) xEmu = ParseEmu(xStr);
                     if (properties.TryGetValue("y", out var yStr) || properties.TryGetValue("top", out yStr)) yEmu = ParseEmu(yStr);
                     if (properties.TryGetValue("width", out var wStr) || properties.TryGetValue("w", out wStr))
@@ -347,7 +341,7 @@ public partial class PowerPointHandler
                     }
                 }
 
-                shapeTree.AppendChild(newShape);
+                InsertAtPosition(shapeTree, newShape, index);
 
                 // Hyperlink on shape
                 if (properties.TryGetValue("link", out var linkVal))
@@ -378,8 +372,7 @@ public partial class PowerPointHandler
                     ApplyShapeAnimation(slidePart, newShape, animVal);
 
                 GetSlide(slidePart).Save();
-                var shapeCount = shapeTree.Elements<Shape>().Count();
-                return $"/slide[{slideIdx}]/shape[{shapeCount}]";
+                return $"/slide[{slideIdx}]/{BuildElementPathSegment("shape", newShape, shapeTree.Elements<Shape>().Count())}";
     }
 
 

@@ -17,7 +17,7 @@ public partial class WordHandler
 {
     // ==================== Table Rendering ====================
 
-    private void RenderTableHtml(StringBuilder sb, Table table)
+    private void RenderTableHtml(StringBuilder sb, Table table, string? dataPath = null)
     {
         // Check table-level borders to determine if this is a borderless layout table
         // First try direct table borders, then fall back to table style borders
@@ -78,14 +78,29 @@ public partial class WordHandler
             }
         }
 
+        // Table width: explicit tblW, or 100% of page content area
+        var tblW = tblPr?.TableWidth;
+        if (tblW?.Type?.InnerText == "dxa" && int.TryParse(tblW.Width?.Value, out var twW) && twW > 0)
+        {
+            tableStyles.Add($"width:{twW / 20.0:0.##}pt");
+        }
+        else
+        {
+            // Default: fill available page width (Word auto-fit behavior)
+            tableStyles.Add("width:100%");
+        }
+
         var tableClass = tableBordersNone ? "borderless" : "";
         var tableStyleAttr = tableStyles.Count > 0 ? $" style=\"{string.Join(";", tableStyles)}\"" : "";
+        var dataPathAttr = !string.IsNullOrEmpty(dataPath) ? $" data-path=\"{dataPath}\"" : "";
         if (!string.IsNullOrEmpty(tableClass))
-            sb.AppendLine($"<table class=\"{tableClass}\"{tableStyleAttr}>");
+            sb.AppendLine($"<table class=\"{tableClass}\"{dataPathAttr}{tableStyleAttr}>");
         else
-            sb.AppendLine($"<table{tableStyleAttr}>");
+            sb.AppendLine($"<table{dataPathAttr}{tableStyleAttr}>");
 
         // Get column widths from grid
+        // tblLayout=fixed → use fixed col widths; auto/missing → let browser auto-fit by content
+        var isFixedLayout = tblPr?.TableLayout?.Type?.InnerText == "fixed";
         var tblGrid = table.GetFirstChild<TableGrid>();
         if (tblGrid != null)
         {
@@ -93,7 +108,7 @@ public partial class WordHandler
             foreach (var col in tblGrid.Elements<GridColumn>())
             {
                 var w = col.Width?.Value;
-                if (w != null)
+                if (w != null && isFixedLayout)
                 {
                     var pt = double.Parse(w, System.Globalization.CultureInfo.InvariantCulture) / 20.0; // twips to pt
                     sb.Append($"<col style=\"width:{pt:0.##}pt\">");

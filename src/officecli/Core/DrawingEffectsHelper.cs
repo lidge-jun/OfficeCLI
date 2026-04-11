@@ -11,7 +11,7 @@ namespace OfficeCli.Core;
 /// Used by both PPTX and Excel handlers to avoid code duplication.
 /// Word uses a different namespace (w14) and has its own implementation.
 /// </summary>
-public static class DrawingEffectsHelper
+internal static class DrawingEffectsHelper
 {
     /// <summary>
     /// Build an OuterShadow element from a value string.
@@ -94,9 +94,10 @@ public static class DrawingEffectsHelper
     /// </summary>
     public static Drawing.SoftEdge BuildSoftEdge(string value)
     {
-        if (!double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var radiusPt)
-            || double.IsNaN(radiusPt) || double.IsInfinity(radiusPt))
-            throw new ArgumentException($"Invalid 'softedge' value '{value}'. Expected a numeric radius in points.");
+        var numStr = value.EndsWith("pt", StringComparison.OrdinalIgnoreCase) ? value[..^2].Trim() : value;
+        if (!double.TryParse(numStr, System.Globalization.CultureInfo.InvariantCulture, out var radiusPt)
+            || double.IsNaN(radiusPt) || double.IsInfinity(radiusPt) || radiusPt < 0)
+            throw new ArgumentException($"Invalid 'softedge' value '{value}'. Expected a finite non-negative numeric radius in points.");
         return new Drawing.SoftEdge { Radius = (long)(radiusPt * 12700) };
     }
 

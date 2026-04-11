@@ -16,6 +16,7 @@ public partial class PowerPointHandler
 {
     private string AddSlide(string parentPath, int? index, Dictionary<string, string> properties)
     {
+                properties ??= new Dictionary<string, string>();
                 var presentationPart = _doc.PresentationPart
                     ?? throw new InvalidOperationException("Presentation not found");
                 var presentation = presentationPart.Presentation

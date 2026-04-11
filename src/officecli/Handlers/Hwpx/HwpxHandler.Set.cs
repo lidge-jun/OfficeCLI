@@ -835,6 +835,14 @@ public partial class HwpxHandler
             // Update this run to point to the clone
             run.SetAttributeValue("charPrIDRef", newId.ToString());
             charPr = cloned;
+
+            // Update itemCnt on the parent <hh:charProperties> container
+            var container = charPr.Parent;
+            if (container != null)
+            {
+                var count = container.Elements(HwpxNs.Hh + "charPr").Count();
+                container.SetAttributeValue("itemCnt", count.ToString());
+            }
         }
 
         // Apply the property to the charPr

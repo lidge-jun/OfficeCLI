@@ -5,10 +5,11 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Text;
 using OfficeCli.Core;
+using OfficeCli.Handlers;
 
 namespace OfficeCli;
 
-static class CommandBuilder
+static partial class CommandBuilder
 {
     public static RootCommand BuildRootCommand()
     {
@@ -112,64 +113,6 @@ static class CommandBuilder
 
         rootCommand.Add(closeCommand);
 
-        // ==================== watch command ====================
-        var watchFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.pptx, .xlsx, .docx)" };
-        var watchPortOpt = new Option<int>("--port") { Description = "HTTP port for preview server" };
-        watchPortOpt.DefaultValueFactory = _ => 18080;
-
-        var watchCommand = new Command("watch", "Start a live preview server that auto-refreshes when the document changes");
-        watchCommand.Add(watchFileArg);
-        watchCommand.Add(watchPortOpt);
-
-        watchCommand.SetAction(result => SafeRun(() =>
-        {
-            var file = result.GetValue(watchFileArg)!;
-            var port = result.GetValue(watchPortOpt);
-
-            // Render initial HTML from existing file content
-            string? initialHtml = null;
-            if (file.Exists)
-            {
-                try
-                {
-                    using var handler = DocumentHandlerFactory.Open(file.FullName, editable: false);
-                    if (handler is OfficeCli.Handlers.PowerPointHandler ppt)
-                        initialHtml = ppt.ViewAsHtml();
-                    else if (handler is OfficeCli.Handlers.ExcelHandler excel)
-                        initialHtml = excel.ViewAsHtml();
-                    else if (handler is OfficeCli.Handlers.WordHandler word)
-                        initialHtml = word.ViewAsHtml();
-                }
-                catch { /* ignore — will show waiting page */ }
-            }
-
-            using var cts = new CancellationTokenSource();
-            Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-
-            using var watch = new WatchServer(file.FullName, port, initialHtml: initialHtml);
-            watch.RunAsync(cts.Token).GetAwaiter().GetResult();
-            return 0;
-        }));
-
-        rootCommand.Add(watchCommand);
-
-        // ==================== unwatch command ====================
-        var unwatchFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.pptx, .xlsx, .docx)" };
-        var unwatchCommand = new Command("unwatch", "Stop the watch preview server for the document");
-        unwatchCommand.Add(unwatchFileArg);
-
-        unwatchCommand.SetAction(result => SafeRun(() =>
-        {
-            var file = result.GetValue(unwatchFileArg)!;
-            if (WatchNotifier.SendClose(file.FullName))
-                Console.WriteLine($"Watch stopped for {file.Name}");
-            else
-                Console.Error.WriteLine($"No watch running for {file.Name}");
-            return 0;
-        }));
-
-        rootCommand.Add(unwatchCommand);
-
         // ==================== __resident-serve__ (internal, hidden) ====================
         var serveFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
         var serveCommand = new Command("__resident-serve__", "Internal: run resident server (do not call directly)");
@@ -185,1273 +128,29 @@ static class CommandBuilder
 
         rootCommand.Add(serveCommand);
 
-        // ==================== view command ====================
-        var viewFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.docx, .xlsx, .pptx)" };
-        var viewModeArg = new Argument<string>("mode") { Description = "View mode: text, annotated, outline, stats, issues, html, svg, forms" };
-        var startLineOpt = new Option<int?>("--start") { Description = "Start line/paragraph number" };
-        var endLineOpt = new Option<int?>("--end") { Description = "End line/paragraph number" };
-        var maxLinesOpt = new Option<int?>("--max-lines") { Description = "Maximum number of lines/rows/slides to output (truncates with total count)" };
-        var issueTypeOpt = new Option<string?>("--type") { Description = "Issue type filter: format, content, structure" };
-        var limitOpt = new Option<int?>("--limit") { Description = "Limit number of results" };
-
-        var colsOpt = new Option<string?>("--cols") { Description = "Column filter, comma-separated (Excel only, e.g. A,B,C)" };
-        var browserOpt = new Option<bool>("--browser") { Description = "Open HTML output in browser (html mode only)" };
-
-        var viewCommand = new Command("view", "View document in different modes");
-        viewCommand.Add(viewFileArg);
-        viewCommand.Add(viewModeArg);
-        viewCommand.Add(startLineOpt);
-        viewCommand.Add(endLineOpt);
-        viewCommand.Add(maxLinesOpt);
-        viewCommand.Add(issueTypeOpt);
-        viewCommand.Add(limitOpt);
-        viewCommand.Add(colsOpt);
-        viewCommand.Add(browserOpt);
-        viewCommand.Add(jsonOption);
-
-        viewCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(viewFileArg)!;
-            var mode = result.GetValue(viewModeArg)!;
-            var start = result.GetValue(startLineOpt);
-            var end = result.GetValue(endLineOpt);
-            var maxLines = result.GetValue(maxLinesOpt);
-            var issueType = result.GetValue(issueTypeOpt);
-            var limit = result.GetValue(limitOpt);
-            var colsStr = result.GetValue(colsOpt);
-            var browser = result.GetValue(browserOpt);
-
-            // Try resident first
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "view";
-                req.Json = json;
-                req.Args["mode"] = mode;
-                if (start.HasValue) req.Args["start"] = start.Value.ToString();
-                if (end.HasValue) req.Args["end"] = end.Value.ToString();
-                if (maxLines.HasValue) req.Args["max-lines"] = maxLines.Value.ToString();
-                if (issueType != null) req.Args["type"] = issueType;
-                if (limit.HasValue) req.Args["limit"] = limit.Value.ToString();
-                if (colsStr != null) req.Args["cols"] = colsStr;
-                if (browser) req.Args["browser"] = "true";
-            }, json) is {} rc) return rc;
-
-            var format = json ? OutputFormat.Json : OutputFormat.Text;
-            var cols = colsStr != null ? new HashSet<string>(colsStr.Split(',').Select(c => c.Trim().ToUpperInvariant())) : null;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName);
-
-            if (mode.ToLowerInvariant() is "html" or "h")
-            {
-                string? html = null;
-                if (handler is OfficeCli.Handlers.PowerPointHandler pptHandler)
-                    html = pptHandler.ViewAsHtml(start, end);
-                else if (handler is OfficeCli.Handlers.ExcelHandler excelHandler)
-                    html = excelHandler.ViewAsHtml();
-                else if (handler is OfficeCli.Handlers.WordHandler wordHandler)
-                    html = wordHandler.ViewAsHtml();
-
-                if (html != null)
-                {
-                    if (browser)
-                    {
-                        // --browser: write to temp file and open in browser
-                        var htmlPath = Path.Combine(Path.GetTempPath(), $"officecli_preview_{Path.GetFileNameWithoutExtension(file.Name)}_{DateTime.Now:HHmmss}.html");
-                        File.WriteAllText(htmlPath, html);
-                        Console.WriteLine(htmlPath);
-                        try
-                        {
-                            var psi = new System.Diagnostics.ProcessStartInfo(htmlPath) { UseShellExecute = true };
-                            System.Diagnostics.Process.Start(psi);
-                        }
-                        catch { /* silently ignore if browser can't be opened */ }
-                    }
-                    else
-                    {
-                        // Default: output HTML to stdout
-                        Console.Write(html);
-                    }
-                }
-                else
-                {
-                    throw new OfficeCli.Core.CliException("HTML preview is only supported for .pptx, .xlsx, and .docx files.")
-                    {
-                        Code = "unsupported_type",
-                        Suggestion = "Use a .pptx, .xlsx, or .docx file, or use mode 'text' or 'annotated' for other formats.",
-                        ValidValues = ["text", "annotated", "outline", "stats", "issues"]
-                    };
-                }
-                return 0;
-            }
-
-            if (mode.ToLowerInvariant() is "svg" or "g")
-            {
-                if (handler is OfficeCli.Handlers.PowerPointHandler pptSvgHandler)
-                {
-                    var slideNum = start ?? 1;
-                    var svg = pptSvgHandler.ViewAsSvg(slideNum);
-
-                    if (browser)
-                    {
-                        string outPath;
-                        if (svg.Contains("data-formula"))
-                        {
-                            // Wrap SVG in HTML shell for KaTeX formula rendering
-                            outPath = Path.Combine(Path.GetTempPath(), $"officecli_slide{slideNum}_{Path.GetFileNameWithoutExtension(file.Name)}_{DateTime.Now:HHmmss}.html");
-                            var html = $"<!DOCTYPE html><html><head><meta charset='UTF-8'><link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css'><script defer src='https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js'></script><style>body{{margin:0;display:flex;justify-content:center;background:#f0f0f0}}</style></head><body>{svg}<script>window.addEventListener('load',function(){{document.querySelectorAll('[data-formula]').forEach(function(el){{try{{katex.render(el.getAttribute('data-formula'),el,{{throwOnError:false,displayMode:true}})}}catch(e){{}}}})}})</script></body></html>";
-                            File.WriteAllText(outPath, html);
-                        }
-                        else
-                        {
-                            outPath = Path.Combine(Path.GetTempPath(), $"officecli_slide{slideNum}_{Path.GetFileNameWithoutExtension(file.Name)}_{DateTime.Now:HHmmss}.svg");
-                            File.WriteAllText(outPath, svg);
-                        }
-                        Console.WriteLine(outPath);
-                        try
-                        {
-                            var psi = new System.Diagnostics.ProcessStartInfo(outPath) { UseShellExecute = true };
-                            System.Diagnostics.Process.Start(psi);
-                        }
-                        catch { /* silently ignore if browser can't be opened */ }
-                    }
-                    else
-                    {
-                        Console.Write(svg);
-                    }
-                }
-                else
-                {
-                    throw new OfficeCli.Core.CliException("SVG preview is only supported for .pptx files.")
-                    {
-                        Code = "unsupported_type",
-                        Suggestion = "Use a .pptx file, or use mode 'text' or 'annotated' for other formats.",
-                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg"]
-                    };
-                }
-                return 0;
-            }
-
-            if (json)
-            {
-                // Structured JSON output — no Content string wrapping
-                var modeKey = mode.ToLowerInvariant();
-                if (modeKey is "stats" or "s")
-                    Console.WriteLine(OutputFormatter.WrapEnvelope(handler.ViewAsStatsJson().ToJsonString(OutputFormatter.PublicJsonOptions)));
-                else if (modeKey is "outline" or "o")
-                    Console.WriteLine(OutputFormatter.WrapEnvelope(handler.ViewAsOutlineJson().ToJsonString(OutputFormatter.PublicJsonOptions)));
-                else if (modeKey is "text" or "t")
-                    Console.WriteLine(OutputFormatter.WrapEnvelope(handler.ViewAsTextJson(start, end, maxLines, cols).ToJsonString(OutputFormatter.PublicJsonOptions)));
-                else if (modeKey is "annotated" or "a")
-                    Console.WriteLine(OutputFormatter.WrapEnvelope(
-                        OutputFormatter.FormatView(mode, handler.ViewAsAnnotated(start, end, maxLines, cols), OutputFormat.Json)));
-                else if (modeKey is "issues" or "i")
-                    Console.WriteLine(OutputFormatter.WrapEnvelope(
-                        OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), OutputFormat.Json)));
-                else if (modeKey is "forms" or "f")
-                {
-                    if (handler is OfficeCli.Handlers.WordHandler wordFormsHandler)
-                        Console.WriteLine(OutputFormatter.WrapEnvelope(wordFormsHandler.ViewAsFormsJson().ToJsonString(OutputFormatter.PublicJsonOptions)));
-                    else
-                        throw new OfficeCli.Core.CliException("Forms view is only supported for .docx files.")
-                        {
-                            Code = "unsupported_type",
-                            ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg", "forms"]
-                        };
-                }
-                else
-                    throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html, svg, forms")
-                    {
-                        Code = "invalid_value",
-                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg", "forms"]
-                    };
-            }
-            else
-            {
-                var output = mode.ToLowerInvariant() switch
-                {
-                    "text" or "t" => handler.ViewAsText(start, end, maxLines, cols),
-                    "annotated" or "a" => handler.ViewAsAnnotated(start, end, maxLines, cols),
-                    "outline" or "o" => handler.ViewAsOutline(),
-                    "stats" or "s" => handler.ViewAsStats(),
-                    "issues" or "i" => OutputFormatter.FormatIssues(handler.ViewAsIssues(issueType, limit), OutputFormat.Text),
-                    "forms" or "f" => handler is OfficeCli.Handlers.WordHandler wfh
-                        ? wfh.ViewAsForms()
-                        : throw new OfficeCli.Core.CliException("Forms view is only supported for .docx files.")
-                        {
-                            Code = "unsupported_type",
-                            ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg", "forms"]
-                        },
-                    _ => throw new OfficeCli.Core.CliException($"Unknown mode: {mode}. Available: text, annotated, outline, stats, issues, html, svg, forms")
-                    {
-                        Code = "invalid_value",
-                        ValidValues = ["text", "annotated", "outline", "stats", "issues", "html", "svg", "forms"]
-                    }
-                };
-                Console.WriteLine(output);
-            }
-            return 0;
-        }, json); });
-
-        rootCommand.Add(viewCommand);
-
-        // ==================== get command ====================
-        var getFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var pathArg = new Argument<string>("path") { Description = "DOM path (e.g. /body/p[1])" };
-        pathArg.DefaultValueFactory = _ => "/";
-        var depthOpt = new Option<int>("--depth") { Description = "Depth of child nodes to include" };
-        depthOpt.DefaultValueFactory = _ => 1;
-
-        var getCommand = new Command("get", "Get a document node by path");
-        getCommand.Add(getFileArg);
-        getCommand.Add(pathArg);
-        getCommand.Add(depthOpt);
-        getCommand.Add(jsonOption);
-
-        getCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(getFileArg)!;
-            var path = result.GetValue(pathArg)!;
-            var depth = result.GetValue(depthOpt);
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "get";
-                req.Json = json;
-                req.Args["path"] = path;
-                req.Args["depth"] = depth.ToString();
-            }, json) is {} rc) return rc;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName);
-            var node = handler.Get(path, depth);
-            if (json)
-                Console.WriteLine(OutputFormatter.WrapEnvelope(
-                    OutputFormatter.FormatNode(node, OutputFormat.Json)));
-            else
-                Console.WriteLine(OutputFormatter.FormatNode(node, OutputFormat.Text));
-            return 0;
-        }, json); });
-
-        rootCommand.Add(getCommand);
-
-        // ==================== query command ====================
-        var queryFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var selectorArg = new Argument<string>("selector") { Description = "CSS-like selector (e.g. paragraph[style=Normal] > run[font!=Arial])" };
-
-        var queryTextOpt = new Option<string?>("--text") { Description = "Filter results to elements containing this text (case-insensitive)" };
-
-        var queryCommand = new Command("query", "Query document elements with CSS-like selectors");
-        queryCommand.Add(queryFileArg);
-        queryCommand.Add(selectorArg);
-        queryCommand.Add(jsonOption);
-        queryCommand.Add(queryTextOpt);
-
-        queryCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(queryFileArg)!;
-            var selector = result.GetValue(selectorArg)!;
-            var textFilter = result.GetValue(queryTextOpt);
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "query";
-                req.Json = json;
-                req.Args["selector"] = selector;
-                if (textFilter != null) req.Args["text"] = textFilter;
-            }, json) is {} rc) return rc;
-
-            var format = json ? OutputFormat.Json : OutputFormat.Text;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName);
-            var filters = OfficeCli.Core.AttributeFilter.Parse(selector);
-            var (results, warnings) = OfficeCli.Core.AttributeFilter.ApplyWithWarnings(handler.Query(selector), filters);
-            if (!string.IsNullOrEmpty(textFilter))
-                results = results.Where(n => n.Text != null && n.Text.Contains(textFilter, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (json)
-            {
-                var cliWarnings = warnings.Select(w => new OfficeCli.Core.CliWarning { Message = w, Code = "filter_warning" }).ToList();
-                Console.WriteLine(OutputFormatter.WrapEnvelope(
-                    OutputFormatter.FormatNodes(results, OutputFormat.Json),
-                    cliWarnings.Count > 0 ? cliWarnings : null));
-            }
-            else
-            {
-                foreach (var w in warnings) Console.Error.WriteLine(w);
-                Console.WriteLine(OutputFormatter.FormatNodes(results, OutputFormat.Text));
-            }
-            return 0;
-        }, json); });
-
-        rootCommand.Add(queryCommand);
-
-        // ==================== set command ====================
-        var forceOption = new Option<bool>("--force") { Description = "Force write even if document is protected" };
-        var setFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var setPathArg = new Argument<string>("path") { Description = "DOM path to the element" };
-        var propsOpt = new Option<string[]>("--prop") { Description = "Property to set (key=value)", AllowMultipleArgumentsPerToken = true };
-
-        var setCommand = new Command("set", "Modify a document node's properties") { TreatUnmatchedTokensAsErrors = false };
-        setCommand.Add(setFileArg);
-        setCommand.Add(setPathArg);
-        setCommand.Add(propsOpt);
-        setCommand.Add(jsonOption);
-        setCommand.Add(forceOption);
-
-        setCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(setFileArg)!;
-            var path = result.GetValue(setPathArg)!;
-            var props = result.GetValue(propsOpt);
-            var force = result.GetValue(forceOption);
-
-            // Check document protection for .docx files
-            if (!force && file.Extension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
-            {
-                var protectionError = CheckDocxProtection(file.FullName, path, json);
-                if (protectionError != 0) return protectionError;
-            }
-
-            // Detect bare key=value positional arguments (missing --prop)
-            var unmatchedKvWarnings = DetectUnmatchedKeyValues(result);
-            if (unmatchedKvWarnings.Count > 0)
-            {
-                if (json)
-                {
-                    var kvWarnings = unmatchedKvWarnings.Select(kv => new OfficeCli.Core.CliWarning
-                    {
-                        Message = $"Bare property '{kv}' ignored. Use --prop {kv}",
-                        Code = "missing_prop_flag",
-                        Suggestion = $"--prop {kv}"
-                    }).ToList();
-                    Console.WriteLine(OutputFormatter.WrapEnvelopeError(
-                        $"Properties specified without --prop flag. Use: officecli set <file> <path> --prop {string.Join(" --prop ", unmatchedKvWarnings)}",
-                        kvWarnings));
-                }
-                else
-                {
-                    foreach (var kv in unmatchedKvWarnings)
-                        Console.Error.WriteLine($"WARNING: Bare property '{kv}' ignored. Did you mean: --prop {kv}");
-                    Console.Error.WriteLine("Hint: Properties must be passed with --prop flag, e.g. officecli set <file> <path> --prop key=value");
-                }
-                if (props == null || props.Length == 0)
-                    return 2;
-            }
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "set";
-                req.Args["path"] = path;
-                req.Props = props;
-            }, json) is {} rc) return rc;
-
-            var properties = new Dictionary<string, string>();
-            foreach (var prop in props ?? Array.Empty<string>())
-            {
-                var eqIdx = prop.IndexOf('=');
-                if (eqIdx > 0)
-                {
-                    properties[prop[..eqIdx]] = prop[(eqIdx + 1)..];
-                }
-            }
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
-            var unsupported = handler.Set(path, properties);
-
-            // Auto-correct: attempt to fix unsupported properties with Levenshtein distance == 1
-            var autoCorrected = new List<(string Original, string Corrected, string Value)>();
-            var stillUnsupported = new List<string>();
-            foreach (var u in unsupported)
-            {
-                var rawKey = u.Contains(' ') ? u[..u.IndexOf(' ')] : u;
-                if (properties.TryGetValue(rawKey, out var val))
-                {
-                    var (suggestion, dist, isUnique) = SuggestPropertyWithDistance(rawKey);
-                    if (suggestion != null && dist == 1 && isUnique)
-                    {
-                        // Auto-correct: re-apply with corrected key
-                        var correctedProps = new Dictionary<string, string> { [suggestion] = val };
-                        var retryUnsupported = handler.Set(path, correctedProps);
-                        if (retryUnsupported.Count == 0)
-                        {
-                            autoCorrected.Add((rawKey, suggestion, val));
-                            continue;
-                        }
-                    }
-                }
-                stillUnsupported.Add(u);
-            }
-
-            // unsupported entries may contain help text like "key (valid props: ...)" — extract raw keys
-            var unsupportedKeys = stillUnsupported.Select(u => u.Contains(' ') ? u[..u.IndexOf(' ')] : u).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var autoCorrectedKeys = autoCorrected.Select(ac => ac.Original).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var applied = properties.Where(kv => !unsupportedKeys.Contains(kv.Key) && !autoCorrectedKeys.Contains(kv.Key)).ToList();
-            // Include auto-corrected props in applied list with the corrected key name
-            foreach (var ac in autoCorrected)
-                applied.Add(new KeyValuePair<string, string>(ac.Corrected, ac.Value));
-
-            var message = applied.Count > 0
-                ? $"Updated {path}: {string.Join(", ", applied.Select(kv => $"{kv.Key}={kv.Value}"))}"
-                : $"No properties applied to {path}";
-
-            // Check if position-related props were changed → show coordinates + overlap warning
-            var positionChanged = applied.Any(kv => PositionKeys.Contains(kv.Key));
-            string? setSpatialLine = null;
-            var setOverlaps = new List<string>();
-            if (positionChanged)
-            {
-                setSpatialLine = GetPptSpatialLine(handler, path);
-                if (setSpatialLine != null) setOverlaps = CheckPositionOverlap(handler, path);
-            }
-
-            if (json)
-            {
-                var allWarnings = new List<OfficeCli.Core.CliWarning>();
-                foreach (var ac in autoCorrected)
-                {
-                    allWarnings.Add(new OfficeCli.Core.CliWarning
-                    {
-                        Message = $"Auto-corrected '{ac.Original}' to '{ac.Corrected}'",
-                        Code = "auto_corrected",
-                        Suggestion = ac.Corrected
-                    });
-                }
-                foreach (var p in stillUnsupported)
-                {
-                    var suggestion = SuggestProperty(p);
-                    allWarnings.Add(new OfficeCli.Core.CliWarning
-                    {
-                        Message = suggestion != null ? $"Unsupported property: {p} (did you mean: {suggestion}?)" : $"Unsupported property: {p}",
-                        Code = "unsupported_property",
-                        Suggestion = suggestion
-                    });
-                }
-                if (setOverlaps.Count > 0)
-                {
-                    allWarnings.Add(new OfficeCli.Core.CliWarning
-                    {
-                        Message = $"Same position as {string.Join(", ", setOverlaps)}",
-                        Code = "position_overlap",
-                        Suggestion = "Use different x/y values to avoid overlap"
-                    });
-                }
-                var setOverflow = CheckTextOverflow(handler, path);
-                if (setOverflow != null)
-                {
-                    allWarnings.Add(new OfficeCli.Core.CliWarning
-                    {
-                        Message = setOverflow,
-                        Code = "text_overflow",
-                        Suggestion = "Increase shape height/width, reduce font size, or shorten text"
-                    });
-                }
-                var outputMsg = setSpatialLine != null ? $"{message}\n  {setSpatialLine}" : message;
-                bool allFailed = applied.Count == 0 && (stillUnsupported.Count > 0 || unsupported.Count > 0);
-                Console.WriteLine(allFailed
-                    ? OutputFormatter.WrapEnvelopeError(outputMsg, allWarnings.Count > 0 ? allWarnings : null)
-                    : OutputFormatter.WrapEnvelopeText(outputMsg, allWarnings.Count > 0 ? allWarnings : null));
-            }
-            else
-            {
-                foreach (var ac in autoCorrected)
-                    Console.Error.WriteLine($"WARNING: Auto-corrected '{ac.Original}' to '{ac.Corrected}'");
-                Console.WriteLine(message);
-                if (setSpatialLine != null) Console.WriteLine($"  {setSpatialLine}");
-                if (setOverlaps.Count > 0)
-                    Console.Error.WriteLine($"  WARNING: Same position as {string.Join(", ", setOverlaps)}");
-                var setOverflowPlain = CheckTextOverflow(handler, path);
-                if (setOverflowPlain != null)
-                    Console.Error.WriteLine($"  WARNING: {setOverflowPlain}");
-                if (stillUnsupported.Count > 0)
-                    Console.Error.WriteLine(FormatUnsupported(stillUnsupported));
-            }
-            NotifyWatch(handler, file.FullName, path);
-
-            if (stillUnsupported.Count > 0) return 2;
-            return 0;
-        }, json); });
-
-        rootCommand.Add(setCommand);
-
-        // ==================== add command ====================
-        var addFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var addParentPathArg = new Argument<string>("parent") { Description = "Parent DOM path (e.g. /body, /Sheet1, /slide[1])" };
-        var addTypeOpt = new Option<string>("--type") { Description = "Element type to add (e.g. paragraph, run, table, sheet, row, cell, slide, shape)" };
-        var addFromOpt = new Option<string?>("--from") { Description = "Copy from an existing element path (e.g. /slide[1]/shape[2])" };
-        var addIndexOpt = new Option<int?>("--index") { Description = "Insert position (0-based). If omitted, appends to end" };
-        var addPropsOpt = new Option<string[]>("--prop") { Description = "Property to set (key=value)", AllowMultipleArgumentsPerToken = true };
-
-        var addCommand = new Command("add", "Add a new element to the document") { TreatUnmatchedTokensAsErrors = false };
-        addCommand.Add(addFileArg);
-        addCommand.Add(addParentPathArg);
-        addCommand.Add(addTypeOpt);
-        addCommand.Add(addFromOpt);
-        addCommand.Add(addIndexOpt);
-        addCommand.Add(addPropsOpt);
-        addCommand.Add(jsonOption);
-        addCommand.Add(forceOption);
-
-        addCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(addFileArg)!;
-            var parentPath = result.GetValue(addParentPathArg)!;
-            var type = result.GetValue(addTypeOpt);
-            var from = result.GetValue(addFromOpt);
-            var index = result.GetValue(addIndexOpt);
-            var props = result.GetValue(addPropsOpt);
-            var force = result.GetValue(forceOption);
-            bool hadWarnings = false;
-
-            // Check document protection for .docx files
-            if (!force && file.Extension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
-            {
-                var protectionError = CheckDocxProtection(file.FullName, parentPath, json);
-                if (protectionError != 0) return protectionError;
-            }
-
-            // Detect bare key=value positional arguments (missing --prop)
-            var unmatchedKvWarnings = DetectUnmatchedKeyValues(result);
-            if (unmatchedKvWarnings.Count > 0)
-            {
-                hadWarnings = true;
-                if (json)
-                {
-                    var kvWarnings = unmatchedKvWarnings.Select(kv => new OfficeCli.Core.CliWarning
-                    {
-                        Message = $"Bare property '{kv}' ignored. Use --prop {kv}",
-                        Code = "missing_prop_flag",
-                        Suggestion = $"--prop {kv}"
-                    }).ToList();
-                    Console.Error.WriteLine("WARNING: Properties specified without --prop flag.");
-                }
-                else
-                {
-                    foreach (var kv in unmatchedKvWarnings)
-                        Console.Error.WriteLine($"WARNING: Bare property '{kv}' ignored. Did you mean: --prop {kv}");
-                    Console.Error.WriteLine("Hint: Properties must be passed with --prop flag, e.g. officecli add <file> <parent> --type <type> --prop key=value");
-                }
-            }
-
-            if (string.IsNullOrEmpty(type) && string.IsNullOrEmpty(from))
-            {
-                throw new OfficeCli.Core.CliException("Either --type or --from must be specified.")
-                {
-                    Code = "missing_argument",
-                    Suggestion = "Use --type to specify element type, or --from to copy an existing element.",
-                    Help = "officecli add <file> <parent> --type <type> --prop key=value"
-                };
-            }
-
-            if (!string.IsNullOrEmpty(from))
-            {
-                // Copy from existing element
-                if (TryResident(file.FullName, req =>
-                {
-                    req.Command = "add";
-                    req.Args["parent"] = parentPath;
-                    req.Args["from"] = from;
-                    if (index.HasValue) req.Args["index"] = index.Value.ToString();
-                }, json) is {} rc) return rc != 0 ? rc : (hadWarnings ? 2 : 0);
-
-                using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
-                var oldCount = (handler as OfficeCli.Handlers.PowerPointHandler)?.GetSlideCount() ?? 0;
-                var resultPath = handler.CopyFrom(from, parentPath, index);
-                var message = $"Copied to {resultPath}";
-                if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message));
-                else Console.WriteLine(message);
-                if (parentPath == "/") NotifyWatchRoot(handler, file.FullName, oldCount);
-                else NotifyWatch(handler, file.FullName, parentPath);
-            }
-            else
-            {
-                if (TryResident(file.FullName, req =>
-                {
-                    req.Command = "add";
-                    req.Args["parent"] = parentPath;
-                    req.Args["type"] = type!;
-                    if (index.HasValue) req.Args["index"] = index.Value.ToString();
-                    req.Props = props;
-                }, json) is {} rc) return rc != 0 ? rc : (hadWarnings ? 2 : 0);
-
-                var properties = new Dictionary<string, string>();
-                foreach (var prop in props ?? Array.Empty<string>())
-                {
-                    var eqIdx = prop.IndexOf('=');
-                    if (eqIdx > 0)
-                    {
-                        properties[prop[..eqIdx]] = prop[(eqIdx + 1)..];
-                    }
-                }
-
-                using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
-                var oldCount = (handler as OfficeCli.Handlers.PowerPointHandler)?.GetSlideCount() ?? 0;
-                var resultPath = handler.Add(parentPath, type!, index, properties);
-                var message = $"Added {type} at {resultPath}";
-                var spatialLine = GetPptSpatialLine(handler, resultPath);
-                var overlapNames = spatialLine != null ? CheckPositionOverlap(handler, resultPath) : new();
-                var addWarnings = new List<OfficeCli.Core.CliWarning>();
-                if (overlapNames.Count > 0)
-                {
-                    addWarnings.Add(new OfficeCli.Core.CliWarning
-                    {
-                        Message = $"Same position as {string.Join(", ", overlapNames)}",
-                        Code = "position_overlap",
-                        Suggestion = "Use --prop x=... y=... to set distinct positions"
-                    });
-                }
-                var addOverflow = CheckTextOverflow(handler, resultPath);
-                if (addOverflow != null)
-                {
-                    addWarnings.Add(new OfficeCli.Core.CliWarning
-                    {
-                        Message = addOverflow,
-                        Code = "text_overflow",
-                        Suggestion = "Increase shape height/width, reduce font size, or shorten text"
-                    });
-                }
-                if (json)
-                {
-                    Console.WriteLine(OutputFormatter.WrapEnvelopeText(
-                        spatialLine != null ? $"{message}\n  {spatialLine}" : message,
-                        addWarnings.Count > 0 ? addWarnings : null));
-                }
-                else
-                {
-                    Console.WriteLine(message);
-                    if (spatialLine != null) Console.WriteLine($"  {spatialLine}");
-                    foreach (var w in addWarnings)
-                        Console.Error.WriteLine($"  WARNING: {w.Message}");
-                }
-                if (parentPath == "/") NotifyWatchRoot(handler, file.FullName, oldCount);
-                else NotifyWatch(handler, file.FullName, parentPath);
-            }
-
-            return hadWarnings ? 2 : 0;
-        }, json); });
-
-        rootCommand.Add(addCommand);
-
-        // ==================== remove command ====================
-        var removeFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var removePathArg = new Argument<string>("path") { Description = "DOM path of the element to remove" };
-
-        var removeCommand = new Command("remove", "Remove an element from the document");
-        removeCommand.Add(removeFileArg);
-        removeCommand.Add(removePathArg);
-        removeCommand.Add(jsonOption);
-
-        removeCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(removeFileArg)!;
-            var path = result.GetValue(removePathArg)!;
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "remove";
-                req.Args["path"] = path;
-            }, json) is {} rc) return rc;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
-            var oldCount = (handler as OfficeCli.Handlers.PowerPointHandler)?.GetSlideCount() ?? 0;
-            var warning = handler.Remove(path);
-            var message = $"Removed {path}";
-            if (warning != null) message += $"\n{warning}";
-            if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message));
-            else Console.WriteLine(message);
-            var slideNum = WatchMessage.ExtractSlideNum(path);
-            if (slideNum > 0 && !path.Contains("/shape["))
-                NotifyWatchRoot(handler, file.FullName, oldCount);
-            else
-                NotifyWatch(handler, file.FullName, path);
-            return 0;
-        }, json); });
-
-        rootCommand.Add(removeCommand);
-
-        // ==================== move command ====================
-        var moveFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var movePathArg = new Argument<string>("path") { Description = "DOM path of the element to move" };
-        var moveToOpt = new Option<string?>("--to") { Description = "Target parent path. If omitted, reorders within the current parent" };
-        var moveIndexOpt = new Option<int?>("--index") { Description = "Insert position (0-based). If omitted, appends to end" };
-
-        var moveCommand = new Command("move", "Move an element to a new position or parent");
-        moveCommand.Add(moveFileArg);
-        moveCommand.Add(movePathArg);
-        moveCommand.Add(moveToOpt);
-        moveCommand.Add(moveIndexOpt);
-        moveCommand.Add(jsonOption);
-
-        moveCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(moveFileArg)!;
-            var path = result.GetValue(movePathArg)!;
-            var to = result.GetValue(moveToOpt);
-            var index = result.GetValue(moveIndexOpt);
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "move";
-                req.Args["path"] = path;
-                if (to != null) req.Args["to"] = to;
-                if (index.HasValue) req.Args["index"] = index.Value.ToString();
-            }, json) is {} rc) return rc;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
-            var resultPath = handler.Move(path, to, index);
-            var message = $"Moved to {resultPath}";
-            if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message));
-            else Console.WriteLine(message);
-            NotifyWatch(handler, file.FullName, path);
-            return 0;
-        }, json); });
-
-        rootCommand.Add(moveCommand);
-
-        // ==================== raw command ====================
-        var rawFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var rawPathArg = new Argument<string>("part") { Description = "Part path (e.g. /document, /styles, /header[0])" };
-        rawPathArg.DefaultValueFactory = _ => "/document";
-
-        var rawStartOpt = new Option<int?>("--start") { Description = "Start row number (Excel sheets only)" };
-        var rawEndOpt = new Option<int?>("--end") { Description = "End row number (Excel sheets only)" };
-
-        var rawColsOpt = new Option<string?>("--cols") { Description = "Column filter, comma-separated (Excel only, e.g. A,B,C)" };
-
-        var rawCommand = new Command("raw", "View raw XML of a document part");
-        rawCommand.Add(rawFileArg);
-        rawCommand.Add(rawPathArg);
-        rawCommand.Add(rawStartOpt);
-        rawCommand.Add(rawEndOpt);
-        rawCommand.Add(rawColsOpt);
-        rawCommand.Add(jsonOption);
-
-        rawCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(rawFileArg)!;
-            var partPath = result.GetValue(rawPathArg)!;
-            var startRow = result.GetValue(rawStartOpt);
-            var endRow = result.GetValue(rawEndOpt);
-            var rawColsStr = result.GetValue(rawColsOpt);
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "raw";
-                req.Args["part"] = partPath;
-                if (startRow.HasValue) req.Args["start"] = startRow.Value.ToString();
-                if (endRow.HasValue) req.Args["end"] = endRow.Value.ToString();
-                if (rawColsStr != null) req.Args["cols"] = rawColsStr;
-            }, json) is {} rc) return rc;
-
-            var rawCols = rawColsStr != null ? new HashSet<string>(rawColsStr.Split(',').Select(c => c.Trim().ToUpperInvariant())) : null;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName);
-            var xml = handler.Raw(partPath, startRow, endRow, rawCols);
-            if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(xml));
-            else Console.WriteLine(xml);
-            return 0;
-        }, json); });
-
-        rootCommand.Add(rawCommand);
-
-        // ==================== raw-set command ====================
-        var rawSetFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var rawSetPartArg = new Argument<string>("part") { Description = "Part path (e.g. /document, /styles, /Sheet1, /slide[1])" };
-        var rawSetXpathOpt = new Option<string>("--xpath") { Description = "XPath to target element(s)", Required = true };
-        var rawSetActionOpt = new Option<string>("--action") { Description = "Action: append, prepend, insertbefore, insertafter, replace, remove, setattr", Required = true };
-        var rawSetXmlOpt = new Option<string?>("--xml") { Description = "XML fragment or attr=value for setattr" };
-
-        var rawSetCommand = new Command("raw-set", "Modify raw XML in a document part (universal fallback for any OpenXML operation)");
-        rawSetCommand.Add(rawSetFileArg);
-        rawSetCommand.Add(rawSetPartArg);
-        rawSetCommand.Add(rawSetXpathOpt);
-        rawSetCommand.Add(rawSetActionOpt);
-        rawSetCommand.Add(rawSetXmlOpt);
-        rawSetCommand.Add(jsonOption);
-
-        rawSetCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(rawSetFileArg)!;
-            var partPath = result.GetValue(rawSetPartArg)!;
-            var xpath = result.GetValue(rawSetXpathOpt)!;
-            var action = result.GetValue(rawSetActionOpt)!;
-            var xml = result.GetValue(rawSetXmlOpt);
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "raw-set";
-                req.Args["part"] = partPath;
-                req.Args["xpath"] = xpath;
-                req.Args["action"] = action;
-                if (xml != null) req.Args["xml"] = xml;
-            }, json) is {} rc) return rc;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
-            var errorsBefore = handler.Validate().Select(e => e.Description).ToHashSet();
-            handler.RawSet(partPath, xpath, action, xml);
-            var warnings = ReportNewErrorsAsWarnings(handler, errorsBefore);
-            var message = $"raw-set applied: {action} at {xpath}";
-            if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message, warnings));
-            else
-            {
-                Console.WriteLine(message);
-                ReportNewErrors(handler, errorsBefore, warnings);
-            }
-            NotifyWatch(handler, file.FullName, null);
-            return 0;
-        }, json); });
-
-        rootCommand.Add(rawSetCommand);
-
-        // ==================== add-part command ====================
-        var addPartFileArg = new Argument<string>("file") { Description = "Document file path" };
-        var addPartParentArg = new Argument<string>("parent") { Description = "Parent part path (e.g. / for document root, /Sheet1 for Excel sheet, /slide[0] for PPT slide)" };
-        var addPartTypeOpt = new Option<string>("--type") { Description = "Part type to create (chart, header, footer)", Required = true };
-        var addPartCommand = new Command("add-part", "Create a new document part and return its relationship ID for use with raw-set");
-        addPartCommand.Add(addPartFileArg);
-        addPartCommand.Add(addPartParentArg);
-        addPartCommand.Add(addPartTypeOpt);
-        addPartCommand.Add(jsonOption);
-
-        addPartCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(addPartFileArg)!;
-            var parent = result.GetValue(addPartParentArg)!;
-            var type = result.GetValue(addPartTypeOpt)!;
-
-            if (TryResident(file, req =>
-            {
-                req.Command = "add-part";
-                req.Args["parent"] = parent;
-                req.Args["type"] = type;
-            }, json) is {} rc) return rc;
-
-            using var handler = DocumentHandlerFactory.Open(file, editable: true);
-            var errorsBefore = handler.Validate().Select(e => e.Description).ToHashSet();
-            var (relId, partPath) = handler.AddPart(parent, type);
-            var warnings = ReportNewErrorsAsWarnings(handler, errorsBefore);
-            var message = $"Created {type} part: relId={relId} path={partPath}";
-            if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeText(message, warnings));
-            else
-            {
-                Console.WriteLine(message);
-                ReportNewErrors(handler, errorsBefore, warnings);
-            }
-            NotifyWatch(handler, file, null);
-            return 0;
-        }, json); });
-
-        rootCommand.Add(addPartCommand);
-
-        // ==================== validate command ====================
-        var validateFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
-        var validateCommand = new Command("validate", "Validate document against OpenXML schema");
-        validateCommand.Add(validateFileArg);
-        validateCommand.Add(jsonOption);
-        validateCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(validateFileArg)!;
-
-            if (TryResident(file.FullName, req =>
-            {
-                req.Command = "validate";
-                req.Json = json;
-            }, json) is {} rc) return rc;
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName);
-            var errors = handler.Validate();
-            if (json)
-            {
-                var validationJson = FormatValidationErrors(errors);
-                Console.WriteLine(OutputFormatter.WrapEnvelope(validationJson));
-            }
-            else
-            {
-                if (errors.Count == 0)
-                {
-                    Console.WriteLine("Validation passed: no errors found.");
-                }
-                else
-                {
-                    Console.WriteLine($"Found {errors.Count} validation error(s):");
-                    foreach (var err in errors)
-                    {
-                        Console.WriteLine($"  [{err.ErrorType}] {err.Description}");
-                        if (err.Path != null) Console.WriteLine($"    Path: {err.Path}");
-                        if (err.Part != null) Console.WriteLine($"    Part: {err.Part}");
-                    }
-                }
-            }
-            return errors.Count > 0 ? 1 : 0;
-        }, json); });
-        rootCommand.Add(validateCommand);
-
-        // ==================== check command ====================
-        var checkFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.pptx)" };
-        var checkCommand = new Command("check", "Scan document for layout issues (text overflow, etc.)");
-        checkCommand.Add(checkFileArg);
-        checkCommand.Add(jsonOption);
-        checkCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(checkFileArg)!;
-            var ext = file.Extension.ToLowerInvariant();
-            if (ext != ".pptx")
-                throw new OfficeCli.Core.CliException("The 'check' command currently supports .pptx files only. Provide a .pptx file path.");
-
-            using var handler = DocumentHandlerFactory.Open(file.FullName, editable: false);
-            var pptHandler = handler as OfficeCli.Handlers.PowerPointHandler
-                ?? throw new OfficeCli.Core.CliException("Failed to open file as PowerPoint document.");
-
-            var issues = new List<(string Path, string Message)>();
-            var root = pptHandler.Get("/");
-            int slideCount = root?.Children?.Count ?? 0;
-            for (int s = 1; s <= slideCount; s++)
-            {
-                var slideNode = pptHandler.Get($"/slide[{s}]");
-                int shapeCount = slideNode?.Children?.Count ?? 0;
-                for (int sh = 1; sh <= shapeCount; sh++)
-                {
-                    var shapePath = $"/slide[{s}]/shape[{sh}]";
-                    var warning = pptHandler.CheckShapeTextOverflow(shapePath);
-                    if (warning != null)
-                        issues.Add((shapePath, warning));
-                }
-            }
-
-            if (json)
-            {
-                var arr = new System.Text.Json.Nodes.JsonArray();
-                foreach (var (path, msg) in issues)
-                {
-                    arr.Add((System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
-                    {
-                        ["path"] = path,
-                        ["issue"] = msg
-                    });
-                }
-                var envelope = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["success"] = true,
-                    ["file"] = file.FullName,
-                    ["issueCount"] = issues.Count,
-                    ["issues"] = arr
-                };
-                Console.WriteLine(envelope.ToJsonString(OutputFormatter.PublicJsonOptions));
-            }
-            else
-            {
-                Console.WriteLine($"Checking layout: {file.FullName}");
-                if (issues.Count == 0)
-                {
-                    Console.WriteLine("No layout issues found.");
-                }
-                else
-                {
-                    foreach (var (path, msg) in issues)
-                        Console.WriteLine($"  {path}: {msg}");
-                    Console.WriteLine($"Found {issues.Count} layout issue(s).");
-                }
-            }
-            return issues.Count > 0 ? 2 : 0;
-        }, json); });
-        rootCommand.Add(checkCommand);
-
-        // ==================== batch command ====================
-        var batchFileArg = new Argument<FileInfo>("file") { Description = "Office document path" };
-        var batchInputOpt = new Option<FileInfo?>("--input") { Description = "JSON file containing batch commands. If omitted, reads from stdin" };
-        var batchCommandsOpt = new Option<string?>("--commands") { Description = "Inline JSON array of batch commands (alternative to --input or stdin)" };
-        var batchStopOnErrorOpt = new Option<bool>("--stop-on-error") { Description = "Stop execution on first error (default: continue all)" };
-        var batchCommand = new Command("batch", "Execute multiple commands from a JSON array (one open/save cycle)");
-        batchCommand.Add(batchFileArg);
-        batchCommand.Add(batchInputOpt);
-        batchCommand.Add(batchCommandsOpt);
-        batchCommand.Add(batchStopOnErrorOpt);
-        batchCommand.Add(jsonOption);
-
-        batchCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(batchFileArg)!;
-            var inputFile = result.GetValue(batchInputOpt);
-            var inlineCommands = result.GetValue(batchCommandsOpt);
-            var stopOnError = result.GetValue(batchStopOnErrorOpt);
-
-            string jsonText;
-            if (inlineCommands != null)
-            {
-                jsonText = inlineCommands;
-            }
-            else if (inputFile != null)
-            {
-                if (!inputFile.Exists)
-                {
-                    throw new FileNotFoundException($"Input file not found: {inputFile.FullName}");
-                }
-                jsonText = File.ReadAllText(inputFile.FullName);
-            }
-            else
-            {
-                // Read from stdin
-                jsonText = Console.In.ReadToEnd();
-            }
-
-            var items = System.Text.Json.JsonSerializer.Deserialize<List<BatchItem>>(jsonText, BatchJsonContext.Default.ListBatchItem);
-            if (items == null || items.Count == 0)
-            {
-                throw new ArgumentException("No commands found in input.");
-            }
-
-            // If a resident process is running, forward each command to it
-            if (ResidentClient.TryConnect(file.FullName, out _))
-            {
-                var results = new List<BatchResult>();
-                foreach (var item in items)
-                {
-                    var req = item.ToResidentRequest();
-                    req.Json = json;
-                    var response = ResidentClient.TrySend(file.FullName, req);
-                    if (response == null)
-                    {
-                        results.Add(new BatchResult { Success = false, Error = "Failed to send to resident" });
-                        if (stopOnError) break;
-                        continue;
-                    }
-                    var success = response.ExitCode == 0;
-                    results.Add(new BatchResult { Success = success, Output = response.Stdout, Error = response.Stderr });
-                    if (!success && stopOnError) break;
-                }
-                PrintBatchResults(results, json);
-                if (results.Any(r => !r.Success))
-                    throw new InvalidOperationException($"Batch completed with {results.Count(r => !r.Success)} error(s)");
-                return 0;
-            }
-
-            // Non-resident: open file once, execute all commands, save once
-            using var handler = DocumentHandlerFactory.Open(file.FullName, editable: true);
-            var batchResults = new List<BatchResult>();
-            foreach (var item in items)
-            {
-                try
-                {
-                    var output = ExecuteBatchItem(handler, item, json);
-                    batchResults.Add(new BatchResult { Success = true, Output = output });
-                }
-                catch (Exception ex)
-                {
-                    batchResults.Add(new BatchResult { Success = false, Error = ex.Message });
-                    if (stopOnError) break;
-                }
-            }
-            PrintBatchResults(batchResults, json);
-            if (batchResults.Any(r => r.Success))
-                NotifyWatch(handler, file.FullName, null);
-            if (batchResults.Any(r => !r.Success))
-                throw new InvalidOperationException($"Batch completed with {batchResults.Count(r => !r.Success)} error(s)");
-            return 0;
-        }, json); });
-
-        rootCommand.Add(batchCommand);
-
-        // ==================== import command ====================
-        var importFileArg = new Argument<FileInfo>("file") { Description = "Target Excel file (.xlsx)" };
-        var importParentPathArg = new Argument<string>("parent-path") { Description = "Sheet path (e.g. /Sheet1)" };
-        var importSourceArg = new Argument<FileInfo?>("source-file") { Description = "Source CSV/TSV file to import (positional, alternative to --file)" };
-        importSourceArg.DefaultValueFactory = _ => null!;
-        var importSourceOpt = new Option<FileInfo?>("--file") { Description = "Source CSV/TSV file to import" };
-        var importStdinOpt = new Option<bool>("--stdin") { Description = "Read CSV/TSV data from stdin" };
-        var importFormatOpt = new Option<string?>("--format") { Description = "Data format: csv or tsv (default: inferred from file extension, or csv)" };
-        var importHeaderOpt = new Option<bool>("--header") { Description = "First row is header: set AutoFilter and freeze pane" };
-        var importStartCellOpt = new Option<string>("--start-cell") { Description = "Starting cell (default: A1)" };
-        importStartCellOpt.DefaultValueFactory = _ => "A1";
-
-        var importCommand = new Command("import", "Import CSV/TSV data into an Excel sheet");
-        importCommand.Add(importFileArg);
-        importCommand.Add(importParentPathArg);
-        importCommand.Add(importSourceArg);
-        importCommand.Add(importSourceOpt);
-        importCommand.Add(importStdinOpt);
-        importCommand.Add(importFormatOpt);
-        importCommand.Add(importHeaderOpt);
-        importCommand.Add(importStartCellOpt);
-        importCommand.Add(jsonOption);
-
-        importCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(importFileArg)!;
-            var parentPath = result.GetValue(importParentPathArg)!;
-            var source = result.GetValue(importSourceOpt) ?? result.GetValue(importSourceArg);
-            var useStdin = result.GetValue(importStdinOpt);
-            var format = result.GetValue(importFormatOpt);
-            var header = result.GetValue(importHeaderOpt);
-            var startCell = result.GetValue(importStartCellOpt)!;
-
-            if (!file.Exists)
-                throw new CliException($"File not found: {file.FullName}")
-                {
-                    Code = "file_not_found",
-                    Suggestion = $"Create the file first: officecli create \"{file.FullName}\""
-                };
-
-            var ext = Path.GetExtension(file.FullName).ToLowerInvariant();
-            if (ext != ".xlsx")
-                throw new CliException("Import is only supported for .xlsx files in V1")
-                {
-                    Code = "unsupported_type",
-                    Suggestion = "Use a .xlsx file"
-                };
-
-            // Read CSV content
-            string csvContent;
-            if (useStdin)
-            {
-                csvContent = Console.In.ReadToEnd();
-            }
-            else if (source != null)
-            {
-                if (!source.Exists)
-                    throw new CliException($"Source file not found: {source.FullName}")
-                    {
-                        Code = "file_not_found"
-                    };
-                csvContent = File.ReadAllText(source.FullName, Encoding.UTF8);
-            }
-            else
-            {
-                throw new CliException("Either --file or --stdin must be specified")
-                {
-                    Code = "missing_argument",
-                    Suggestion = "Use --file <path> to specify a CSV/TSV file, or --stdin to read from standard input"
-                };
-            }
-
-            // Determine delimiter: --format flag > file extension > default csv
-            char delimiter = ',';
-            if (!string.IsNullOrEmpty(format))
-            {
-                delimiter = format.ToLowerInvariant() switch
-                {
-                    "tsv" => '\t',
-                    "csv" => ',',
-                    _ => throw new CliException($"Unknown format: {format}. Use 'csv' or 'tsv'")
-                    {
-                        Code = "invalid_value",
-                        ValidValues = ["csv", "tsv"]
-                    }
-                };
-            }
-            else if (source != null)
-            {
-                var sourceExt = Path.GetExtension(source.FullName).ToLowerInvariant();
-                if (sourceExt == ".tsv" || sourceExt == ".tab")
-                    delimiter = '\t';
-            }
-
-            using var handler = new OfficeCli.Handlers.ExcelHandler(file.FullName, editable: true);
-            var msg = handler.Import(parentPath, csvContent, delimiter, header, startCell);
-            if (json)
-                Console.WriteLine(OutputFormatter.WrapEnvelopeText(msg));
-            else
-                Console.WriteLine(msg);
-            return 0;
-        }, json); });
-
-        rootCommand.Add(importCommand);
-
-        // ==================== create command ====================
-        var createFileArg = new Argument<string>("file") { Description = "Output file path (.docx, .xlsx, .pptx, .hwpx)" };
-        var createTypeOpt = new Option<string>("--type") { Description = "Document type (docx, xlsx, pptx, hwpx) — optional, inferred from file extension" };
-        var createCommand = new Command("create", "Create a blank Office document");
-        createCommand.Aliases.Add("new");
-        createCommand.Add(createFileArg);
-        createCommand.Add(createTypeOpt);
-        createCommand.Add(jsonOption);
-
-        createCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var file = result.GetValue(createFileArg)!;
-            var type = result.GetValue(createTypeOpt);
-
-            // If file has no extension but --type is provided, append it
-            if (!string.IsNullOrEmpty(type) && string.IsNullOrEmpty(Path.GetExtension(file)))
-            {
-                var ext = type.StartsWith('.') ? type : "." + type;
-                file += ext;
-            }
-
-            // Check if the file is held by a resident process
-            var fullPath = Path.GetFullPath(file);
-            if (ResidentClient.TryConnect(fullPath, out _))
-            {
-                throw new CliException($"{Path.GetFileName(file)} is currently opened by a resident process. Please run 'officecli close \"{file}\"' first.")
-                {
-                    Code = "file_locked",
-                    Suggestion = $"Run: officecli close \"{file}\""
-                };
-            }
-
-            OfficeCli.BlankDocCreator.Create(file);
-            var fullCreatedPath = Path.GetFullPath(file);
-            if (json)
-            {
-                Console.WriteLine(OutputFormatter.WrapEnvelopeText($"Created: {fullCreatedPath}"));
-            }
-            else
-            {
-                Console.WriteLine($"Created: {file}");
-                if (Path.GetExtension(file).Equals(".pptx", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine($"  totalSlides: 0");
-                    Console.WriteLine($"  slideWidth: {Core.EmuConverter.FormatEmu(12192000)}");
-                    Console.WriteLine($"  slideHeight: {Core.EmuConverter.FormatEmu(6858000)}");
-                }
-            }
-            return 0;
-        }, json); });
-
-        rootCommand.Add(createCommand);
-
-        // ==================== merge command (template merge) ====================
-        var mergeTemplateArg = new Argument<string>("template") { Description = "Template file path (.docx, .xlsx, .pptx) with {{key}} placeholders" };
-        var mergeOutputArg = new Argument<string>("output") { Description = "Output file path" };
-        var mergeDataOpt = new Option<string>("--data") { Description = "JSON data or path to .json file", Required = true };
-        var mergeCommand = new Command("merge", "Merge template with JSON data, replacing {{key}} placeholders");
-        mergeCommand.Add(mergeTemplateArg);
-        mergeCommand.Add(mergeOutputArg);
-        mergeCommand.Add(mergeDataOpt);
-        mergeCommand.Add(jsonOption);
-
-        mergeCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
-        {
-            var template = result.GetValue(mergeTemplateArg)!;
-            var output = result.GetValue(mergeOutputArg)!;
-            var dataArg = result.GetValue(mergeDataOpt)!;
-
-            var data = Core.TemplateMerger.ParseMergeData(dataArg);
-            var mergeResult = Core.TemplateMerger.Merge(template, output, data);
-
-            if (json)
-            {
-                var jsonObj = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["success"] = true,
-                    ["output"] = Path.GetFullPath(output),
-                    ["replacedKeys"] = mergeResult.UsedKeys.Count,
-                    ["unresolvedPlaceholders"] = new System.Text.Json.Nodes.JsonArray(
-                        mergeResult.UnresolvedPlaceholders.Select(p => (System.Text.Json.Nodes.JsonNode)p).ToArray())
-                };
-                Console.WriteLine(jsonObj.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = false }));
-            }
-            else
-            {
-                Console.WriteLine($"Merged: {output}");
-                Console.WriteLine($"  Replaced keys: {mergeResult.UsedKeys.Count}");
-                if (mergeResult.UnresolvedPlaceholders.Count > 0)
-                {
-                    Console.Error.WriteLine($"  Warning: {mergeResult.UnresolvedPlaceholders.Count} unresolved placeholder(s):");
-                    foreach (var p in mergeResult.UnresolvedPlaceholders)
-                        Console.Error.WriteLine($"    - {{{{{p}}}}}");
-                }
-            }
-            return 0;
-        }, json); });
-
-        rootCommand.Add(mergeCommand);
+        // Register commands from partial files
+        rootCommand.Add(BuildWatchCommand());
+        rootCommand.Add(BuildUnwatchCommand());
+        rootCommand.Add(BuildMarkCommand(jsonOption));
+        rootCommand.Add(BuildUnmarkMarkCommand(jsonOption));
+        rootCommand.Add(BuildGetMarksCommand(jsonOption));
+        rootCommand.Add(BuildViewCommand(jsonOption));
+        rootCommand.Add(BuildGetCommand(jsonOption));
+        rootCommand.Add(BuildQueryCommand(jsonOption));
+        rootCommand.Add(BuildSetCommand(jsonOption));
+        rootCommand.Add(BuildAddCommand(jsonOption));
+        rootCommand.Add(BuildRemoveCommand(jsonOption));
+        rootCommand.Add(BuildMoveCommand(jsonOption));
+        rootCommand.Add(BuildSwapCommand(jsonOption));
+        rootCommand.Add(BuildRawCommand(jsonOption));
+        rootCommand.Add(BuildRawSetCommand(jsonOption));
+        rootCommand.Add(BuildAddPartCommand(jsonOption));
+        rootCommand.Add(BuildValidateCommand(jsonOption));
+        rootCommand.Add(BuildCheckCommand(jsonOption));
+        rootCommand.Add(BuildBatchCommand(jsonOption));
+        rootCommand.Add(BuildImportCommand(jsonOption));
+        rootCommand.Add(BuildCreateCommand(jsonOption));
+        rootCommand.Add(BuildMergeCommand(jsonOption));
 
         HelpCommands.Register(rootCommand);
 
@@ -1459,15 +158,55 @@ static class CommandBuilder
     }
 
     // ==================== Helper: try forwarding to resident ====================
+    //
+    // Two-step protocol (CONSISTENCY(resident-two-step): same shape as
+    // CommandBuilder.Batch.cs's resident branch):
+    //   1. Ping-pipe probe via TryConnect — fast (100ms) and isolated from the
+    //      main command queue, so it stays responsive even under flood. Tells
+    //      us definitively whether a resident owns this file.
+    //   2. If yes, send the command on the main pipe with a generous connect
+    //      timeout + a few retries. If the send STILL fails, surface a
+    //      distinct "busy" error (exit code 3) instead of falling back to
+    //      DocumentHandlerFactory.Open — the old silent fallback could race
+    //      the live resident and lose writes.
+    //   3. If no resident, return null so the caller opens the file directly.
+    //
+    // Exit code 3 is reserved for "resident is alive but couldn't deliver the
+    // command" so callers can distinguish it from a command-level failure.
+    private const int ResidentBusyExitCode = 3;
+    private const int ResidentBusyConnectTimeoutMs = 30000;
+    private const int ResidentBusyMaxRetries = 3;
+
     internal static int? TryResident(string filePath, Action<ResidentRequest> configure, bool json = false)
     {
+        // Step 1: does a resident own this file? Probe via the -ping pipe,
+        // which is never serialized behind main-pipe commands.
+        if (!ResidentClient.TryConnect(filePath, out _))
+            return null; // no resident → caller falls back to direct file access
+
         var request = new ResidentRequest();
         configure(request);
         if (json) request.Json = true;
 
-        var response = ResidentClient.TrySend(filePath, request);
+        // Step 2: resident is confirmed alive — wait for our turn in the main
+        // pipe queue. Do NOT silently fall back on failure; letting a second
+        // writer touch the file while the resident holds it in memory loses
+        // data on the resident's eventual save.
+        var response = ResidentClient.TrySend(
+            filePath, request,
+            maxRetries: ResidentBusyMaxRetries,
+            connectTimeoutMs: ResidentBusyConnectTimeoutMs);
+
         if (response == null)
-            return null;
+        {
+            var fileName = Path.GetFileName(filePath);
+            var msg = $"Resident for {fileName} is running but the command could not be delivered (main pipe busy or unresponsive). Retry, or run 'officecli close {fileName}' and try again.";
+            if (json)
+                Console.WriteLine(OutputFormatter.WrapEnvelopeError(msg));
+            else
+                Console.Error.WriteLine($"Error: {msg}");
+            return ResidentBusyExitCode;
+        }
 
         if (json)
         {
@@ -1570,34 +309,70 @@ static class CommandBuilder
             }
             case "set":
             {
-                var path = item.Path ?? "/";
+                if (string.IsNullOrEmpty(item.Path))
+                    throw new ArgumentException("'set' command requires 'path' field. Example: {\"command\": \"set\", \"path\": \"/slide[1]\", \"props\": {\"bold\": \"true\"}}");
+                var path = item.Path;
                 var unsupported = handler.Set(path, props);
                 var applied = props.Where(kv => !unsupported.Contains(kv.Key)).ToList();
                 var parts = new List<string>();
                 if (applied.Count > 0)
-                    parts.Add($"Updated {path}: {string.Join(", ", applied.Select(kv => $"{kv.Key}={kv.Value}"))}");
+                {
+                    var msg = $"Updated {path}: {string.Join(", ", applied.Select(kv => $"{kv.Key}={kv.Value}"))}";
+                    if (props.ContainsKey("find"))
+                    {
+                        var matched = handler switch
+                        {
+                            OfficeCli.Handlers.WordHandler wh => wh.LastFindMatchCount,
+                            OfficeCli.Handlers.PowerPointHandler ph => ph.LastFindMatchCount,
+                            OfficeCli.Handlers.ExcelHandler eh => eh.LastFindMatchCount,
+                            _ => 0
+                        };
+                        msg += $" ({matched} matched)";
+                    }
+                    parts.Add(msg);
+                }
                 if (unsupported.Count > 0)
-                    parts.Add(FormatUnsupported(unsupported));
+                {
+                    string? batchScope = handler switch
+                    {
+                        OfficeCli.Handlers.ExcelHandler => "excel",
+                        OfficeCli.Handlers.WordHandler => "word",
+                        OfficeCli.Handlers.PowerPointHandler => "pptx",
+                        _ => null,
+                    };
+                    parts.Add(FormatUnsupported(unsupported, batchScope));
+                }
                 return string.Join("\n", parts);
             }
             case "add":
             {
-                var parentPath = item.Parent ?? item.Path ?? "/";
+                var parentPath = item.Parent ?? item.Path;
+                if (string.IsNullOrEmpty(parentPath))
+                    throw new ArgumentException("'add' command requires 'parent' field. Example: {\"command\": \"add\", \"parent\": \"/slide[1]\", \"type\": \"shape\", \"props\": {\"text\": \"Hello\"}}");
+                if (string.IsNullOrEmpty(item.Type) && string.IsNullOrEmpty(item.From))
+                    throw new ArgumentException("'add' command requires 'type' or 'from' field. Example: {\"command\": \"add\", \"parent\": \"/\", \"type\": \"slide\"}");
+                InsertPosition? pos = null;
+                if (item.Index.HasValue) pos = InsertPosition.AtIndex(item.Index.Value);
+                else if (!string.IsNullOrEmpty(item.After)) pos = InsertPosition.AfterElement(item.After);
+                else if (!string.IsNullOrEmpty(item.Before)) pos = InsertPosition.BeforeElement(item.Before);
+
                 if (!string.IsNullOrEmpty(item.From))
                 {
-                    var resultPath = handler.CopyFrom(item.From, parentPath, item.Index);
+                    var resultPath = handler.CopyFrom(item.From, parentPath, pos);
                     return $"Copied to {resultPath}";
                 }
                 else
                 {
                     var type = item.Type ?? "";
-                    var resultPath = handler.Add(parentPath, type, item.Index, props);
+                    var resultPath = handler.Add(parentPath, type, pos, props);
                     return $"Added {type} at {resultPath}";
                 }
             }
             case "remove":
             {
-                var path = item.Path ?? "/";
+                if (string.IsNullOrEmpty(item.Path))
+                    throw new ArgumentException("'remove' command requires 'path' field. Example: {\"command\": \"remove\", \"path\": \"/slide[1]/shape[2]\"}");
+                var path = item.Path;
                 var warning = handler.Remove(path);
                 var msg = $"Removed {path}";
                 if (warning != null) msg += $"\n{warning}";
@@ -1606,8 +381,25 @@ static class CommandBuilder
             case "move":
             {
                 var path = item.Path ?? "/";
-                var resultPath = handler.Move(path, item.To, item.Index);
+                InsertPosition? movePos = null;
+                if (item.Index.HasValue) movePos = InsertPosition.AtIndex(item.Index.Value);
+                else if (!string.IsNullOrEmpty(item.After)) movePos = InsertPosition.AfterElement(item.After);
+                else if (!string.IsNullOrEmpty(item.Before)) movePos = InsertPosition.BeforeElement(item.Before);
+                var resultPath = handler.Move(path, item.To, movePos);
                 return $"Moved to {resultPath}";
+            }
+            case "swap":
+            {
+                if (string.IsNullOrEmpty(item.Path) || string.IsNullOrEmpty(item.To))
+                    throw new ArgumentException("'swap' command requires 'path' and 'to' fields. Example: {\"command\": \"swap\", \"path\": \"/slide[1]\", \"to\": \"/slide[2]\"}");
+                var (p1, p2) = handler switch
+                {
+                    OfficeCli.Handlers.PowerPointHandler ppt => ppt.Swap(item.Path, item.To),
+                    OfficeCli.Handlers.WordHandler word => word.Swap(item.Path, item.To),
+                    OfficeCli.Handlers.ExcelHandler excel => excel.Swap(item.Path, item.To),
+                    _ => throw new InvalidOperationException("swap not supported for this document type")
+                };
+                return $"Swapped {p1} <-> {p2}";
             }
             case "view":
             {
@@ -1637,8 +429,9 @@ static class CommandBuilder
             }
             case "raw":
             {
-                var partPath = item.Part ?? "/document";
-                return handler.Raw(partPath, null, null, null);
+                if (string.IsNullOrEmpty(item.Part))
+                    throw new ArgumentException("'raw' command requires 'part' field. Example: {\"command\": \"raw\", \"part\": \"/document\"} (docx), {\"command\": \"raw\", \"part\": \"/presentation\"} (pptx), {\"command\": \"raw\", \"part\": \"/sheet[1]\"} (xlsx)");
+                return handler.Raw(item.Part, null, null, null);
             }
             case "raw-set":
             {
@@ -1667,15 +460,96 @@ static class CommandBuilder
                         "Batch item missing required 'command' field. " +
                         "Valid commands: get, query, set, add, remove, move, view, raw, validate. " +
                         "Example: {\"command\": \"set\", \"path\": \"/Sheet1/A1\", \"props\": {\"value\": \"hello\"}}");
-                throw new InvalidOperationException($"Unknown command: '{item.Command}'. Valid commands: get, query, set, add, remove, move, view, raw, validate.");
+                throw new InvalidOperationException($"Unknown command: '{item.Command}'. Valid commands: get, query, set, add, remove, move, swap, view, raw, validate.");
         }
     }
 
-    internal static void PrintBatchResults(List<BatchResult> results, bool json)
+    private static Dictionary<string, string> ParsePropsArray(string[]? props)
     {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in props ?? Array.Empty<string>())
+        {
+            var eqIdx = prop.IndexOf('=');
+            if (eqIdx > 0)
+                dict[prop[..eqIdx]] = prop[(eqIdx + 1)..];
+        }
+        return dict;
+    }
+
+    internal static void PrintBatchResults(List<BatchResult> results, bool json, int totalCount = 0, TextWriter? output = null)
+    {
+        var @out = output ?? Console.Out;
+        if (totalCount == 0) totalCount = results.Count;
+
         if (json)
         {
-            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(results, BatchJsonContext.Default.ListBatchResult));
+            var succeeded = results.Count(r => r.Success);
+            var failed = results.Count - succeeded;
+            var skipped = totalCount - results.Count;
+
+            using var ms = new System.IO.MemoryStream();
+            using (var writer = new System.Text.Json.Utf8JsonWriter(ms))
+            {
+                writer.WriteStartObject();
+                writer.WritePropertyName("results");
+                System.Text.Json.JsonSerializer.Serialize(writer, results, BatchJsonContext.Default.ListBatchResult);
+                writer.WriteStartObject("summary");
+                writer.WriteNumber("total", totalCount);
+                writer.WriteNumber("executed", results.Count);
+                writer.WriteNumber("succeeded", succeeded);
+                writer.WriteNumber("failed", failed);
+                writer.WriteNumber("skipped", skipped);
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            }
+
+            var fullBytes = ms.ToArray();
+            if (fullBytes.Length <= 8192)
+            {
+                @out.WriteLine(System.Text.Encoding.UTF8.GetString(fullBytes));
+            }
+            else
+            {
+                // Spill full output to temp file
+                var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"officecli_batch_{Guid.NewGuid():N}.json");
+                System.IO.File.WriteAllBytes(tempPath, fullBytes);
+
+                // Write slim envelope
+                using var slimMs = new System.IO.MemoryStream();
+                using (var slimWriter = new System.Text.Json.Utf8JsonWriter(slimMs))
+                {
+                    slimWriter.WriteStartObject();
+                    slimWriter.WriteString("outputFile", tempPath);
+                    slimWriter.WriteNumber("outputSize", fullBytes.Length);
+                    slimWriter.WriteStartArray("results");
+                    foreach (var r in results)
+                    {
+                        slimWriter.WriteStartObject();
+                        slimWriter.WriteNumber("index", r.Index);
+                        slimWriter.WriteBoolean("success", r.Success);
+                        if (r.Error != null)
+                        {
+                            slimWriter.WriteString("error", r.Error);
+                            if (r.Item != null)
+                            {
+                                slimWriter.WritePropertyName("item");
+                                System.Text.Json.JsonSerializer.Serialize(slimWriter, r.Item, BatchJsonContext.Default.BatchItem);
+                            }
+                        }
+                        slimWriter.WriteEndObject();
+                    }
+                    slimWriter.WriteEndArray();
+                    slimWriter.WriteStartObject("summary");
+                    slimWriter.WriteNumber("total", totalCount);
+                    slimWriter.WriteNumber("executed", results.Count);
+                    slimWriter.WriteNumber("succeeded", succeeded);
+                    slimWriter.WriteNumber("failed", failed);
+                    slimWriter.WriteNumber("skipped", skipped);
+                    slimWriter.WriteEndObject();
+                    slimWriter.WriteEndObject();
+                }
+                @out.WriteLine(System.Text.Encoding.UTF8.GetString(slimMs.ToArray()));
+            }
         }
         else
         {
@@ -1686,19 +560,19 @@ static class CommandBuilder
                 if (r.Success)
                 {
                     if (!string.IsNullOrEmpty(r.Output))
-                        Console.WriteLine($"{prefix}{r.Output}");
+                        @out.WriteLine($"{prefix}{r.Output}");
                     else
-                        Console.WriteLine($"{prefix}OK");
+                        @out.WriteLine($"{prefix}OK");
                 }
                 else
                 {
-                    Console.Error.WriteLine($"{prefix}ERROR: {r.Error}");
+                    @out.WriteLine($"{prefix}ERROR: {r.Error}");
                 }
             }
 
             var succeeded = results.Count(r => r.Success);
             var failed = results.Count - succeeded;
-            Console.WriteLine($"\nBatch complete: {succeeded} succeeded, {failed} failed, {results.Count} total");
+            @out.WriteLine($"\nBatch complete: {succeeded} succeeded, {failed} failed, {results.Count} total");
         }
     }
 
@@ -1785,20 +659,59 @@ static class CommandBuilder
                     }
                 }
             }
+
+            // Pattern 3 (BUG-BT-R6): common typos for the `--prop` option name.
+            // `--props '{"k":"v"}'` is silently swallowed by System.CommandLine
+            // because `--props` (with trailing s) is not a known option, so the
+            // JSON value goes into UnmatchedTokens too. Catch the typo so the
+            // existing warning machinery emits a clear hint instead of letting
+            // the agent ship a shape with no text.
+            if (token is "--props" or "-props" or "--prop=" && i + 1 < tokens.Count)
+            {
+                var nextToken = tokens[i + 1];
+                if (!nextToken.StartsWith("--"))
+                {
+                    result.Add($"--prop {nextToken}");
+                    i++;
+                    continue;
+                }
+            }
         }
         return result;
     }
 
-    internal static string FormatUnsupported(IEnumerable<string> unsupported)
+    internal static string FormatUnsupported(IEnumerable<string> unsupported, string? scope = null)
     {
         var parts = new List<string>();
         foreach (var prop in unsupported)
         {
-            var suggestion = SuggestProperty(prop);
+            var suggestion = SuggestPropertyScoped(prop, scope);
             parts.Add(suggestion != null ? $"{prop} (did you mean: {suggestion}?)" : prop);
         }
         return $"UNSUPPORTED props: {string.Join(", ", parts)}. Use 'officecli help <format>-set' to see available properties, or use raw-set for direct XML manipulation.";
     }
+
+    /// <summary>
+    /// Property keys that belong to PPTX shape/text semantics and should not
+    /// be offered as suggestions when the caller is operating on an Excel
+    /// document (R2-4). Keep the list conservative — only keys whose presence
+    /// in an Excel error message would be clearly misleading.
+    /// </summary>
+    internal static readonly HashSet<string> PptxOnlyProps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "rotation", "opacity", "glow", "shadow",
+        "firstSliceAngle", "holeSize", "bubbleScale", "explosion",
+        "view3d", "varyColors",
+    };
+
+    /// <summary>
+    /// Property keys exclusive to Word document-level concerns that should
+    /// not bleed into Excel suggestions.
+    /// </summary>
+    internal static readonly HashSet<string> WordOnlyProps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "pageWidth", "pageHeight", "orientation",
+    };
 
     internal static readonly string[] KnownProps = new[]
     {
@@ -1845,9 +758,21 @@ static class CommandBuilder
     }
 
     /// <summary>
+    /// Scoped variant: filters the suggestion pool against a target document
+    /// format ("excel", "word", "pptx", or null for unscoped) to avoid
+    /// cross-format leakage such as suggesting PPTX 'rotation' for an
+    /// Excel pivot property (R2-4).
+    /// </summary>
+    internal static string? SuggestPropertyScoped(string input, string? scope)
+    {
+        var (best, _, _) = SuggestPropertyWithDistance(input, scope);
+        return best;
+    }
+
+    /// <summary>
     /// Returns (bestMatch, distance, isUnique) where isUnique means no other candidate shares the same distance.
     /// </summary>
-    internal static (string? Best, int Distance, bool IsUnique) SuggestPropertyWithDistance(string input)
+    internal static (string? Best, int Distance, bool IsUnique) SuggestPropertyWithDistance(string input, string? scope = null)
     {
         // Strip help text suffix if present (e.g. "key (valid props: ...)")
         var rawInput = input.Contains(' ') ? input[..input.IndexOf(' ')] : input;
@@ -1856,8 +781,24 @@ static class CommandBuilder
         int bestDist = int.MaxValue;
         int bestCount = 0; // how many props share the best distance
 
+        HashSet<string>? exclude = null;
+        switch (scope?.ToLowerInvariant())
+        {
+            case "excel":
+                exclude = new HashSet<string>(PptxOnlyProps, StringComparer.OrdinalIgnoreCase);
+                foreach (var w in WordOnlyProps) exclude.Add(w);
+                break;
+            case "word":
+                exclude = PptxOnlyProps;
+                break;
+            case "pptx":
+                exclude = WordOnlyProps;
+                break;
+        }
+
         foreach (var prop in KnownProps)
         {
+            if (exclude != null && exclude.Contains(prop)) continue;
             var dist = LevenshteinDistance(lower, prop.ToLowerInvariant());
             if (dist > 0 && dist <= Math.Max(2, rawInput.Length / 3))
             {
@@ -2052,7 +993,10 @@ static class CommandBuilder
             var html = ppt.RenderSlideHtml(slideNum);
             if (html != null)
             {
-                WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "replace", Slide = slideNum, Html = html, FullHtml = ppt.ViewAsHtml() });
+                // Slide-scoped replace: the watch server patches its cached _currentHtml in
+                // place via PatchSlideInHtml; bundling a full ViewAsHtml() here is redundant
+                // (and ResidentServer.NotifyWatchSlideChanged already omits it).
+                WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "replace", Slide = slideNum, Html = html });
                 return;
             }
         }

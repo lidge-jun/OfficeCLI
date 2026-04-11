@@ -223,10 +223,11 @@ public partial class WordHandler
                 eqIdx++;
                 path = $"/body/oMathPara[{eqIdx}]";
             }
-            else if (element is Paragraph)
+            else if (element is Paragraph para1)
             {
                 pIdx++;
-                path = item.SdtBlock != null ? $"/body/sdt[{sdtIndexMap[item.SdtBlock]}]/p[{pIdx}]" : $"/body/p[{pIdx}]";
+                var pSeg = BuildParaPathSegment(para1, pIdx);
+                path = item.SdtBlock != null ? $"/body/sdt[{sdtIndexMap[item.SdtBlock]}]/{pSeg}" : $"/body/{pSeg}";
             }
             else if (element is Table)
             {
@@ -345,10 +346,11 @@ public partial class WordHandler
                 eqIdx++;
                 path = $"/body/oMathPara[{eqIdx}]";
             }
-            else if (element is Paragraph)
+            else if (element is Paragraph para2)
             {
                 pIdx++;
-                path = item.SdtBlock != null ? $"/body/sdt[{sdtIndexMap[item.SdtBlock]}]/p[{pIdx}]" : $"/body/p[{pIdx}]";
+                var pSeg = BuildParaPathSegment(para2, pIdx);
+                path = item.SdtBlock != null ? $"/body/sdt[{sdtIndexMap[item.SdtBlock]}]/{pSeg}" : $"/body/{pSeg}";
             }
             else if (element is Table)
             {
@@ -527,10 +529,12 @@ public partial class WordHandler
         var paragraphs = GetBodyElements(body).OfType<Paragraph>().ToList();
         var tables = GetBodyElements(body).OfType<Table>().ToList();
         var imageCount = body.Descendants<Drawing>().Count();
+        var oleCount = body.Descendants<EmbeddedObject>().Count();
         var equationCount = body.Descendants().Count(e => e.LocalName == "oMathPara" || e is M.Paragraph);
         var formFieldCount = FindFormFields().Count;
         var contentControlCount = body.Descendants<SdtBlock>().Count() + body.Descendants<SdtRun>().Count();
         var statsLine = $"File: {Path.GetFileName(_filePath)} | {paragraphs.Count} paragraphs | {tables.Count} tables | {imageCount} images";
+        if (oleCount > 0) statsLine += $" | {oleCount} OLE object{(oleCount == 1 ? "" : "s")}";
         if (equationCount > 0) statsLine += $" | {equationCount} equations";
         if (formFieldCount > 0) statsLine += $" | {formFieldCount} formfields";
         if (contentControlCount > 0) statsLine += $" | {contentControlCount} content controls";
@@ -732,6 +736,7 @@ public partial class WordHandler
         var paragraphs = GetBodyElements(body).OfType<Paragraph>().ToList();
         var tables = GetBodyElements(body).OfType<Table>().ToList();
         var imageCount = body.Descendants<Drawing>().Count();
+        var oleCount = body.Descendants<EmbeddedObject>().Count();
         var equationCount = body.Descendants().Count(e => e.LocalName == "oMathPara" || e is M.Paragraph);
 
         var formFieldCount = FindFormFields().Count;
@@ -745,6 +750,7 @@ public partial class WordHandler
             ["images"] = imageCount,
             ["equations"] = equationCount
         };
+        if (oleCount > 0) result["oleObjects"] = oleCount;
         if (formFieldCount > 0) result["formfields"] = formFieldCount;
         if (contentControlCount > 0) result["contentControls"] = contentControlCount;
 
@@ -818,10 +824,11 @@ public partial class WordHandler
                 path = $"/body/oMathPara[{eqIdx}]";
                 type = "equation";
             }
-            else if (element is Paragraph)
+            else if (element is Paragraph para3)
             {
                 pIdx++;
-                path = item.SdtBlock != null ? $"/body/sdt[{sdtIndexMap[item.SdtBlock]}]/p[{pIdx}]" : $"/body/p[{pIdx}]";
+                var pSeg = BuildParaPathSegment(para3, pIdx);
+                path = item.SdtBlock != null ? $"/body/sdt[{sdtIndexMap[item.SdtBlock]}]/{pSeg}" : $"/body/{pSeg}";
                 type = "paragraph";
             }
             else if (element is Table)
@@ -926,7 +933,7 @@ public partial class WordHandler
                     Id = $"S{++issueNum}",
                     Type = IssueType.Structure,
                     Severity = IssueSeverity.Warning,
-                    Path = $"/body/p[{lineNum + 1}]",
+                    Path = $"/body/{BuildParaPathSegment(para, lineNum + 1)}",
                     Message = "Empty paragraph"
                 });
             }
@@ -938,15 +945,27 @@ public partial class WordHandler
                 var indent = pProps.Indentation;
                 if (indent?.FirstLine == null || indent.FirstLine.Value == "0")
                 {
-                    // Only flag if there's actual text
-                    if (runs.Any(r => !string.IsNullOrWhiteSpace(GetRunText(r))))
+                    // Skip paragraphs where first-line indent is not expected:
+                    // - hanging indent (e.g. bibliography entries)
+                    // - centered/right alignment (block-style formatting)
+                    // - list items (bullet/numbered)
+                    var hasHanging = indent?.Hanging != null && indent.Hanging.Value != "0";
+                    var hasHangingChars = indent?.HangingChars != null && indent.HangingChars.Value > 0;
+                    var jcVal = pProps.Justification?.Val?.Value;
+                    var isCentered = jcVal == JustificationValues.Center || jcVal == JustificationValues.Right
+                                  || jcVal == JustificationValues.Distribute;
+                    var isList = pProps.NumberingProperties != null;
+
+                    // Only flag if there's actual text and none of the skip conditions apply
+                    if (!hasHanging && !hasHangingChars && !isCentered && !isList
+                        && runs.Any(r => !string.IsNullOrWhiteSpace(GetRunText(r))))
                     {
                         issues.Add(new DocumentIssue
                         {
                             Id = $"F{++issueNum}",
                             Type = IssueType.Format,
                             Severity = IssueSeverity.Warning,
-                            Path = $"/body/p[{lineNum + 1}]",
+                            Path = $"/body/{BuildParaPathSegment(para, lineNum + 1)}",
                             Message = "Body paragraph missing first-line indent",
                             Suggestion = "Set first-line indent to 2 characters"
                         });
@@ -967,7 +986,7 @@ public partial class WordHandler
                         Id = $"C{++issueNum}",
                         Type = IssueType.Content,
                         Severity = IssueSeverity.Warning,
-                        Path = $"/body/p[{lineNum + 1}]/r[{runIdx + 1}]",
+                        Path = $"/body/{BuildParaPathSegment(para, lineNum + 1)}/r[{runIdx + 1}]",
                         Message = "Consecutive spaces",
                         Context = text,
                         Suggestion = "Merge into a single space"
@@ -982,7 +1001,7 @@ public partial class WordHandler
                         Id = $"C{++issueNum}",
                         Type = IssueType.Content,
                         Severity = IssueSeverity.Warning,
-                        Path = $"/body/p[{lineNum + 1}]/r[{runIdx + 1}]",
+                        Path = $"/body/{BuildParaPathSegment(para, lineNum + 1)}/r[{runIdx + 1}]",
                         Message = "Duplicate punctuation",
                         Context = text
                     });
@@ -996,7 +1015,7 @@ public partial class WordHandler
                         Id = $"C{++issueNum}",
                         Type = IssueType.Content,
                         Severity = IssueSeverity.Info,
-                        Path = $"/body/p[{lineNum + 1}]/r[{runIdx + 1}]",
+                        Path = $"/body/{BuildParaPathSegment(para, lineNum + 1)}/r[{runIdx + 1}]",
                         Message = "Mixed CJK/Latin punctuation",
                         Context = text
                     });
@@ -1149,7 +1168,7 @@ public partial class WordHandler
                         if (child == sdtRun) break;
                         if (child is SdtRun) sdtInParaIdx++;
                     }
-                    path = $"/body/p[{pIdx}]/sdt[{sdtInParaIdx}]";
+                    path = $"/body/{BuildParaPathSegment(parentPara, pIdx)}/sdt[{sdtInParaIdx}]";
                 }
                 else
                 {

@@ -4,3 +4,4 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("OfficeCli.Tests")]
+[assembly: InternalsVisibleTo("OfficeCli.Playwright")]

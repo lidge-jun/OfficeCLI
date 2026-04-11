@@ -5,7 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>OfficeCli</RootNamespace>
     <AssemblyName>officecli</AssemblyName>
-    <Version>1.0.28</Version>
+    <Version>1.0.42</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -27,6 +27,8 @@
     <EmbeddedResource Include="Resources/preview.css" />
     <EmbeddedResource Include="Resources/preview.js" />
     <EmbeddedResource Include="Resources/base.hwpx" />
+    <EmbeddedResource Include="Resources/watch-sse-core.js" />
+    <EmbeddedResource Include="Resources/watch-overlay.js" />
   </ItemGroup>
 
   <ItemGroup>

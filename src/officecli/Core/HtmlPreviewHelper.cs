@@ -8,7 +8,7 @@ namespace OfficeCli.Core;
 /// <summary>
 /// Shared helpers for HTML preview rendering across PowerPoint, Word, and Excel handlers.
 /// </summary>
-public static class HtmlPreviewHelper
+internal static class HtmlPreviewHelper
 {
     /// <summary>
     /// Load an OpenXML part by its relationship ID and return the content as a base64 data URI.

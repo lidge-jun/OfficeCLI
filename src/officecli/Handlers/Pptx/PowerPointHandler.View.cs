@@ -404,7 +404,7 @@ public partial class PowerPointHandler
                         Id = $"F{++issueNum}",
                         Type = IssueType.Format,
                         Severity = IssueSeverity.Info,
-                        Path = $"/slide[{slideNum}]/shape[{shapeIdx + 1}]",
+                        Path = $"/slide[{slideNum}]/{BuildElementPathSegment("shape", shape, shapeIdx + 1)}",
                         Message = $"Inconsistent fonts in text box: {string.Join(", ", fonts)}"
                     });
                 }

@@ -119,14 +119,17 @@ public partial class PowerPointHandler
     {
         var name = gf.NonVisualGraphicFrameProperties?.NonVisualDrawingProperties?.Name?.Value ?? "Chart";
 
+        var chartPathSeg = BuildElementPathSegment("chart", gf, chartIdx);
         var node = new DocumentNode
         {
-            Path = $"/slide[{slideNum}]/chart[{chartIdx}]",
+            Path = $"/slide[{slideNum}]/{chartPathSeg}",
             Type = "chart",
             Preview = name
         };
 
         node.Format["name"] = name;
+        var chartId = GetCNvPrId(gf);
+        if (chartId.HasValue) node.Format["id"] = chartId.Value;
 
         // Position (PPTX-specific: from GraphicFrame transform)
         var offset = gf.Transform?.Offset;

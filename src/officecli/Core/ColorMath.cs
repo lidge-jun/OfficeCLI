@@ -8,7 +8,7 @@ namespace OfficeCli.Core;
 /// Extracted from PowerPointHandler.HtmlPreview.Css and WordHandler.HtmlPreview.Css
 /// to eliminate duplication.
 /// </summary>
-public static class ColorMath
+internal static class ColorMath
 {
     /// <summary>Convert RGB (0-255) to HSL (h: 0-1, s: 0-1, l: 0-1).</summary>
     public static void RgbToHsl(int r, int g, int b, out double h, out double s, out double l)

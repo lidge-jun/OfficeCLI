@@ -1,17 +1,10 @@
 // Copyright 2025 OfficeCli (officecli.ai)
 // SPDX-License-Identifier: Apache-2.0
 
-using System.Text;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using OfficeCli.Core;
-using Vml = DocumentFormat.OpenXml.Vml;
-using C = DocumentFormat.OpenXml.Drawing.Charts;
-using A = DocumentFormat.OpenXml.Drawing;
-using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
-using PIC = DocumentFormat.OpenXml.Drawing.Pictures;
-using M = DocumentFormat.OpenXml.Math;
 
 namespace OfficeCli.Handlers;
 
@@ -19,11 +12,19 @@ public partial class WordHandler : IDocumentHandler
 {
     private readonly WordprocessingDocument _doc;
     private readonly string _filePath;
+    private HashSet<string> _usedParaIds = new(StringComparer.OrdinalIgnoreCase);
+    private int _nextParaId = 0x100000;
+    public int LastFindMatchCount { get; internal set; }
 
     public WordHandler(string filePath, bool editable)
     {
         _filePath = filePath;
         _doc = WordprocessingDocument.Open(filePath, editable);
+        if (editable)
+        {
+            EnsureAllParaIds();
+            EnsureDocPropIds();
+        }
     }
 
     // ==================== Raw Layer ====================

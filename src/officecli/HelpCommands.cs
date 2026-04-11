@@ -8,6 +8,7 @@ namespace OfficeCli;
 /// <summary>
 /// Format-specific help: docx, xlsx, pptx with nested verb help (view, get, set, add, etc.).
 /// These are help-only commands — they do not execute any document operations.
+/// Real format-prefixed commands are rewritten in Program.cs before this handler runs.
 /// Args are intercepted before System.CommandLine parsing so --help works naturally.
 /// </summary>
 internal static class HelpCommands
@@ -50,10 +51,25 @@ internal static class HelpCommands
             break;
         }
 
-        // If extra args beyond element look like file paths or document paths,
-        // this is a real command — don't intercept for help
-        if (extraArg != null && (extraArg.Contains('.') || extraArg.Contains('/')))
-            return false;
+        static bool LooksLikeOfficeFilePath(string arg)
+        {
+            if (string.IsNullOrWhiteSpace(arg) || arg.StartsWith("--"))
+                return false;
+
+            var ext = System.IO.Path.GetExtension(arg).ToLowerInvariant();
+            return ext is ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx";
+        }
+
+        if (verb is "add" or "set" or "get" or "query" or "remove" or "view" or "raw" or "raw-set")
+        {
+            if (elementArg != null && LooksLikeOfficeFilePath(elementArg))
+                return false;
+
+            // If extra args beyond element look like file paths or document paths,
+            // this is a real command — don't intercept for help
+            if (extraArg != null && (LooksLikeOfficeFilePath(extraArg) || extraArg.Contains('/') || extraArg.Contains('\\')))
+                return false;
+        }
 
         // Parse element.property syntax
         string? element = null;
@@ -423,6 +439,39 @@ Chart (/chart[N]):
   gradient     Series gradient fill: "color1-color2:angle" (e.g. "FF0000-0000FF:90")
   gradients    Per-series gradients (semicolon-separated): "FF0000-0000FF;00FF00-FFFF00"
   secondary    Secondary axis: series indices (e.g. "2,3")
+
+Document-level properties (via set / path):
+  title, author, subject, keywords, description, category,
+  lastModifiedBy, revision, defaultFont
+
+DocDefaults (via set / path):
+  docDefaults.font           Default font for all scripts
+  docDefaults.font.latin     Default Latin font only
+  docDefaults.font.eastAsia  Default East Asian font only
+  docDefaults.font.cs        Default Complex Script font only
+  docDefaults.fontSize       Default font size (e.g. "12pt")
+  docDefaults.color          Default font color (hex)
+  docDefaults.bold, docDefaults.italic
+  docDefaults.alignment      Default paragraph alignment
+  docDefaults.spaceBefore, docDefaults.spaceAfter, docDefaults.lineSpacing
+
+DocGrid / CJK layout (via set / path):
+  docGrid.type, docGrid.linePitch, docGrid.charSpace
+  autoSpaceDE, autoSpaceDN, kinsoku, overflowPunct, charSpacingControl
+
+Compatibility (via set / path):
+  compatibility.mode, compatibility.preset (word2019/word2010/css-layout)
+  compatibility.<flag>       Individual compat flag (e.g. compatibility.useFarEastLayout)
+
+Settings flags (via set / path):
+  embedFonts, mirrorMargins, evenAndOddHeaders, defaultTabStop, etc.
+
+Theme (via set / — all formats):
+  theme.color.<slot>         dk1, lt1, dk2, lt2, accent1-6, hlink, folHlink
+  theme.font.major.latin, theme.font.minor.latin, etc.
+
+Extended properties (via set / — all formats):
+  extended.template, extended.manager, extended.company
 """;
 
     const string DocxAdd = """
@@ -539,6 +588,57 @@ Types and properties:
 Document properties (via set / path):
   title, author, subject, keywords, description, category,
   lastModifiedBy, revision
+  defaultFont          Legacy alias for docDefaults.font
+
+DocDefaults (via set / path):
+  docDefaults.font           Default font for all scripts (Ascii, HighAnsi, EastAsia, ComplexScript)
+  docDefaults.font.latin     Default Latin/Ascii font only
+  docDefaults.font.eastAsia  Default East Asian font only
+  docDefaults.font.cs        Default Complex Script font only
+  docDefaults.fontSize       Default font size (e.g. "12pt")
+  docDefaults.color          Default font color (hex)
+  docDefaults.bold           Default bold (true/false)
+  docDefaults.italic         Default italic (true/false)
+  docDefaults.alignment      Default paragraph alignment (left/center/right/justify)
+  docDefaults.spaceBefore    Default space before (e.g. "6pt")
+  docDefaults.spaceAfter     Default space after (e.g. "6pt")
+  docDefaults.lineSpacing    Default line spacing (e.g. "1.5x", "18pt")
+
+DocGrid / CJK layout (via set / path):
+  docGrid.type               Grid type: default, lines, linesAndChars, snapToChars
+  docGrid.linePitch          Grid line pitch in twips
+  docGrid.charSpace          Grid character spacing
+  autoSpaceDE                Auto-space between East Asian and Latin (true/false)
+  autoSpaceDN                Auto-space between East Asian and numbers (true/false)
+  kinsoku                    Kinsoku line-breaking rules (true/false)
+  overflowPunct              Overflow punctuation (true/false)
+  charSpacingControl         compressPunctuation, compressPunctuationAndJapaneseKana, doNotCompress
+
+Compatibility (via set / path):
+  compatibility.mode         Compatibility mode version (e.g. 15 for Word 2013+)
+  compatibility.preset       Preset: word2019, word2010, css-layout
+  compatibility.<flag>       Any compat flag (e.g. compatibility.useFarEastLayout=true)
+
+Settings flags (via set / path):
+  embedFonts, embedSystemFonts, saveSubsetFonts
+  mirrorMargins, gutterAtTop, bookFoldPrinting, bookFoldReversePrinting
+  bookFoldPrintingSheets     Sheets per booklet
+  evenAndOddHeaders          Different odd/even headers (true/false)
+  defaultTabStop             Default tab stop in twips
+  displayBackgroundShape, doNotDisplayPageBoundaries
+  removePersonalInfo, removeDateAndTime
+
+Theme (via set / path — all formats):
+  theme.color.<slot>         Theme color (slot: dk1, lt1, dk2, lt2, accent1-6, hlink, folHlink)
+  theme.font.major.latin     Major (heading) Latin font
+  theme.font.major.eastAsia  Major East Asian font
+  theme.font.minor.latin     Minor (body) Latin font
+  theme.font.minor.eastAsia  Minor East Asian font
+
+Extended properties (via set / path — all formats):
+  extended.template          Template name
+  extended.manager           Manager
+  extended.company           Company
 
 Examples:
   officecli add doc.docx /body --type paragraph --prop text="Hello World" --prop style=Heading1
@@ -580,8 +680,8 @@ Available parts:
   /styles        Style definitions
   /numbering     List/numbering definitions
   /settings      Document settings
-  /header[N]     Header N (0-based)
-  /footer[N]     Footer N (0-based)
+  /header[N]     Header N (1-based)
+  /footer[N]     Footer N (1-based)
 
 raw-set actions: append, prepend, insertbefore, insertafter, replace, remove, setattr
 No xmlns declarations needed -- prefixes auto-registered: w, a, r, mc, wp, wps, v, wp14
@@ -677,7 +777,45 @@ Paths:
   /Sheet1/validation[N] Data validation (sqref, type, formula1, ...)
   /Sheet1/cf[N]        Conditional formatting
   /Sheet1/autofilter   AutoFilter range
+  /Sheet1/pivottable[N] Pivot table (rows, cols, values, filters, aggregate,
+                         showDataAs, style, sort, grandTotals, name,
+                         showRowStripes, showColStripes, showRowHeaders,
+                         showColHeaders, showLastColumn)
   /namedrange[N]       Named range by index or name
+
+PivotTable attributes (Get readback keys — canonical):
+  name              Pivot table name
+  cacheId           Cache definition ID
+  location          Cell range where the pivot is placed
+  fieldCount        Total number of source fields
+  rows              Comma-separated row field names
+  cols              Comma-separated column field names
+  filters           Comma-separated filter field names
+  dataFieldCount    Number of data (value) fields
+  dataField{N}      Data field info, format: "name:func:fieldIdx"
+  dataField{N}.showAs  showAs token (percent_of_row / percent_of_col / ...)
+  grandTotals       Grand total visibility: both | rows | cols | none
+  subtotals         Subtotal rows for row/col fields: on | off
+  style             Applied pivot table style name
+  showRowHeaders    Row headers visible (true/false, default true)
+  showColHeaders    Column headers visible (true/false, default true)
+  showRowStripes    Row banding/stripes enabled (true/false, default false)
+  showColStripes    Column banding/stripes enabled (true/false, default false)
+  showLastColumn    Special formatting on last column (true/false, default true)
+
+Example pivot readback:
+  /Sheet1/pivottable[1]
+    name: SalesPivot
+    cacheId: 1
+    location: H1:K15
+    fieldCount: 5
+    rows: Region,Category
+    cols: Year
+    filters: Status
+    dataFieldCount: 2
+    dataField1: Sum of Sales:sum:3
+    dataField2: Count of Qty:count:4
+    style: PivotStyleMedium9
 
 Options:
   --depth N   Depth of child nodes (default 1)
@@ -870,6 +1008,44 @@ Chart (/SheetName/chart[N]):
 PivotTable (/SheetName/pivottable[N]):
   name         Pivot table name
   style        Style name (e.g. "PivotStyleMedium9")
+  rows         Row fields (comma list; e.g. "Region,Product")
+  cols         Column fields (comma list)
+  filters      Page/filter fields (comma list)
+  values       Value fields with optional aggregate/showDataAs
+                 syntax: Field[:func[:showAs]]  (e.g. "Sales:sum:percent_of_row")
+                 funcs: sum, count, average, max, min, product, stddev, var
+  aggregate    Positional override of func list (e.g. "sum,count")
+  showDataAs   Positional override of showAs list
+                 values: normal, percent_of_total, percent_of_row,
+                         percent_of_col, running_total
+  sort         Axis sort: asc | desc | locale | locale-desc
+  grandTotals  Row/column grand totals: both | rows | cols | none
+  showRowStripes   Row banding (true/false, default false)
+  showColStripes   Column banding (true/false, default false)
+  showRowHeaders   Row headers visible (true/false, default true)
+  showColHeaders   Column headers visible (true/false, default true)
+  showLastColumn   Last column special format (true/false, default true)
+
+Workbook properties (via set / path):
+  workbook.date1904          Use 1904 date system (true/false)
+  workbook.codeName          VBA code name
+  workbook.filterPrivacy     Filter personal info on save (true/false)
+  workbook.showObjects       Object display: all, placeholders, none
+  workbook.backupFile        Create backup on save (true/false)
+  workbook.dateCompatibility Date compatibility mode (true/false)
+
+Calculation properties (via set / path):
+  calc.mode              Calculation mode: auto, manual, autoExceptTables
+  calc.iterate           Enable iterative calculation (true/false)
+  calc.iterateCount      Max iterations (number)
+  calc.iterateDelta      Max change threshold (number)
+  calc.fullPrecision     Full precision calculation (true/false)
+  calc.fullCalcOnLoad    Force full recalc on open (true/false)
+  calc.refMode           Reference mode: A1, R1C1
+
+Workbook protection (via set / path):
+  workbook.protection    Enable/disable workbook protection (true/false/none)
+  workbook.lockStructure Lock workbook structure (true/false)
 
 Examples:
   officecli set data.xlsx '/Sheet1/A1' --prop value=100 --prop font.bold=true
@@ -961,7 +1137,16 @@ Types and properties:
     cols: column fields
     values: data fields with aggregation ("Sales:sum,Qty:count")
       Functions: sum, count, average, max, min, product, stddev, var
+      Inline showDataAs: "Sales:sum:percent_of_row,Qty:count"
     filters: page/filter fields
+    aggregate: positional func override (e.g. "sum,count")
+    showDataAs: positional showAs override
+                  values: normal, percent_of_total, percent_of_row,
+                          percent_of_col, running_total
+    sort: axis sort applied at render time (not persisted as OOXML sortType — v2 candidate)
+            asc | desc | locale | locale-desc
+    grandTotals: row/column grand totals: both | rows | cols | none
+    subtotals: subtotal rows for row/col fields: on | off
     name: pivot table name (auto-generated if omitted)
     style: style name (default: PivotStyleLight16)
 
@@ -1380,6 +1565,23 @@ Presentation properties (/ or /presentation):
   slideSize    Preset: 16:9, 4:3, 16:10, a4
   slideWidth   Custom width (EMU or cm/in/pt/px)
   slideHeight  Custom height (EMU or cm/in/pt/px)
+  firstSlideNum    First slide number (default 1)
+  rtl              Right-to-left layout (true/false)
+  compatMode       Compatibility mode (true/false)
+  removePersonalInfo  Remove personal info on save (true/false)
+
+Show properties (/ or /presentation):
+  show.loop         Loop continuously (true/false)
+  show.narration    Play narration (true/false)
+  show.animation    Show animations (true/false)
+  show.useTimings   Use slide timings (true/false)
+
+Printing properties (/ or /presentation):
+  print.what           Print output: slides, handouts, notes, outline
+  print.colorMode      Color mode: color, grayscale, blackAndWhite
+  print.hiddenSlides   Print hidden slides (true/false)
+  print.scaleToFitPaper Scale to fit paper (true/false)
+  print.frameSlides    Frame slides (true/false)
 
 Table properties (/slide[N]/table[M]):
   tableStyle   Built-in style: medium1..4, light1..3, dark1..2, none, or GUID

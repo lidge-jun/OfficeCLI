@@ -141,6 +141,17 @@ public partial class WordHandler
             target.RemoveAllChildren<Border>();
             target.AppendChild(srcBdr.CloneNode(true));
         }
+
+        // w14 text effects (textFill, textOutline, glow, shadow, reflection)
+        foreach (var child in source.ChildElements)
+        {
+            if (child.NamespaceUri != "http://schemas.microsoft.com/office/word/2010/wordml") continue;
+            // Remove existing w14 element with same local name, then add the new one
+            var existing = target.ChildElements.FirstOrDefault(
+                e => e.NamespaceUri == child.NamespaceUri && e.LocalName == child.LocalName);
+            if (existing != null) target.RemoveChild(existing);
+            target.AppendChild(child.CloneNode(true));
+        }
     }
 
     private static string? GetFontFromProperties(RunProperties? rProps)
@@ -314,6 +325,51 @@ public partial class WordHandler
     }
 
     // ==================== List / Numbering ====================
+
+    /// <summary>
+    /// Resolve (numId, ilvl) from a paragraph by first checking its direct
+    /// numPr and then walking up the linked paragraph style chain. Used by
+    /// heading auto-numbering, which must honour style-defined numPr even
+    /// when the paragraph itself has no NumberingProperties.
+    /// </summary>
+    private (int NumId, int Ilvl)? ResolveNumPrFromStyle(Paragraph para)
+    {
+        // 1. Direct numPr on the paragraph wins.
+        var numProps = para.ParagraphProperties?.NumberingProperties;
+        if (numProps != null)
+        {
+            var nid = numProps.NumberingId?.Val?.Value;
+            if (nid != null && nid != 0)
+                return (nid.Value, numProps.NumberingLevelReference?.Val?.Value ?? 0);
+        }
+
+        // 2. Walk the style chain through BasedOn references.
+        var styleId = para.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+        if (styleId == null) return null;
+
+        var stylesPart = _doc.MainDocumentPart?.StyleDefinitionsPart;
+        if (stylesPart?.Styles == null) return null;
+
+        var visited = new HashSet<string>();
+        while (styleId != null && visited.Add(styleId))
+        {
+            var style = stylesPart.Styles.Elements<Style>()
+                .FirstOrDefault(s => s.StyleId?.Value == styleId);
+            if (style == null) break;
+
+            var styleNumPr = style.StyleParagraphProperties?.NumberingProperties;
+            if (styleNumPr != null)
+            {
+                var nid = styleNumPr.NumberingId?.Val?.Value;
+                if (nid != null && nid != 0)
+                    return (nid.Value, styleNumPr.NumberingLevelReference?.Val?.Value ?? 0);
+            }
+
+            styleId = style.BasedOn?.Val?.Value;
+        }
+
+        return null;
+    }
 
     private string? GetParagraphListStyle(Paragraph para)
     {

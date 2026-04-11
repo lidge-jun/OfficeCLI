@@ -37,8 +37,20 @@ public partial class WordHandler
         var sectPr = new SectionProperties();
         sectPr.AppendChild(new SectionType { Val = sectType });
 
-        // Copy page size/margins from document section, or use A4 defaults
+        // Ensure body-level sectPr has pgSz/pgMar (fix for docs created by older versions)
         var bodySectPr = body.GetFirstChild<SectionProperties>();
+        if (bodySectPr != null && bodySectPr.GetFirstChild<PageSize>() == null)
+        {
+            bodySectPr.InsertBefore(new PageSize { Width = 11906, Height = 16838 },
+                bodySectPr.GetFirstChild<DocGrid>());
+        }
+        if (bodySectPr != null && bodySectPr.GetFirstChild<PageMargin>() == null)
+        {
+            bodySectPr.InsertBefore(new PageMargin { Top = 1440, Right = 1800U, Bottom = 1440, Left = 1800U },
+                bodySectPr.GetFirstChild<DocGrid>());
+        }
+
+        // Copy page size/margins from document section, or use A4 defaults
         var srcPageSize = bodySectPr?.GetFirstChild<PageSize>();
         sectPr.AppendChild(new PageSize
         {
@@ -75,6 +87,22 @@ public partial class WordHandler
                 (ps.Width!.Value, ps.Height!.Value) = (ps.Height.Value, ps.Width.Value);
             if (ps.Orient == PageOrientationValues.Portrait && ps.Width > ps.Height)
                 (ps.Width!.Value, ps.Height!.Value) = (ps.Height.Value, ps.Width.Value);
+        }
+
+        // Columns support: "columns=2" or "columns=2,1cm"
+        if (properties.TryGetValue("columns", out var colsVal) || properties.TryGetValue("columns.count", out colsVal))
+        {
+            var parts = colsVal.Split(',');
+            var count = (short)int.Parse(parts[0].Trim());
+            var cols = new Columns { ColumnCount = count, EqualWidth = true };
+            if (parts.Length > 1)
+                cols.Space = ParseTwips(parts[1].Trim()).ToString();
+            sectPr.AppendChild(cols);
+        }
+        if (properties.TryGetValue("columns.space", out var colSpace))
+        {
+            var cols = sectPr.GetFirstChild<Columns>() ?? sectPr.AppendChild(new Columns());
+            cols.Space = ParseTwips(colSpace).ToString();
         }
 
         sectPProps.AppendChild(sectPr);
@@ -221,7 +249,9 @@ public partial class WordHandler
             ?? _doc.MainDocumentPart.AddNewPart<DocumentSettingsPart>();
         settingsPart2.Settings ??= new Settings();
         if (settingsPart2.Settings.GetFirstChild<UpdateFieldsOnOpen>() == null)
-            settingsPart2.Settings.AppendChild(new UpdateFieldsOnOpen { Val = true });
+        {
+            settingsPart2.Settings.AddChild(new UpdateFieldsOnOpen { Val = true });
+        }
         settingsPart2.Settings.Save();
 
         // Count TOC fields in document to determine index
@@ -250,12 +280,23 @@ public partial class WordHandler
             _ => throw new ArgumentException($"Invalid style type: '{properties.GetValueOrDefault("type", "paragraph")}'. Valid values: paragraph, character, table, numbering.")
         };
 
+        // Built-in styles must not have customStyle=true, or Word won't recognize them
+        // (e.g. TOC won't find Heading1 if it's marked as custom)
+        var builtInIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Normal", "Heading1", "Heading2", "Heading3", "Heading4", "Heading5",
+            "Heading6", "Heading7", "Heading8", "Heading9", "Title", "Subtitle",
+            "Quote", "IntenseQuote", "ListParagraph", "NoSpacing", "TOCHeading"
+        };
+        var isBuiltIn = builtInIds.Contains(styleId);
+
         var newStyle = new Style
         {
             Type = styleType,
             StyleId = styleId,
-            CustomStyle = true
         };
+        if (!isBuiltIn)
+            newStyle.CustomStyle = true;
         newStyle.AppendChild(new StyleName { Val = styleName });
 
         if ((properties.TryGetValue("basedon", out var basedOn) || properties.TryGetValue("basedOn", out basedOn)) && !string.IsNullOrEmpty(basedOn))
@@ -328,29 +369,71 @@ public partial class WordHandler
         var headerPart = mainPartH.AddNewPart<HeaderPart>();
 
         var hPara = new Paragraph();
+        AssignParaId(hPara);
         var hPProps = new ParagraphProperties();
 
         if (properties.TryGetValue("alignment", out var hAlign) || properties.TryGetValue("align", out hAlign))
             hPProps.Justification = new Justification { Val = ParseJustification(hAlign) };
         hPara.AppendChild(hPProps);
 
+        // Build shared run properties for text and field runs
+        RunProperties? hSharedRProps = null;
+        if (properties.ContainsKey("font") || properties.ContainsKey("size") ||
+            properties.ContainsKey("bold") || properties.ContainsKey("italic") || properties.ContainsKey("color"))
+        {
+            hSharedRProps = new RunProperties();
+            if (properties.TryGetValue("font", out var hFont))
+                hSharedRProps.AppendChild(new RunFonts { Ascii = hFont, HighAnsi = hFont, EastAsia = hFont });
+            if (properties.TryGetValue("size", out var hSize))
+                hSharedRProps.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(hSize) * 2, MidpointRounding.AwayFromZero)).ToString() });
+            if (properties.TryGetValue("bold", out var hBold) && IsTruthy(hBold))
+                hSharedRProps.Bold = new Bold();
+            if (properties.TryGetValue("italic", out var hItalic) && IsTruthy(hItalic))
+                hSharedRProps.Italic = new Italic();
+            if (properties.TryGetValue("color", out var hColor))
+                hSharedRProps.Color = new Color { Val = SanitizeHex(hColor) };
+        }
+
         if (properties.TryGetValue("text", out var hText))
         {
             var hRun = new Run();
-            var hRProps = new RunProperties();
-            if (properties.TryGetValue("font", out var hFont))
-                hRProps.AppendChild(new RunFonts { Ascii = hFont, HighAnsi = hFont, EastAsia = hFont });
-            if (properties.TryGetValue("size", out var hSize))
-                hRProps.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(hSize) * 2, MidpointRounding.AwayFromZero)).ToString() });
-            if (properties.TryGetValue("bold", out var hBold) && IsTruthy(hBold))
-                hRProps.Bold = new Bold();
-            if (properties.TryGetValue("italic", out var hItalic) && IsTruthy(hItalic))
-                hRProps.Italic = new Italic();
-            if (properties.TryGetValue("color", out var hColor))
-                hRProps.Color = new Color { Val = SanitizeHex(hColor) };
-            hRun.AppendChild(hRProps);
+            if (hSharedRProps != null) hRun.AppendChild((RunProperties)hSharedRProps.CloneNode(true));
             hRun.AppendChild(new Text(hText) { Space = SpaceProcessingModeValues.Preserve });
             hPara.AppendChild(hRun);
+        }
+
+        // Support field=page|numpages|date etc. — generates fldChar complex field
+        if (properties.TryGetValue("field", out var hFieldType))
+        {
+            var hFieldInstr = hFieldType.ToLowerInvariant() switch
+            {
+                "page" or "pagenum" or "pagenumber" => " PAGE ",
+                "numpages" => " NUMPAGES ",
+                "date" => " DATE \\@ \"yyyy-MM-dd\" ",
+                "author" => " AUTHOR ",
+                "title" => " TITLE ",
+                "time" => " TIME ",
+                "filename" => " FILENAME ",
+                _ => $" {hFieldType.ToUpperInvariant()} "
+            };
+            var hBeginRun = new Run(new FieldChar { FieldCharType = FieldCharValues.Begin });
+            var hInstrRun = new Run(new FieldCode(hFieldInstr) { Space = SpaceProcessingModeValues.Preserve });
+            var hSepRun = new Run(new FieldChar { FieldCharType = FieldCharValues.Separate });
+            var hResultRun = new Run(new Text("1") { Space = SpaceProcessingModeValues.Preserve });
+            var hEndRun = new Run(new FieldChar { FieldCharType = FieldCharValues.End });
+            if (hSharedRProps != null)
+            {
+                hBeginRun.PrependChild((RunProperties)hSharedRProps.CloneNode(true));
+                hInstrRun.PrependChild((RunProperties)hSharedRProps.CloneNode(true));
+                hSepRun.PrependChild((RunProperties)hSharedRProps.CloneNode(true));
+                hResultRun.PrependChild((RunProperties)hSharedRProps.CloneNode(true));
+                hEndRun.PrependChild((RunProperties)hSharedRProps.CloneNode(true));
+            }
+            hPara.AppendChild(hBeginRun);
+            hPara.AppendChild(hInstrRun);
+            hPara.AppendChild(hSepRun);
+            hPara.AppendChild(hResultRun);
+            hPara.AppendChild(hEndRun);
         }
 
         headerPart.Header = new Header(hPara);
@@ -382,7 +465,7 @@ public partial class WordHandler
         if (headerType == HeaderFooterValues.First)
         {
             if (hSectPr.GetFirstChild<TitlePage>() == null)
-                hSectPr.AppendChild(new TitlePage());
+                hSectPr.AddChild(new TitlePage(), throwOnError: false);
         }
 
         var hIdx = mainPartH.HeaderParts.ToList().IndexOf(headerPart);
@@ -395,29 +478,71 @@ public partial class WordHandler
         var footerPart = mainPartF.AddNewPart<FooterPart>();
 
         var fPara = new Paragraph();
+        AssignParaId(fPara);
         var fPProps = new ParagraphProperties();
 
         if (properties.TryGetValue("alignment", out var fAlign) || properties.TryGetValue("align", out fAlign))
             fPProps.Justification = new Justification { Val = ParseJustification(fAlign) };
         fPara.AppendChild(fPProps);
 
+        // Build shared run properties for text and field runs
+        RunProperties? sharedRProps = null;
+        if (properties.ContainsKey("font") || properties.ContainsKey("size") ||
+            properties.ContainsKey("bold") || properties.ContainsKey("italic") || properties.ContainsKey("color"))
+        {
+            sharedRProps = new RunProperties();
+            if (properties.TryGetValue("font", out var fFont))
+                sharedRProps.AppendChild(new RunFonts { Ascii = fFont, HighAnsi = fFont, EastAsia = fFont });
+            if (properties.TryGetValue("size", out var fSize))
+                sharedRProps.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(fSize) * 2, MidpointRounding.AwayFromZero)).ToString() });
+            if (properties.TryGetValue("bold", out var fBold) && IsTruthy(fBold))
+                sharedRProps.Bold = new Bold();
+            if (properties.TryGetValue("italic", out var fItalic) && IsTruthy(fItalic))
+                sharedRProps.Italic = new Italic();
+            if (properties.TryGetValue("color", out var fColor))
+                sharedRProps.Color = new Color { Val = SanitizeHex(fColor) };
+        }
+
         if (properties.TryGetValue("text", out var fText))
         {
             var fRun = new Run();
-            var fRProps = new RunProperties();
-            if (properties.TryGetValue("font", out var fFont))
-                fRProps.AppendChild(new RunFonts { Ascii = fFont, HighAnsi = fFont, EastAsia = fFont });
-            if (properties.TryGetValue("size", out var fSize))
-                fRProps.AppendChild(new FontSize { Val = ((int)Math.Round(ParseFontSize(fSize) * 2, MidpointRounding.AwayFromZero)).ToString() });
-            if (properties.TryGetValue("bold", out var fBold) && IsTruthy(fBold))
-                fRProps.Bold = new Bold();
-            if (properties.TryGetValue("italic", out var fItalic) && IsTruthy(fItalic))
-                fRProps.Italic = new Italic();
-            if (properties.TryGetValue("color", out var fColor))
-                fRProps.Color = new Color { Val = SanitizeHex(fColor) };
-            fRun.AppendChild(fRProps);
+            if (sharedRProps != null) fRun.AppendChild((RunProperties)sharedRProps.CloneNode(true));
             fRun.AppendChild(new Text(fText) { Space = SpaceProcessingModeValues.Preserve });
             fPara.AppendChild(fRun);
+        }
+
+        // Support field=page|numpages|date etc. — generates fldChar complex field
+        if (properties.TryGetValue("field", out var fieldType))
+        {
+            var fieldInstr = fieldType.ToLowerInvariant() switch
+            {
+                "page" or "pagenum" or "pagenumber" => " PAGE ",
+                "numpages" => " NUMPAGES ",
+                "date" => " DATE \\@ \"yyyy-MM-dd\" ",
+                "author" => " AUTHOR ",
+                "title" => " TITLE ",
+                "time" => " TIME ",
+                "filename" => " FILENAME ",
+                _ => $" {fieldType.ToUpperInvariant()} "
+            };
+            var beginRun = new Run(new FieldChar { FieldCharType = FieldCharValues.Begin });
+            var instrRun = new Run(new FieldCode(fieldInstr) { Space = SpaceProcessingModeValues.Preserve });
+            var sepRun = new Run(new FieldChar { FieldCharType = FieldCharValues.Separate });
+            var resultRun = new Run(new Text("1") { Space = SpaceProcessingModeValues.Preserve });
+            var endRun = new Run(new FieldChar { FieldCharType = FieldCharValues.End });
+            if (sharedRProps != null)
+            {
+                beginRun.PrependChild((RunProperties)sharedRProps.CloneNode(true));
+                instrRun.PrependChild((RunProperties)sharedRProps.CloneNode(true));
+                sepRun.PrependChild((RunProperties)sharedRProps.CloneNode(true));
+                resultRun.PrependChild((RunProperties)sharedRProps.CloneNode(true));
+                endRun.PrependChild((RunProperties)sharedRProps.CloneNode(true));
+            }
+            fPara.AppendChild(beginRun);
+            fPara.AppendChild(instrRun);
+            fPara.AppendChild(sepRun);
+            fPara.AppendChild(resultRun);
+            fPara.AppendChild(endRun);
         }
 
         footerPart.Footer = new Footer(fPara);
@@ -454,7 +579,7 @@ public partial class WordHandler
         if (footerType == HeaderFooterValues.First)
         {
             if (fSectPr.GetFirstChild<TitlePage>() == null)
-                fSectPr.AppendChild(new TitlePage());
+                fSectPr.AddChild(new TitlePage(), throwOnError: false);
         }
 
         var fIdx = mainPartF.FooterParts.ToList().IndexOf(footerPart);

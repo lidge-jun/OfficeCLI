@@ -127,12 +127,96 @@ public partial class WordHandler
             node.Format["protectionEnforced"] = false;
         }
 
+        // Document-level settings (DocGrid, CJK, print/display, font embedding, layout flags, columns, etc.)
+        PopulateDocSettings(node);
+        PopulateCompatibility(node);
+        PopulateDocDefaults(node);
+
+        // Theme and Extended Properties
+        Core.ThemeHandler.PopulateTheme(_doc.MainDocumentPart?.ThemePart, node);
+        Core.ExtendedPropertiesHandler.PopulateExtendedProperties(_doc.ExtendedFilePropertiesPart, node);
+
         node.Children = children;
         node.ChildCount = children.Count;
         return node;
     }
 
     private record PathSegment(string Name, int? Index, string? StringIndex = null);
+
+    /// <summary>
+    /// Resolve InsertPosition (After/Before anchor path) to a 0-based int? index.
+    /// Anchor path can be full (/body/p[@paraId=xxx]) or short (p[@paraId=xxx]).
+    /// </summary>
+    private int? ResolveAnchorPosition(OpenXmlElement parent, string parentPath, InsertPosition? position)
+    {
+        if (position == null) return null;
+        if (position.Index.HasValue) return position.Index;
+
+        var anchorPath = position.After ?? position.Before!;
+
+        // Catch bare attribute selector without element wrapper, e.g. @paraId=XXX instead of p[@paraId=XXX]
+        if (System.Text.RegularExpressions.Regex.IsMatch(anchorPath, @"^@(\w+)=(.+)$"))
+            throw new ArgumentException($"Invalid anchor path \"{anchorPath}\". Did you mean: p[{anchorPath}]?");
+
+        // Handle find: prefix — text-based anchoring within a paragraph
+        if (anchorPath.StartsWith("find:", StringComparison.OrdinalIgnoreCase))
+        {
+            // Return a sentinel value; actual handling done in Add via AddAtFindPosition
+            return FindAnchorIndex;
+        }
+
+        // Normalize: if short form (no leading /), prepend parentPath
+        if (!anchorPath.StartsWith("/"))
+            anchorPath = parentPath.TrimEnd('/') + "/" + anchorPath;
+
+        var segments = ParsePath(anchorPath);
+        var anchor = NavigateToElement(segments, out var ctx)
+            ?? throw new ArgumentException($"Anchor element not found: {anchorPath}" + (ctx != null ? $". {ctx}" : ""));
+
+        // Find anchor's position among parent's children
+        var siblings = parent.ChildElements.ToList();
+        var anchorIdx = siblings.IndexOf(anchor);
+        if (anchorIdx < 0)
+            throw new ArgumentException($"Anchor element is not a child of {parentPath}: {anchorPath}");
+
+        if (position.After != null)
+        {
+            // Insert after anchor: if last child, return null (append)
+            return anchorIdx + 1 >= siblings.Count ? null : anchorIdx + 1;
+        }
+        else
+        {
+            // Insert before anchor
+            return anchorIdx;
+        }
+    }
+
+    /// <summary>Sentinel value indicating find: anchor needs text-based resolution.</summary>
+    private const int FindAnchorIndex = -99999;
+
+    /// <summary>
+    /// Build an SDT path segment using @sdtId= if available, otherwise positional index.
+    /// </summary>
+    private static string BuildSdtPathSegment(OpenXmlElement sdt, int positionalIndex)
+    {
+        var sdtProps = (sdt is SdtBlock sb ? sb.SdtProperties : (sdt as SdtRun)?.SdtProperties);
+        var sdtIdVal = sdtProps?.GetFirstChild<SdtId>()?.Val?.Value;
+        return sdtIdVal != null
+            ? $"sdt[@sdtId={sdtIdVal}]"
+            : $"sdt[{positionalIndex}]";
+    }
+
+    /// <summary>
+    /// Build a paragraph path segment using @paraId= if available, otherwise positional index.
+    /// E.g. "p[@paraId=1A2B3C4D]" or "p[3]".
+    /// </summary>
+    private static string BuildParaPathSegment(Paragraph para, int positionalIndex)
+    {
+        var paraId = para.ParagraphId?.Value;
+        return !string.IsNullOrEmpty(paraId)
+            ? $"p[@paraId={paraId}]"
+            : $"p[{positionalIndex}]";
+    }
 
     private static List<PathSegment> ParsePath(string path)
     {
@@ -161,10 +245,14 @@ public partial class WordHandler
     }
 
     private OpenXmlElement? NavigateToElement(List<PathSegment> segments)
-        => NavigateToElement(segments, out _);
+        => NavigateToElement(segments, out _, out _);
 
     private OpenXmlElement? NavigateToElement(List<PathSegment> segments, out string? availableContext)
+        => NavigateToElement(segments, out availableContext, out _);
+
+    private OpenXmlElement? NavigateToElement(List<PathSegment> segments, out string? availableContext, out string resolvedPath)
     {
+        resolvedPath = "";
         availableContext = null;
         if (segments.Count == 0) return null;
 
@@ -237,9 +325,42 @@ public partial class WordHandler
             }
 
             var childList = children.ToList();
-            var next = seg.Index.HasValue
-                ? childList.ElementAtOrDefault(seg.Index.Value - 1)
-                : childList.FirstOrDefault();
+            OpenXmlElement? next;
+            if (seg.Index.HasValue)
+                next = childList.ElementAtOrDefault(seg.Index.Value - 1);
+            else if (seg.StringIndex == "last()")
+                next = childList.LastOrDefault();
+            else if (seg.StringIndex != null && seg.StringIndex.StartsWith("@paraId=", StringComparison.OrdinalIgnoreCase))
+            {
+                var targetId = seg.StringIndex["@paraId=".Length..];
+                next = childList.OfType<Paragraph>()
+                    .FirstOrDefault(p => string.Equals(p.ParagraphId?.Value, targetId, StringComparison.OrdinalIgnoreCase));
+            }
+            else if (seg.StringIndex != null && seg.StringIndex.StartsWith("@textId=", StringComparison.OrdinalIgnoreCase))
+            {
+                var targetId = seg.StringIndex["@textId=".Length..];
+                next = childList.OfType<Paragraph>()
+                    .FirstOrDefault(p => string.Equals(p.TextId?.Value, targetId, StringComparison.OrdinalIgnoreCase));
+            }
+            else if (seg.StringIndex != null && seg.StringIndex.StartsWith("@commentId=", StringComparison.OrdinalIgnoreCase))
+            {
+                var targetId = seg.StringIndex["@commentId=".Length..];
+                next = childList.OfType<Comment>()
+                    .FirstOrDefault(c => c.Id?.Value == targetId);
+            }
+            else if (seg.StringIndex != null && seg.StringIndex.StartsWith("@sdtId=", StringComparison.OrdinalIgnoreCase))
+            {
+                var targetId = seg.StringIndex["@sdtId=".Length..];
+                next = childList.Where(e => e is SdtBlock or SdtRun)
+                    .FirstOrDefault(e =>
+                    {
+                        var sdtId = (e is SdtBlock sb ? sb.SdtProperties : (e as SdtRun)?.SdtProperties)
+                            ?.GetFirstChild<SdtId>()?.Val?.Value;
+                        return sdtId?.ToString() == targetId;
+                    });
+            }
+            else
+                next = childList.FirstOrDefault();
 
             if (next == null)
             {
@@ -247,10 +368,36 @@ public partial class WordHandler
                 return null;
             }
 
-            parentPath += "/" + seg.Name + (seg.Index.HasValue ? $"[{seg.Index}]" : "");
+            // Build path segment: prefer stable ID when available, fallback to positional
+            if (next is Paragraph navPara && !string.IsNullOrEmpty(navPara.ParagraphId?.Value))
+            {
+                parentPath += "/" + seg.Name + $"[@paraId={navPara.ParagraphId.Value}]";
+            }
+            else if (next is Comment navComment && navComment.Id?.Value != null)
+            {
+                parentPath += "/" + seg.Name + $"[@commentId={navComment.Id.Value}]";
+            }
+            else if (next is SdtBlock or SdtRun)
+            {
+                var sdtProps = (next is SdtBlock sb2 ? sb2.SdtProperties : (next as SdtRun)?.SdtProperties);
+                var sdtIdVal = sdtProps?.GetFirstChild<SdtId>()?.Val?.Value;
+                if (sdtIdVal != null)
+                    parentPath += "/" + seg.Name + $"[@sdtId={sdtIdVal}]";
+                else
+                {
+                    var posIdx = childList.IndexOf(next) + 1;
+                    parentPath += "/" + seg.Name + $"[{posIdx}]";
+                }
+            }
+            else
+            {
+                var posIdx = childList.IndexOf(next) + 1;
+                parentPath += "/" + seg.Name + $"[{posIdx}]";
+            }
             current = next;
         }
 
+        resolvedPath = parentPath;
         return current;
     }
 
@@ -312,6 +459,11 @@ public partial class WordHandler
             node.Style = GetStyleName(para);
             node.Preview = node.Text?.Length > 50 ? node.Text[..50] + "..." : node.Text;
             node.ChildCount = GetAllRuns(para).Count();
+
+            if (!string.IsNullOrEmpty(para.ParagraphId?.Value))
+                node.Format["paraId"] = para.ParagraphId.Value;
+            if (!string.IsNullOrEmpty(para.TextId?.Value))
+                node.Format["textId"] = para.TextId.Value;
 
             var pProps = para.ParagraphProperties;
             if (pProps != null)
@@ -403,9 +555,9 @@ public partial class WordHandler
                     if (numProps.NumberingId?.Val?.Value != null)
                     {
                         var numIdVal = numProps.NumberingId.Val.Value;
-                        node.Format["numid"] = numIdVal;
+                        node.Format["numId"] = numIdVal.ToString();
                         var ilvlVal = numProps.NumberingLevelReference?.Val?.Value ?? 0;
-                        node.Format["numlevel"] = ilvlVal;
+                        node.Format["numLevel"] = ilvlVal.ToString();
                         var numFmt = GetNumberingFormat(numIdVal, ilvlVal);
                         node.Format["numFmt"] = numFmt;
                         node.Format["listStyle"] = numFmt.ToLowerInvariant() == "bullet" ? "bullet" : "ordered";
@@ -416,27 +568,47 @@ public partial class WordHandler
                 }
             }
 
-            // First-run formatting on the paragraph node (like PPTX does for shapes)
+            // First-run formatting on the paragraph node (like PPTX does for shapes).
+            // Fall back to ParagraphMarkRunProperties when no runs exist (e.g. empty paragraph
+            // that had formatting applied via Set before any text was added).
             var firstRun = para.Elements<Run>().FirstOrDefault(r => r.GetFirstChild<Text>() != null);
-            if (firstRun?.RunProperties != null)
+            var paraRp = firstRun?.RunProperties
+                ?? (firstRun == null ? para.ParagraphProperties?.ParagraphMarkRunProperties as OpenXmlCompositeElement : null);
+            if (paraRp != null)
             {
-                var rp = firstRun.RunProperties;
-                var pFont = rp.RunFonts?.Ascii?.Value;
+                RunProperties? rp = paraRp as RunProperties ?? null;
+                ParagraphMarkRunProperties? markRp = paraRp as ParagraphMarkRunProperties ?? null;
+
+                // Helper lambdas to read from whichever source is available
+                var pFont = (rp?.RunFonts ?? markRp?.GetFirstChild<RunFonts>())?.Ascii?.Value;
                 if (pFont != null && !node.Format.ContainsKey("font")) node.Format["font"] = pFont;
-                if (rp.FontSize?.Val?.Value != null && !node.Format.ContainsKey("size"))
-                    node.Format["size"] = $"{int.Parse(rp.FontSize.Val.Value) / 2.0:0.##}pt";
-                if (rp.Bold != null && !node.Format.ContainsKey("bold")) node.Format["bold"] = true;
-                if (rp.Italic != null && !node.Format.ContainsKey("italic")) node.Format["italic"] = true;
-                if (rp.Color?.Val?.Value != null && !node.Format.ContainsKey("color"))
-                    node.Format["color"] = ParseHelpers.FormatHexColor(rp.Color.Val.Value);
-                else if (rp.Color?.ThemeColor?.HasValue == true && !node.Format.ContainsKey("color"))
-                    node.Format["color"] = rp.Color.ThemeColor.InnerText;
-                if (rp.Underline?.Val != null && !node.Format.ContainsKey("underline"))
-                    node.Format["underline"] = rp.Underline.Val.InnerText;
-                if (rp.Strike != null && !node.Format.ContainsKey("strike"))
-                    node.Format["strike"] = true;
-                if (rp.Highlight?.Val != null && !node.Format.ContainsKey("highlight"))
-                    node.Format["highlight"] = rp.Highlight.Val.InnerText;
+
+                var fsVal = rp?.FontSize?.Val?.Value ?? markRp?.GetFirstChild<FontSize>()?.Val?.Value;
+                if (fsVal != null && !node.Format.ContainsKey("size"))
+                    node.Format["size"] = $"{int.Parse(fsVal) / 2.0:0.##}pt";
+
+                var boldEl = rp?.Bold ?? (OpenXmlLeafElement?)markRp?.GetFirstChild<Bold>();
+                if (boldEl != null && !node.Format.ContainsKey("bold")) node.Format["bold"] = true;
+
+                var italicEl = rp?.Italic ?? (OpenXmlLeafElement?)markRp?.GetFirstChild<Italic>();
+                if (italicEl != null && !node.Format.ContainsKey("italic")) node.Format["italic"] = true;
+
+                var colorEl = rp?.Color ?? markRp?.GetFirstChild<Color>();
+                if (colorEl?.Val?.Value != null && !node.Format.ContainsKey("color"))
+                    node.Format["color"] = ParseHelpers.FormatHexColor(colorEl.Val.Value);
+                else if (colorEl?.ThemeColor?.HasValue == true && !node.Format.ContainsKey("color"))
+                    node.Format["color"] = colorEl.ThemeColor.InnerText;
+
+                var ulEl = rp?.Underline ?? markRp?.GetFirstChild<Underline>();
+                if (ulEl?.Val != null && !node.Format.ContainsKey("underline"))
+                    node.Format["underline"] = ulEl.Val.InnerText;
+
+                var strikeEl = rp?.Strike ?? (OpenXmlLeafElement?)markRp?.GetFirstChild<Strike>();
+                if (strikeEl != null && !node.Format.ContainsKey("strike")) node.Format["strike"] = true;
+
+                var hlEl = rp?.Highlight ?? markRp?.GetFirstChild<Highlight>();
+                if (hlEl?.Val != null && !node.Format.ContainsKey("highlight"))
+                    node.Format["highlight"] = hlEl.Val.InnerText;
             }
 
             // Populate effective.* properties from style inheritance
@@ -495,6 +667,8 @@ public partial class WordHandler
             {
                 node.Type = "picture";
                 var docProps = runDrawing.Descendants<DW.DocProperties>().FirstOrDefault();
+                if (docProps?.Id?.HasValue == true) node.Format["id"] = docProps.Id.Value;
+                if (docProps?.Name?.Value != null) node.Format["name"] = docProps.Name.Value;
                 if (docProps?.Description?.Value != null) node.Format["alt"] = docProps.Description.Value;
                 var extent = runDrawing.Descendants<DW.Extent>().FirstOrDefault();
                 if (extent?.Cx != null) node.Format["width"] = $"{extent.Cx.Value / 360000.0:F1}cm";
@@ -640,7 +814,8 @@ public partial class WordHandler
                                 int pIdx = 0;
                                 foreach (var cellPara in cell.Elements<Paragraph>())
                                 {
-                                    cellNode.Children.Add(ElementToNode(cellPara, $"{path}/tr[{rowIdx + 1}]/tc[{cellIdx + 1}]/p[{pIdx + 1}]", depth - 3));
+                                    var cParaSegment = BuildParaPathSegment(cellPara, pIdx + 1);
+                                    cellNode.Children.Add(ElementToNode(cellPara, $"{path}/tr[{rowIdx + 1}]/tc[{cellIdx + 1}]/{cParaSegment}", depth - 3));
                                     pIdx++;
                                 }
                             }
@@ -664,7 +839,8 @@ public partial class WordHandler
                 int pIdx = 0;
                 foreach (var cellPara in directCell.Elements<Paragraph>())
                 {
-                    node.Children.Add(ElementToNode(cellPara, $"{path}/p[{pIdx + 1}]", depth - 1));
+                    var dcParaSegment = BuildParaPathSegment(cellPara, pIdx + 1);
+                    node.Children.Add(ElementToNode(cellPara, $"{path}/{dcParaSegment}", depth - 1));
                     pIdx++;
                 }
             }
@@ -674,6 +850,33 @@ public partial class WordHandler
             node.Type = "row";
             node.ChildCount = directRow.Elements<TableCell>().Count();
             ReadRowProps(directRow, node);
+            if (depth > 0)
+            {
+                int cellIdx = 0;
+                foreach (var cell in directRow.Elements<TableCell>())
+                {
+                    var cellNode = new DocumentNode
+                    {
+                        Path = $"{path}/tc[{cellIdx + 1}]",
+                        Type = "cell",
+                        Text = string.Join("", cell.Descendants<Text>().Select(t => t.Text)),
+                        ChildCount = cell.Elements<Paragraph>().Count()
+                    };
+                    ReadCellProps(cell, cellNode);
+                    if (depth > 1)
+                    {
+                        int pIdx = 0;
+                        foreach (var cellPara in cell.Elements<Paragraph>())
+                        {
+                            var drParaSegment = BuildParaPathSegment(cellPara, pIdx + 1);
+                            cellNode.Children.Add(ElementToNode(cellPara, $"{path}/tc[{cellIdx + 1}]/{drParaSegment}", depth - 2));
+                            pIdx++;
+                        }
+                    }
+                    node.Children.Add(cellNode);
+                    cellIdx++;
+                }
+            }
         }
         else if (element is SdtBlock sdtBlockNode)
         {
@@ -696,6 +899,11 @@ public partial class WordHandler
                 else if (sdtProps.GetFirstChild<SdtContentDate>() != null) node.Format["sdtType"] = "date";
                 else if (sdtProps.GetFirstChild<SdtContentText>() != null) node.Format["sdtType"] = "text";
                 else node.Format["sdtType"] = "richtext";
+
+                // Read date format for date controls
+                var dateContent = sdtProps.GetFirstChild<SdtContentDate>();
+                if (dateContent?.DateFormat?.Val?.Value != null)
+                    node.Format["format"] = dateContent.DateFormat.Val.Value;
 
                 // Editable status
                 node.Format["editable"] = IsSdtEditable(sdtProps);
@@ -789,6 +997,23 @@ public partial class WordHandler
             node.Format["mode"] = "inline";
             try { node.Text = Core.FormulaParser.ToLatex(inlineMath); }
             catch { node.Text = element.InnerText; }
+        }
+        else if (element is Header or Footer)
+        {
+            // Header/Footer: enumerate paragraph children with @paraId= stable paths
+            node.Type = element is Header ? "header" : "footer";
+            node.Text = string.Concat(element.Descendants<Text>().Select(t => t.Text));
+            node.ChildCount = element.Elements<Paragraph>().Count();
+            if (depth > 0)
+            {
+                int pIdx = 0;
+                foreach (var hfPara in element.Elements<Paragraph>())
+                {
+                    var paraSegment = BuildParaPathSegment(hfPara, pIdx + 1);
+                    node.Children.Add(ElementToNode(hfPara, $"{path}/{paraSegment}", depth - 1));
+                    pIdx++;
+                }
+            }
         }
         else
         {

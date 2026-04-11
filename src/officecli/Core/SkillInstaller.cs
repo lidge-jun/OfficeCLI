@@ -12,7 +12,7 @@ namespace OfficeCli.Core;
 /// - officecli skills install morph-ppt  → specific skill to all detected agents
 /// - officecli skills install claude     → base SKILL.md to specific agent (legacy)
 /// </summary>
-public static class SkillInstaller
+internal static class SkillInstaller
 {
     private static readonly (string[] Aliases, string DisplayName, string DetectDir, string SkillDir)[] Tools =
     [

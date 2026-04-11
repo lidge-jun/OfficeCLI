@@ -8,31 +8,31 @@ using System.Text.Json.Serialization;
 
 namespace OfficeCli.Core;
 
-public enum OutputFormat
+internal enum OutputFormat
 {
     Text,
     Json
 }
 
-public class ViewResult
+internal class ViewResult
 {
     public string View { get; set; } = "";
     public string Content { get; set; } = "";
 }
 
-public class NodesResult
+internal class NodesResult
 {
     public int Matches { get; set; }
     public List<DocumentNode> Results { get; set; } = new();
 }
 
-public class IssuesResult
+internal class IssuesResult
 {
     public int Count { get; set; }
     public List<DocumentIssue> Issues { get; set; } = new();
 }
 
-public class ErrorResult
+internal class ErrorResult
 {
     public string Error { get; set; } = "";
     public string? Code { get; set; }
@@ -41,7 +41,7 @@ public class ErrorResult
     public string[]? ValidValues { get; set; }
 }
 
-public class CliWarning
+internal class CliWarning
 {
     public string Message { get; set; } = "";
     public string? Code { get; set; }
@@ -51,7 +51,7 @@ public class CliWarning
 /// <summary>
 /// Thread-static context for capturing warnings during command execution in JSON mode.
 /// </summary>
-public static class WarningContext
+internal static class WarningContext
 {
     [ThreadStatic]
     private static List<CliWarning>? _warnings;
@@ -96,7 +96,7 @@ public static class WarningContext
 [JsonSerializable(typeof(string))]
 internal partial class AppJsonContext : JsonSerializerContext;
 
-public static class OutputFormatter
+internal static class OutputFormatter
 {
     public static readonly JsonSerializerOptions PublicJsonOptions = new()
     {
@@ -134,13 +134,34 @@ public static class OutputFormatter
     /// <summary>
     /// Wraps a plain text result (like "Updated ..." or "Added ...") into an envelope.
     /// </summary>
-    public static string WrapEnvelopeText(string message, List<CliWarning>? warnings = null)
+    public static string WrapEnvelopeText(string message, List<CliWarning>? warnings = null, int? matched = null)
     {
         var envelope = new JsonObject
         {
             ["success"] = true,
             ["message"] = message
         };
+
+        if (matched.HasValue)
+            envelope["matched"] = matched.Value;
+
+        if (warnings is { Count: > 0 })
+            envelope["warnings"] = JsonSerializer.SerializeToNode(warnings, AppJsonContext.Default.ListCliWarning);
+
+        return envelope.ToJsonString(JsonOptions);
+    }
+
+    public static string WrapEnvelopeWithData(string message, DocumentNode data, List<CliWarning>? warnings = null, int? matched = null)
+    {
+        var envelope = new JsonObject
+        {
+            ["success"] = true,
+            ["message"] = message,
+            ["data"] = JsonSerializer.SerializeToNode(data, AppJsonContext.Default.DocumentNode)
+        };
+
+        if (matched.HasValue)
+            envelope["matched"] = matched.Value;
 
         if (warnings is { Count: > 0 })
             envelope["warnings"] = JsonSerializer.SerializeToNode(warnings, AppJsonContext.Default.ListCliWarning);

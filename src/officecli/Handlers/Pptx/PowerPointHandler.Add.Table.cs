@@ -86,12 +86,12 @@ public partial class PowerPointHandler
                 }
                 long colWidth = tblCx / cols;
 
-                var tblId = (uint)(tblShapeTree.ChildElements.Count + 2);
+                var tblId = GenerateUniqueShapeId(tblShapeTree);
 
                 // Build GraphicFrame
                 var graphicFrame = new GraphicFrame();
                 graphicFrame.NonVisualGraphicFrameProperties = new NonVisualGraphicFrameProperties(
-                    new NonVisualDrawingProperties { Id = tblId, Name = properties.GetValueOrDefault("name", $"Table {tblId}") },
+                    new NonVisualDrawingProperties { Id = tblId, Name = properties.GetValueOrDefault("name", $"Table {tblShapeTree.Elements<GraphicFrame>().Count(gf => gf.Descendants<Drawing.Table>().Any()) + 1}") },
                     new NonVisualGraphicFrameDrawingProperties(),
                     new ApplicationNonVisualDrawingProperties()
                 );
@@ -118,6 +118,14 @@ public partial class PowerPointHandler
                     tableGrid.Append(new Drawing.GridColumn { Width = colWidth });
                 table.Append(tableGrid);
 
+                // Parse optional fill colors for header/body rows
+                string? headerFillColor = null;
+                if (properties.TryGetValue("headerFill", out var hfVal) || properties.TryGetValue("headerfill", out hfVal))
+                    headerFillColor = ParseHelpers.SanitizeColorForOoxml(hfVal).Rgb;
+                string? bodyFillColor = null;
+                if (properties.TryGetValue("bodyFill", out var bfVal) || properties.TryGetValue("bodyfill", out bfVal))
+                    bodyFillColor = ParseHelpers.SanitizeColorForOoxml(bfVal).Rgb;
+
                 for (int r = 0; r < rows; r++)
                 {
                     var tableRow = new Drawing.TableRow { Height = rowHeight };
@@ -138,7 +146,12 @@ public partial class PowerPointHandler
                             new Drawing.ListStyle(),
                             cellPara
                         ));
-                        cell.Append(new Drawing.TableCellProperties());
+                        var tcPr = new Drawing.TableCellProperties();
+                        // Apply row-level fill: headerFill for row 0, bodyFill for others
+                        var rowFill = (r == 0 ? headerFillColor : bodyFillColor);
+                        if (rowFill != null)
+                            tcPr.AppendChild(new Drawing.SolidFill(new Drawing.RgbColorModelHex { Val = rowFill }));
+                        cell.Append(tcPr);
                         tableRow.Append(cell);
                     }
                     table.Append(tableRow);
@@ -148,12 +161,12 @@ public partial class PowerPointHandler
                     new Drawing.GraphicData(table) { Uri = "http://schemas.openxmlformats.org/drawingml/2006/table" }
                 );
                 graphicFrame.Append(graphic);
-                tblShapeTree.AppendChild(graphicFrame);
+                InsertAtPosition(tblShapeTree, graphicFrame, index);
                 GetSlide(tblSlidePart).Save();
 
                 var tblCount = tblShapeTree.Elements<GraphicFrame>()
                     .Count(gf => gf.Descendants<Drawing.Table>().Any());
-                return $"/slide[{tblSlideIdx}]/table[{tblCount}]";
+                return $"/slide[{tblSlideIdx}]/{BuildElementPathSegment("table", graphicFrame, tblCount)}";
     }
 
 

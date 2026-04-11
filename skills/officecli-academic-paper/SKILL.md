@@ -12,25 +12,27 @@ Create formally structured Word documents with Table of Contents, equations (LaT
 
 ## BEFORE YOU START (CRITICAL)
 
-**Every time before using officecli, run this check:**
+**If `officecli` is not installed:**
+
+`macOS / Linux`
 
 ```bash
-if ! command -v officecli &> /dev/null; then
-    echo "Installing officecli..."
-    curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.sh | bash
-    # Windows: irm https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.ps1 | iex
-else
-    CURRENT=$(officecli --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    LATEST=$(curl -fsSL https://api.github.com/repos/iOfficeAI/OfficeCLI/releases/latest | grep '"tag_name"' | sed -E 's/.*"v?([0-9.]+)".*/\1/')
-    if [ "$CURRENT" != "$LATEST" ]; then
-        echo "Upgrading officecli $CURRENT -> $LATEST..."
-        curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.sh | bash
-    else
-        echo "officecli $CURRENT is up to date"
-    fi
+if ! command -v officecli >/dev/null 2>&1; then
+    curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
 fi
-officecli --version
 ```
+
+`Windows (PowerShell)`
+
+```powershell
+if (-not (Get-Command officecli -ErrorAction SilentlyContinue)) {
+    irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
+}
+```
+
+Verify: `officecli --version`
+
+If `officecli` is still not found after first install, open a new terminal and run the verify command again.
 
 ---
 
@@ -82,7 +84,8 @@ Define ALL styles before adding ANY content. Skipping style definitions causes f
 
 | Style | Size | Weight | spaceBefore | spaceAfter |
 |-------|------|--------|-------------|------------|
-| Heading1 | >= 16pt | bold | 360 (18pt) | 120 (6pt) |
+| Cover title | **20pt** | bold | 72pt (≈1 inch) | 24pt |
+| Heading1 | >= 18pt (20pt preferred) | bold | 360 (18pt) | 120 (6pt) |
 | Heading2 | >= 14pt | bold | 360 (18pt) | 80 (4pt) |
 | Heading3 | >= 12pt | bold + italic | 240 (12pt) | 80 (4pt) |
 | Body (Normal) | 11-12pt | regular | per paper type | per paper type |
@@ -118,6 +121,23 @@ Footnotes are inline reference runs within the target paragraph. They do NOT cre
 
 ---
 
+## Hard Rules (H1–H8)
+
+The following rules are non-negotiable. Any violation constitutes a delivery failure.
+
+| Rule | Requirement |
+|------|-------------|
+| H1 | `officecli validate` passes — zero XML errors |
+| H2 | Cover page present with ≥7 of 10 required elements (title, authors, affiliation, submission target, date, abstract excerpt, keywords, horizontal rule, contact, subtitle) |
+| H3 | All body sections use continuous numbered headings (e.g., "1. Introduction", "2. Methods") — see Section C.3 |
+| H4 | Abstract paragraph has NO `firstLineIndent` (block style) |
+| H5 | Table of Contents (TOC) field present |
+| H6 | Dynamic PAGE field in footer (not static text) |
+| H7 | Heading hierarchy is consistent — no level skipping (H1 → H2 → H3, never H1 → H3) |
+| **H8** | **References/Bibliography section REQUIRED.** Every academic paper must have a final section titled "References" or "Bibliography" containing at minimum 5 formatted citations with hanging indent. A document with inline citations and no reference list is a delivery failure. |
+
+---
+
 ## Workflow Overview
 
 ### Phase 1: Analyze Input
@@ -145,6 +165,9 @@ Run verification loop: `validate`, `view outline`, `view issues`, `view text`. F
 | Dollar sign `$` in text | Bash expands `$` as variable in double quotes. Use single quotes or `\$`. See creating.md D-10. |
 | Batch JSON values | ALL values must be strings: `"true"` not `true`, `"24"` not `24`. |
 | Batch intermittent failure | ~1-in-15 failure rate. Retry on error. Keep arrays to 10-15 max. |
+| TOC displays blank in LibreOffice | TOC field renders as "Update field to see table of contents" in LibreOffice/PDF — this is normal OOXML behavior. In Microsoft Word: Ctrl+A → F9 to update all fields. For LibreOffice-only recipients: add static text TOC paragraphs after the field, or include a delivery note asking the user to open in Word and press F9. |
+| `move` on oMathPara not reliable | `move` command does not reliably reposition equation paragraphs (oMathPara elements). Workaround: use `add /body --type equation` to create the equation at the target position, then `remove` the original. Do NOT use `move` on equations. |
+| `pbdr.bottom` XML order bug (P3) | `set --prop pbdr.bottom=...` may generate `<w:pBdr>` with child elements in wrong order, causing `validate` to report a pBdr schema error. **Workaround:** use `raw-set` to write the full `<w:pBdr>` XML manually (see creating.md D-4b). This is a known CLI bug — P3, CLI team owns the fix. |
 
 ---
 
@@ -154,7 +177,7 @@ Run verification loop: `validate`, `view outline`, `view issues`, `view text`. F
 officecli create paper.docx
 officecli set paper.docx / --prop defaultFont="Times New Roman"
 officecli set paper.docx '/section[1]' --prop marginTop=1440 --prop marginBottom=1440 --prop marginLeft=1440 --prop marginRight=1440
-officecli add paper.docx /styles --type style --prop id=Heading1 --prop name="Heading 1" --prop type=paragraph --prop font="Times New Roman" --prop size=16 --prop bold=true --prop spaceBefore=360 --prop spaceAfter=120 --prop keepNext=true
+officecli add paper.docx /styles --type style --prop id=Heading1 --prop name="Heading 1" --prop type=paragraph --prop font="Times New Roman" --prop size=20 --prop bold=true --prop spaceBefore=360 --prop spaceAfter=120 --prop keepNext=true
 officecli add paper.docx /body --type toc --prop levels=1-3 --prop title="Table of Contents"
 officecli add paper.docx /body --type paragraph --prop text="Introduction" --prop style=Heading1
 officecli add paper.docx /body --type paragraph --prop text="This paper examines..." --prop size=12 --prop lineSpacing=2x
@@ -164,8 +187,24 @@ Follow [creating.md](creating.md) for the full step-by-step guide.
 
 ---
 
+## Adjustments After Creation
+
+When the user requests changes after the paper is built:
+
+| Request | Command |
+|---------|---------|
+| Move a paragraph after another | `officecli move paper.docx '/body/p[8]' --after '/body/p[2]'` |
+| Swap two paragraphs | `officecli swap paper.docx '/body/p[3]' '/body/p[7]'` |
+| Edit paragraph text | `officecli set paper.docx '/body/p[N]' --prop text="..."` |
+| Find & replace text | `officecli set paper.docx / --prop find=OldText --prop replace=NewText` |
+| Remove a paragraph | `officecli remove paper.docx '/body/p[N]'` |
+
+After any `swap` or `move`, paragraph indices shift — re-query with `officecli get paper.docx /body --depth 1` before further edits.
+
+---
+
 ## References
 
 - [creating.md](creating.md) -- Complete academic paper creation guide
-- [docx SKILL.md](../docx/SKILL.md) -- General docx reading, editing, and QA reference
-- [docx creating.md](../docx/creating.md) -- General building blocks (paragraphs, tables, images, etc.)
+- [docx SKILL.md](../officecli-docx/SKILL.md) -- General docx reading, editing, and QA reference
+- [docx creating.md](../officecli-docx/creating.md) -- General building blocks (paragraphs, tables, images, etc.)

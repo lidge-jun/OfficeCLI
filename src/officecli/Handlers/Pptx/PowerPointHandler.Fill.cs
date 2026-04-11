@@ -265,7 +265,9 @@ public partial class PowerPointHandler
                 break;
             case "none" or "false":
                 pProps.AppendChild(new Drawing.NoBullet());
-                break;
+                pProps.LeftMargin = null;
+                pProps.Indent = null;
+                return;
             default:
                 if (value.Length <= 2)
                     pProps.AppendChild(new Drawing.CharacterBullet { Char = value });
@@ -273,6 +275,12 @@ public partial class PowerPointHandler
                     throw new ArgumentException($"Invalid list style: {value}. Use: bullet, numbered, alpha, roman, none, or a single character");
                 break;
         }
+
+        // Apply default hanging indent for bullet/numbered lists (matches PowerPoint defaults)
+        if (pProps.LeftMargin == null)
+            pProps.LeftMargin = 457200; // 0.5 inch
+        if (pProps.Indent == null)
+            pProps.Indent = -457200; // hanging indent
     }
 
     private static Drawing.ShapeTypeValues ParsePresetShape(string name) =>

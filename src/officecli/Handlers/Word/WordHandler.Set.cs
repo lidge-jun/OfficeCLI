@@ -32,27 +32,71 @@ public partial class WordHandler
             return unsupported;
         }
 
-        // Document-level properties (including find/replace)
-        if (path == "/" || path == "" || path.Equals("/body", StringComparison.OrdinalIgnoreCase))
+        // Unified find: if 'find' key is present (at any path level), route to ProcessFind
+        if (properties.TryGetValue("find", out var findText))
         {
-            // Find & Replace: special handling before document properties
-            if (properties.TryGetValue("find", out var findText) && properties.TryGetValue("replace", out var replaceText))
+            var replace = properties.TryGetValue("replace", out var r) ? r : null;
+            // Separate run-level format properties from paragraph-level properties
+            var formatProps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var paraProps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in properties)
             {
-                var scope = properties.GetValueOrDefault("scope", "all");
-                var count = FindAndReplace(findText, replaceText, scope);
-                var remaining = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
-                remaining.Remove("find");
-                remaining.Remove("replace");
-                remaining.Remove("scope");
-                // If there are remaining properties, apply them as document properties
-                if (remaining.Count > 0)
-                    SetDocumentProperties(remaining, unsupported);
-                _doc.MainDocumentPart?.Document?.Save();
-                return unsupported;
+                var k = key.ToLowerInvariant();
+                if (k is "find" or "replace" or "scope" or "regex") continue;
+                // Paragraph-level properties go to paraProps
+                if (k is "style" or "alignment" or "align" or "firstlineindent" or "leftindent" or "indentleft"
+                    or "indent" or "rightindent" or "indentright" or "hangingindent" or "spacebefore"
+                    or "spaceafter" or "linespacing" or "keepnext" or "keeplines" or "pagebreakbefore"
+                    or "widowcontrol" or "liststyle" or "start" or "text" or "formula")
+                    paraProps[key] = value;
+                else
+                    formatProps[key] = value;
             }
 
+            if (replace == null && formatProps.Count == 0 && paraProps.Count == 0)
+                throw new ArgumentException("'find' requires either 'replace' and/or format properties (e.g. bold, highlight, color).");
+
+            // CONSISTENCY(find-regex): canonical site for the `regex=true` → `r"..."`
+            // raw-string normalization. `mark` and the other handlers' Set paths all
+            // copy this pattern verbatim. To change the find/regex protocol,
+            // grep "CONSISTENCY(find-regex)" and update every site project-wide;
+            // do not diverge in a single handler.
+            if (properties.TryGetValue("regex", out var regexFlag) && ParseHelpers.IsTruthySafe(regexFlag) && !findText.StartsWith("r\"") && !findText.StartsWith("r'"))
+                findText = $"r\"{findText}\"";
+
+            var effectivePath = (path is "" or "/") ? "/body" : path;
+            var matchCount = ProcessFind(effectivePath, findText, replace, formatProps.Count > 0 ? formatProps : new Dictionary<string, string>());
+            LastFindMatchCount = matchCount;
+
+            // Apply paragraph-level properties to the matched paragraphs
+            if (paraProps.Count > 0)
+            {
+                var paragraphs = ResolveParagraphsForFind(effectivePath);
+                foreach (var para in paragraphs)
+                {
+                    var pProps = para.ParagraphProperties ?? para.PrependChild(new ParagraphProperties());
+                    foreach (var (key, value) in paraProps)
+                        ApplyParagraphLevelProperty(pProps, key, value);
+                }
+            }
+
+            _doc.MainDocumentPart?.Document?.Save();
+            return unsupported;
+        }
+
+        // Document-level properties
+        if (path == "/" || path == "" || path.Equals("/body", StringComparison.OrdinalIgnoreCase))
+        {
             SetDocumentProperties(properties, unsupported);
             _doc.MainDocumentPart?.Document?.Save();
+            return unsupported;
+        }
+
+        // Handle /settings path — route to SetDocumentProperties which calls TrySetDocSetting
+        if (path.Equals("/settings", StringComparison.OrdinalIgnoreCase))
+        {
+            SetDocumentProperties(properties, unsupported);
+            EnsureSettings().Save();
             return unsupported;
         }
 
@@ -560,7 +604,12 @@ public partial class WordHandler
                 s.StyleId?.Value == styleId || s.StyleName?.Val?.Value == styleId);
             if (style == null)
             {
-                style = new Style { Type = StyleValues.Paragraph, StyleId = styleId, CustomStyle = true };
+                var isBuiltIn = styleId is "Normal" or "Heading1" or "Heading2" or "Heading3" or "Heading4"
+                    or "Heading5" or "Heading6" or "Heading7" or "Heading8" or "Heading9"
+                    or "Title" or "Subtitle" or "Quote" or "IntenseQuote" or "ListParagraph"
+                    or "NoSpacing" or "TOCHeading";
+                style = new Style { Type = StyleValues.Paragraph, StyleId = styleId };
+                if (!isBuiltIn) style.CustomStyle = true;
                 style.AppendChild(new StyleName { Val = styleId });
                 styles.AppendChild(style);
             }
@@ -632,6 +681,17 @@ public partial class WordHandler
                         var sp3 = pPr3.SpacingBetweenLines ?? (pPr3.SpacingBetweenLines = new SpacingBetweenLines());
                         sp3.After = SpacingConverter.ParseWordSpacing(value).ToString();
                         break;
+                    case "linespacing" or "lineSpacing":
+                    {
+                        var pPr4 = style.StyleParagraphProperties ?? EnsureStyleParagraphProperties(style);
+                        var sp4 = pPr4.SpacingBetweenLines ?? (pPr4.SpacingBetweenLines = new SpacingBetweenLines());
+                        var (twips, isMultiplier) = SpacingConverter.ParseWordLineSpacing(value);
+                        sp4.Line = twips.ToString();
+                        sp4.LineRule = isMultiplier
+                            ? new DocumentFormat.OpenXml.EnumValue<LineSpacingRuleValues>(LineSpacingRuleValues.Auto)
+                            : new DocumentFormat.OpenXml.EnumValue<LineSpacingRuleValues>(LineSpacingRuleValues.Exact);
+                        break;
+                    }
                     case "pbdr.top" or "pbdr.bottom" or "pbdr.left" or "pbdr.right" or "pbdr.between" or "pbdr.bar" or "pbdr.all" or "pbdr":
                     case "border.all" or "border" or "border.top" or "border.bottom" or "border.left" or "border.right":
                     {
@@ -922,9 +982,15 @@ public partial class WordHandler
                         }
                         else if (shdParts.Length >= 2)
                         {
-                            WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                            shd.Fill = SanitizeHex(shdParts[1]);
-                            if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                            var setRunPat = shdParts[0].TrimStart('#');
+                            if (setRunPat.Length >= 6 && setRunPat.All(char.IsAsciiHexDigit))
+                            { shd.Val = ShadingPatternValues.Clear; shd.Fill = SanitizeHex(shdParts[0]); }
+                            else
+                            {
+                                WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
+                                shd.Fill = SanitizeHex(shdParts[1]);
+                                if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                            }
                         }
                         EnsureRunProperties(run).Shading = shd;
                         break;
@@ -980,6 +1046,58 @@ public partial class WordHandler
                         var newImgPart = mainPartImg.AddImagePart(imgType);
                         newImgPart.FeedData(wordImgStream);
                         blip.Embed = mainPartImg.GetIdOfPart(newImgPart);
+                        break;
+                    }
+                    case "wrap":
+                    {
+                        var anchor = ResolveRunAnchor(run);
+                        if (anchor == null) { unsupported.Add(key); break; }
+                        ReplaceWrapElement(anchor, value);
+                        break;
+                    }
+                    case "hposition":
+                    {
+                        var anchor = ResolveRunAnchor(run);
+                        var hPosEl = anchor?.GetFirstChild<DW.HorizontalPosition>();
+                        if (hPosEl == null) { unsupported.Add(key); break; }
+                        var emu = ParseEmu(value).ToString();
+                        var offset = hPosEl.GetFirstChild<DW.PositionOffset>();
+                        if (offset != null) offset.Text = emu;
+                        else hPosEl.AppendChild(new DW.PositionOffset(emu));
+                        break;
+                    }
+                    case "vposition":
+                    {
+                        var anchor = ResolveRunAnchor(run);
+                        var vPosEl = anchor?.GetFirstChild<DW.VerticalPosition>();
+                        if (vPosEl == null) { unsupported.Add(key); break; }
+                        var emu = ParseEmu(value).ToString();
+                        var offset = vPosEl.GetFirstChild<DW.PositionOffset>();
+                        if (offset != null) offset.Text = emu;
+                        else vPosEl.AppendChild(new DW.PositionOffset(emu));
+                        break;
+                    }
+                    case "hrelative":
+                    {
+                        var anchor = ResolveRunAnchor(run);
+                        var hPosEl = anchor?.GetFirstChild<DW.HorizontalPosition>();
+                        if (hPosEl == null) { unsupported.Add(key); break; }
+                        hPosEl.RelativeFrom = ParseHorizontalRelative(value);
+                        break;
+                    }
+                    case "vrelative":
+                    {
+                        var anchor = ResolveRunAnchor(run);
+                        var vPosEl = anchor?.GetFirstChild<DW.VerticalPosition>();
+                        if (vPosEl == null) { unsupported.Add(key); break; }
+                        vPosEl.RelativeFrom = ParseVerticalRelative(value);
+                        break;
+                    }
+                    case "behindtext":
+                    {
+                        var anchor = ResolveRunAnchor(run);
+                        if (anchor == null) { unsupported.Add(key); break; }
+                        anchor.BehindDoc = value.Equals("true", StringComparison.OrdinalIgnoreCase);
                         break;
                     }
                     case "link":
@@ -1062,6 +1180,14 @@ public partial class WordHandler
                     case "href":
                     {
                         var mainPartHl = _doc.MainDocumentPart!;
+                        // Delete old relationship to avoid storage bloat
+                        var oldRelId = hl.Id?.Value;
+                        if (oldRelId != null)
+                        {
+                            var oldRel = mainPartHl.HyperlinkRelationships.FirstOrDefault(r => r.Id == oldRelId);
+                            if (oldRel != null)
+                                mainPartHl.DeleteReferenceRelationship(oldRel);
+                        }
                         var uri = Uri.TryCreate(value, UriKind.Absolute, out var absUri)
                             ? absUri
                             : new Uri(value, UriKind.Relative);
@@ -1104,6 +1230,32 @@ public partial class WordHandler
                     }
                     default:
                         unsupported.Add(key);
+                        break;
+                }
+            }
+        }
+        else if (element is M.Paragraph mPara)
+        {
+            foreach (var (key, value) in properties)
+            {
+                var k = key.ToLowerInvariant();
+                switch (k)
+                {
+                    case "formula":
+                    {
+                        // Clear existing oMath children and rebuild from new formula
+                        foreach (var child in mPara.ChildElements.ToList())
+                            child.Remove();
+                        var mathContent = FormulaParser.Parse(value);
+                        M.OfficeMath oMath = mathContent is M.OfficeMath dm
+                            ? dm : new M.OfficeMath(mathContent.CloneNode(true));
+                        mPara.AppendChild(oMath);
+                        break;
+                    }
+                    default:
+                        unsupported.Add(unsupported.Count == 0
+                            ? $"{key} (valid equation props: formula)"
+                            : key);
                         break;
                 }
             }
@@ -1267,30 +1419,30 @@ public partial class WordHandler
                                     break;
                                 case "bold":
                                     pmrp.RemoveAllChildren<Bold>();
-                                    if (IsTruthy(value)) pmrp.AppendChild(new Bold());
+                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Bold());
                                     break;
                                 case "italic":
                                     pmrp.RemoveAllChildren<Italic>();
-                                    if (IsTruthy(value)) pmrp.AppendChild(new Italic());
+                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Italic());
                                     break;
                                 case "color":
                                     pmrp.RemoveAllChildren<Color>();
-                                    pmrp.AppendChild(new Color { Val = SanitizeHex(value) });
+                                    InsertRunPropInSchemaOrder(pmrp, new Color { Val = SanitizeHex(value) });
                                     break;
                                 case "highlight":
                                     pmrp.RemoveAllChildren<Highlight>();
-                                    pmrp.AppendChild(new Highlight { Val = ParseHighlightColor(value) });
+                                    InsertRunPropInSchemaOrder(pmrp, new Highlight { Val = ParseHighlightColor(value) });
                                     break;
                                 case "underline":
                                 {
                                     var ulVal = value.ToLowerInvariant() switch { "true" => "single", "false" or "none" => "none", _ => value };
                                     pmrp.RemoveAllChildren<Underline>();
-                                    pmrp.AppendChild(new Underline { Val = new UnderlineValues(ulVal) });
+                                    InsertRunPropInSchemaOrder(pmrp, new Underline { Val = new UnderlineValues(ulVal) });
                                     break;
                                 }
                                 case "strike":
                                     pmrp.RemoveAllChildren<Strike>();
-                                    if (IsTruthy(value)) pmrp.AppendChild(new Strike());
+                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Strike());
                                     break;
                             }
                         }
@@ -1327,9 +1479,15 @@ public partial class WordHandler
                             }
                             else if (shdParts.Length >= 2)
                             {
-                                WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                                shd.Fill = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[1]).Rgb;
-                                if (shdParts.Length >= 3) shd.Color = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[2]).Rgb;
+                                var cellPat = shdParts[0].TrimStart('#');
+                                if (cellPat.Length >= 6 && cellPat.All(char.IsAsciiHexDigit))
+                                { shd.Val = ShadingPatternValues.Clear; shd.Fill = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[0]).Rgb; }
+                                else
+                                {
+                                    WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
+                                    shd.Fill = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[1]).Rgb;
+                                    if (shdParts.Length >= 3) shd.Color = OfficeCli.Core.ParseHelpers.SanitizeColorForOoxml(shdParts[2]).Rgb;
+                                }
                             }
                             tcPr.Shading = shd;
                         }
@@ -1424,6 +1582,8 @@ public partial class WordHandler
                         break;
                     case "gridspan" or "colspan":
                         var newSpan = ParseHelpers.SafeParseInt(value, "gridspan");
+                        if (newSpan <= 0)
+                            throw new ArgumentException($"Invalid 'gridspan' value: '{value}'. Must be a positive integer (> 0).");
                         tcPr.GridSpan = new GridSpan { Val = newSpan };
                         // Ensure the row has the correct number of tc elements.
                         // Calculate total grid columns occupied by all cells in this row,
@@ -1848,6 +2008,11 @@ public partial class WordHandler
             }
         }
 
+        // Refresh w14:textId on the affected paragraph (content changed)
+        var affectedPara = element as Paragraph ?? element.Ancestors<Paragraph>().FirstOrDefault();
+        if (affectedPara != null)
+            affectedPara.TextId = GenerateParaId();
+
         _doc.MainDocumentPart?.Document?.Save();
         return unsupported;
     }
@@ -2054,9 +2219,15 @@ public partial class WordHandler
                 }
                 else if (shdParts.Length >= 2)
                 {
-                    WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                    shd.Fill = SanitizeHex(shdParts[1]);
-                    if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                    var setPPat = shdParts[0].TrimStart('#');
+                    if (setPPat.Length >= 6 && setPPat.All(char.IsAsciiHexDigit))
+                    { shd.Val = ShadingPatternValues.Clear; shd.Fill = SanitizeHex(shdParts[0]); }
+                    else
+                    {
+                        WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
+                        shd.Fill = SanitizeHex(shdParts[1]);
+                        if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                    }
                 }
                 pProps.Shading = shd;
                 return true;
@@ -2074,13 +2245,13 @@ public partial class WordHandler
                 spacingLine.Line = lsTwips.ToString();
                 spacingLine.LineRule = lsIsMultiplier ? LineSpacingRuleValues.Auto : LineSpacingRuleValues.Exact;
                 return true;
-            case "numid":
+            case "numId" or "numid":
                 var numPr = pProps.NumberingProperties ?? (pProps.NumberingProperties = new NumberingProperties());
-                numPr.NumberingId = new NumberingId { Val = ParseHelpers.SafeParseInt(value, "numid") };
+                numPr.NumberingId = new NumberingId { Val = ParseHelpers.SafeParseInt(value, "numId") };
                 return true;
-            case "numlevel" or "ilvl":
+            case "numLevel" or "numlevel" or "ilvl":
                 var numPr2 = pProps.NumberingProperties ?? (pProps.NumberingProperties = new NumberingProperties());
-                numPr2.NumberingLevelReference = new NumberingLevelReference { Val = ParseHelpers.SafeParseInt(value, "numlevel") };
+                numPr2.NumberingLevelReference = new NumberingLevelReference { Val = ParseHelpers.SafeParseInt(value, "numLevel") };
                 return true;
             case "pbdr.top" or "pbdr.bottom" or "pbdr.left" or "pbdr.right" or "pbdr.between" or "pbdr.bar" or "pbdr.all" or "pbdr":
             case "border.all" or "border" or "border.top" or "border.bottom" or "border.left" or "border.right":
@@ -2093,7 +2264,12 @@ public partial class WordHandler
 
     private static void ApplyParagraphBorders(ParagraphProperties pProps, string key, string value)
     {
-        var borders = pProps.ParagraphBorders ?? pProps.AppendChild(new ParagraphBorders());
+        var borders = pProps.ParagraphBorders;
+        if (borders == null)
+        {
+            borders = new ParagraphBorders();
+            pProps.ParagraphBorders = borders; // typed setter maintains CT_PPr schema order
+        }
         var (style, size, color, space) = ParseBorderValue(value);
 
         switch (key.ToLowerInvariant())
@@ -2128,7 +2304,20 @@ public partial class WordHandler
 
     private static void ApplyStyleParagraphBorders(StyleParagraphProperties spPr, string key, string value)
     {
-        var borders = spPr.GetFirstChild<ParagraphBorders>() ?? spPr.AppendChild(new ParagraphBorders());
+        var borders = spPr.GetFirstChild<ParagraphBorders>();
+        if (borders == null)
+        {
+            borders = new ParagraphBorders();
+            // StyleParagraphProperties is also OneSequence — use SetElement pattern
+            // ParagraphBorders element order index is after Indentation and before Shading
+            var afterRef = (OpenXmlElement?)spPr.GetFirstChild<Indentation>()
+                ?? (OpenXmlElement?)spPr.GetFirstChild<SpacingBetweenLines>()
+                ?? (OpenXmlElement?)spPr.GetFirstChild<Justification>();
+            if (afterRef != null)
+                spPr.InsertAfter(borders, afterRef);
+            else
+                spPr.PrependChild(borders);
+        }
         var (style, size, color, space) = ParseBorderValue(value);
 
         switch (key.ToLowerInvariant())

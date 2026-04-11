@@ -9,7 +9,7 @@ Open-source. Single binary. No Office installation. No dependencies. Works every
 [![GitHub Release](https://img.shields.io/github/v/release/iOfficeAI/OfficeCLI)](https://github.com/iOfficeAI/OfficeCLI/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**English** | [中文](README_zh.md)
+**English** | [中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md)
 
 <p align="center">
   <img src="assets/ppt-process.gif" alt="OfficeCLI creating a PowerPoint presentation on AionUi" width="100%">
@@ -66,38 +66,59 @@ curl -fsSL https://officecli.ai/SKILL.md
 
 That's it. The skill file teaches the agent how to install the binary and use all commands.
 
-> **Technical details:** OfficeCLI ships with a [SKILL.md](SKILL.md) (239 lines, ~8K tokens) that covers command syntax, architecture, and common pitfalls. After installation, your agent can immediately create, read, and modify any Office document.
+> **Technical details:** OfficeCLI ships with a [SKILL.md](SKILL.md) that covers command syntax, architecture, and common pitfalls. After installation, your agent can immediately create, read, and modify any Office document.
+
+## For Humans
+
+**Option A — GUI:** Install [**AionUi**](https://github.com/iOfficeAI/AionUi) — a desktop app that lets you create and edit Office documents through natural language, powered by OfficeCLI under the hood. Just describe what you want, and AionUi handles the rest.
+
+**Option B — CLI:** Download the binary for your platform from [GitHub Releases](https://github.com/iOfficeAI/OfficeCLI/releases), then run:
+
+```bash
+officecli install
+```
+
+This copies the binary to your PATH and installs the **officecli skill** into every AI coding agent it detects — Claude Code, Cursor, Windsurf, GitHub Copilot, and more. Your agent can immediately create, read, and edit Office documents on your behalf, no extra configuration needed.
+
+## For Developers — See It Live in 30 Seconds
+
+```bash
+# 1. Install (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
+# Windows (PowerShell): irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
+
+# 2. Create a blank PowerPoint
+officecli create deck.pptx
+
+# 3. Start live preview — opens http://localhost:26315 in your browser
+officecli watch deck.pptx --port 26315
+
+# 4. Open another terminal, add a slide — watch the browser update instantly
+officecli add deck.pptx / --type slide --prop title="Hello, World!"
+```
+
+That's it. Every `add`, `set`, or `remove` command you run will refresh the preview in real time. Keep experimenting — the browser is your live feedback loop.
 
 ## Quick Start
 
-From zero to a finished presentation in seconds:
-
 ```bash
-# Create a new PowerPoint
+# Create a presentation and add content
 officecli create deck.pptx
-
-# Add a slide with a title and background color
 officecli add deck.pptx / --type slide --prop title="Q4 Report" --prop background=1A1A2E
-
-# Add a text shape to the slide
-officecli add deck.pptx /slide[1] --type shape \
+officecli add deck.pptx '/slide[1]' --type shape \
   --prop text="Revenue grew 25%" --prop x=2cm --prop y=5cm \
   --prop font=Arial --prop size=24 --prop color=FFFFFF
 
-# View the outline of the presentation
+# View as outline
 officecli view deck.pptx outline
-```
+# → Slide 1: Q4 Report
+# →   Shape 1 [TextBox]: Revenue grew 25%
 
-Output:
+# View as HTML — opens a rendered preview in your browser, no server needed
+officecli view deck.pptx html
 
-```
-Slide 1: Q4 Report
-  Shape 1 [TextBox]: Revenue grew 25%
-```
-
-```bash
 # Get structured JSON for any element
-officecli get deck.pptx /slide[1]/shape[1] --json
+officecli get deck.pptx '/slide[1]/shape[1]' --json
 ```
 
 ```json
@@ -150,7 +171,7 @@ officecli add deck.pptx / --type slide --prop title="Q4 Report"
 
 **Word** — [paragraphs](https://github.com/iOfficeAI/OfficeCLI/wiki/word-paragraph), [runs](https://github.com/iOfficeAI/OfficeCLI/wiki/word-run), [tables](https://github.com/iOfficeAI/OfficeCLI/wiki/word-table), [styles](https://github.com/iOfficeAI/OfficeCLI/wiki/word-style), [headers/footers](https://github.com/iOfficeAI/OfficeCLI/wiki/word-header-footer), [images](https://github.com/iOfficeAI/OfficeCLI/wiki/word-picture), [equations](https://github.com/iOfficeAI/OfficeCLI/wiki/word-equation), [comments](https://github.com/iOfficeAI/OfficeCLI/wiki/word-comment), [footnotes](https://github.com/iOfficeAI/OfficeCLI/wiki/word-footnote), [watermarks](https://github.com/iOfficeAI/OfficeCLI/wiki/word-watermark), [bookmarks](https://github.com/iOfficeAI/OfficeCLI/wiki/word-bookmark), [TOC](https://github.com/iOfficeAI/OfficeCLI/wiki/word-toc), [charts](https://github.com/iOfficeAI/OfficeCLI/wiki/word-chart), [hyperlinks](https://github.com/iOfficeAI/OfficeCLI/wiki/word-hyperlink), [sections](https://github.com/iOfficeAI/OfficeCLI/wiki/word-section), [form fields](https://github.com/iOfficeAI/OfficeCLI/wiki/word-formfield), [content controls (SDT)](https://github.com/iOfficeAI/OfficeCLI/wiki/word-sdt), [fields](https://github.com/iOfficeAI/OfficeCLI/wiki/word-field), [document properties](https://github.com/iOfficeAI/OfficeCLI/wiki/word-document)
 
-**Excel** — [cells](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-cell), formulas (150+ built-in functions with auto-evaluation), [sheets](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-sheet), [tables](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-table), [conditional formatting](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-conditionalformatting), [charts](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-chart), [pivot tables](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-pivottable), [named ranges](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-namedrange), [data validation](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-validation), [images](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-picture), [sparklines](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-sparkline), [comments](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-comment), [autofilter](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-autofilter), [shapes](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-shape), CSV/TSV import, `$Sheet:A1` cell addressing
+**Excel** — [cells](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-cell), formulas (150+ built-in functions with auto-evaluation), [sheets](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-sheet), [tables](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-table), [conditional formatting](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-conditionalformatting), [charts](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-chart), [pivot tables](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-pivottable) (multi-field, date grouping, showDataAs, sort, grandTotals, subtotals, compact/outline/tabular layout, repeat item labels, blank rows), [named ranges](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-namedrange), [data validation](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-validation), [images](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-picture), [sparklines](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-sparkline), [comments](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-comment), [autofilter](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-autofilter), [shapes](https://github.com/iOfficeAI/OfficeCLI/wiki/excel-shape), CSV/TSV import, `$Sheet:A1` cell addressing
 
 **PowerPoint** — [slides](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-slide), [shapes](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-shape), [images](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-picture), [tables](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-table), [charts](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-chart), [animations](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-slide), [morph transitions](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-morph-check), [3D models (.glb)](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-3dmodel), [slide zoom](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-zoom), [equations](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-equation), [themes](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-theme), [connectors](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-connector), [video/audio](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-video), [groups](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-group), [notes](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-notes), [placeholders](https://github.com/iOfficeAI/OfficeCLI/wiki/ppt-placeholder)
 
@@ -198,10 +219,11 @@ irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
 
 Verify installation: `officecli --version`
 
-**Or self-install from a downloaded binary:**
+**Or self-install from a downloaded binary (or run bare `officecli` to auto-install):**
 
 ```bash
-officecli install
+officecli install    # explicit
+officecli            # bare invocation also triggers install
 ```
 
 Updates are checked automatically in the background. Disable with `officecli config autoUpdate false` or skip per-invocation with `OFFICECLI_SKIP_UPDATE=1`. Configuration lives under `~/.officecli/config.json`.
@@ -214,7 +236,7 @@ Updates are checked automatically in the background. Disable with `officecli con
 
 ```bash
 officecli watch deck.pptx
-# Opens http://localhost:18080 — refreshes on every set/add/remove
+# Opens http://localhost:26315 — refreshes on every set/add/remove
 ```
 
 Renders shapes, charts, equations, 3D models (Three.js), morph transitions, zoom navigation, and all shape effects.
@@ -230,10 +252,16 @@ officecli set report.docx /body/p[1]/r[1] --prop bold=true
 officecli set report.docx /body/p[2]/r[1] --prop color=FF0000
 officecli close report.docx
 
-# Batch mode — atomic multi-command execution
+# Batch mode — atomic multi-command execution (stops on first error by default)
 echo '[{"command":"set","path":"/slide[1]/shape[1]","props":{"text":"Hello"}},
       {"command":"set","path":"/slide[1]/shape[2]","props":{"fill":"FF0000"}}]' \
-  | officecli batch deck.pptx --stop-on-error
+  | officecli batch deck.pptx --json
+
+# Inline batch with --commands (no stdin needed)
+officecli batch deck.pptx --commands '[{"op":"set","path":"/slide[1]/shape[1]","props":{"text":"Hi"}}]'
+
+# Use --force to continue past errors
+officecli batch deck.pptx --input updates.json --force --json
 ```
 
 ### Three-Layer Architecture
@@ -243,7 +271,7 @@ Start simple, go deep only when needed.
 | Layer | Purpose | Commands |
 |-------|---------|----------|
 | **L1: Read** | Semantic views of content | `view` (text, annotated, outline, stats, issues, html) |
-| **L2: DOM** | Structured element operations | `get`, `query`, `set`, `add`, `remove`, `move` |
+| **L2: DOM** | Structured element operations | `get`, `query`, `set`, `add`, `remove`, `move`, `swap` |
 | **L3: Raw XML** | Direct XPath access — universal fallback | `raw`, `raw-set`, `add-part`, `validate` |
 
 ```bash
@@ -257,7 +285,7 @@ officecli add budget.xlsx / --type sheet --prop name="Q2 Report"
 officecli move report.docx /body/p[5] --to /body --index 1
 
 # L3 — raw XML when L2 isn't enough
-officecli raw deck.pptx /slide[1]
+officecli raw deck.pptx '/slide[1]'
 officecli raw-set report.docx document \
   --xpath "//w:p[1]" --action append \
   --xml '<w:r><w:t>Injected text</w:t></w:r>'
@@ -303,7 +331,7 @@ curl -fsSL https://officecli.ai/SKILL.md
 curl -fsSL https://officecli.ai/SKILL.md -o ~/.claude/skills/officecli.md
 ```
 
-**Other agents:** Include the contents of `SKILL.md` (239 lines, ~8K tokens) in your agent's system prompt or tool description.
+**Other agents:** Include the contents of `SKILL.md` in your agent's system prompt or tool description.
 
 </details>
 
@@ -435,10 +463,10 @@ OFFICECLI_SKIP_UPDATE=1 officecli ...          # Skip check for one invocation (
 | [`set`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-set) | Modify element properties |
 | [`add`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-add) | Add element (or clone with `--from <path>`) |
 | [`remove`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-remove) | Remove an element |
-| [`move`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-move) | Move element (`--to <parent> --index N`) |
+| [`move`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-move) | Move element (`--to <parent>`, `--index N`, `--after <path>`, `--before <path>`) |
 | [`swap`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-swap) | Swap two elements |
 | [`validate`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-validate) | Validate against OpenXML schema |
-| [`batch`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-batch) | Multiple operations in one open/save cycle (JSON on stdin or `--input`) |
+| [`batch`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-batch) | Multiple operations in one open/save cycle (stdin, `--input`, or `--commands`; stops on first error, `--force` to continue) |
 | [`merge`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-merge) | Template merge — replace `{{key}}` placeholders with JSON data |
 | [`watch`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-watch) | Live HTML preview in browser with auto-refresh |
 | [`mcp`](https://github.com/iOfficeAI/OfficeCLI/wiki/command-mcp) | Start MCP server for AI tool integration |
@@ -461,10 +489,10 @@ officecli create report.pptx
 
 # 2. Add content
 officecli add report.pptx / --type slide --prop title="Q4 Results"
-officecli add report.pptx /slide[1] --type shape \
+officecli add report.pptx '/slide[1]' --type shape \
   --prop text="Revenue: $4.2M" --prop x=2cm --prop y=5cm --prop size=28
 officecli add report.pptx / --type slide --prop title="Details"
-officecli add report.pptx /slide[2] --type shape \
+officecli add report.pptx '/slide[2]' --type shape \
   --prop text="Growth driven by new markets" --prop x=2cm --prop y=5cm
 
 # 3. Verify
@@ -474,7 +502,7 @@ officecli validate report.pptx
 # 4. Fix any issues found
 officecli view report.pptx issues --json
 # Address issues based on output, e.g.:
-officecli set report.pptx /slide[1]/shape[1] --prop font=Arial
+officecli set report.pptx '/slide[1]/shape[1]' --prop font=Arial
 ```
 
 ### Template Merge
@@ -551,6 +579,8 @@ Bug reports and contributions are welcome on [GitHub Issues](https://github.com/
 
 ---
 
+If you find OfficeCLI useful, please [give it a star on GitHub](https://github.com/iOfficeAI/OfficeCLI) — it helps others discover the project.
+
 [OfficeCLI.AI](https://OfficeCLI.AI) | [GitHub](https://github.com/iOfficeAI/OfficeCLI)
 
 <!--
@@ -565,7 +595,7 @@ yaml-frontmatter:
   ai-agent-compatible: true
   mcp-server: true
   skill-file: SKILL.md
-  skill-file-lines: 239
+
   install-command-unix: curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
   install-command-windows: irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
 -->
@@ -583,7 +613,7 @@ keywords: office, cli, ai-agent, automation, docx, xlsx, pptx, openxml, document
 ai-agent-compatible: true
 mcp-server: true
 skill-file: SKILL.md
-skill-file-lines: 239
+skill-file-lines: 403
 alternatives: python-docx, openpyxl, python-pptx, libreoffice --headless
 install-command-unix: curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
 install-command-windows: irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex

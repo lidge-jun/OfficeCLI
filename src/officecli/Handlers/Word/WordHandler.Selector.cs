@@ -156,9 +156,9 @@ public partial class WordHandler
                 "alignment" => para.ParagraphProperties?.Justification?.Val != null
                     ? para.ParagraphProperties.Justification.Val.InnerText : null,
                 "firstlineindent" => para.ParagraphProperties?.Indentation?.FirstLine?.Value,
-                "numid" => para.ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.HasValue == true
+                "numId" or "numid" => para.ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.HasValue == true
                     ? para.ParagraphProperties.NumberingProperties.NumberingId.Val.Value.ToString() : null,
-                "numlevel" or "ilvl" => para.ParagraphProperties?.NumberingProperties?.NumberingLevelReference?.Val?.HasValue == true
+                "numLevel" or "numlevel" or "ilvl" => para.ParagraphProperties?.NumberingProperties?.NumberingLevelReference?.Val?.HasValue == true
                     ? para.ParagraphProperties.NumberingProperties.NumberingLevelReference.Val.Value.ToString() : null,
                 "liststyle" => GetParagraphListStyle(para),
                 // Run-level properties: check first text-bearing run (same approach as Get readback)

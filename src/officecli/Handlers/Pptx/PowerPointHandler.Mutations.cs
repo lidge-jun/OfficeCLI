@@ -16,6 +16,7 @@ public partial class PowerPointHandler
     public string? Remove(string path)
     {
         path = NormalizeCellPath(path);
+        path = ResolveIdPath(path);
 
         // Handle /slide[N]/notes path (no index bracket)
         var notesMatch = Regex.Match(path, @"^/slide\[(\d+)\]/notes$");
@@ -277,8 +278,22 @@ public partial class PowerPointHandler
         return null;
     }
 
-    public string Move(string sourcePath, string? targetParentPath, int? index)
+    public string Move(string sourcePath, string? targetParentPath, InsertPosition? position)
     {
+        var index = position?.Index;
+        sourcePath = ResolveIdPath(sourcePath);
+        if (targetParentPath != null) targetParentPath = ResolveIdPath(targetParentPath);
+
+        // Infer --to from --after/--before full path if not specified
+        var anchorFullPath = position?.After ?? position?.Before;
+        if (string.IsNullOrEmpty(targetParentPath) && anchorFullPath != null && anchorFullPath.StartsWith("/"))
+        {
+            var resolvedAnchor = ResolveIdPath(anchorFullPath);
+            var lastSlash = resolvedAnchor.LastIndexOf('/');
+            if (lastSlash > 0)
+                targetParentPath = resolvedAnchor[..lastSlash];
+        }
+
         var presentationPart = _doc.PresentationPart
             ?? throw new InvalidOperationException("Presentation not found");
         var slideParts = GetSlideParts().ToList();
@@ -297,9 +312,37 @@ public partial class PowerPointHandler
                 throw new ArgumentException($"Slide {slideIdx} not found (total: {slideIds.Count})");
 
             var slideId = slideIds[slideIdx - 1];
+
+            // Resolve after/before anchor BEFORE removing
+            SlideId? afterAnchor = null, beforeAnchor = null;
+            if (position?.After != null)
+            {
+                var afterMatch = Regex.Match(position.After.StartsWith("/") ? position.After : "/" + position.After, @"/slide\[(\d+)\]");
+                if (afterMatch.Success)
+                {
+                    var ai = int.Parse(afterMatch.Groups[1].Value);
+                    if (ai >= 1 && ai <= slideIds.Count) afterAnchor = slideIds[ai - 1];
+                }
+                if (afterAnchor == null) throw new ArgumentException($"After anchor not found: {position.After}");
+            }
+            else if (position?.Before != null)
+            {
+                var beforeMatch = Regex.Match(position.Before.StartsWith("/") ? position.Before : "/" + position.Before, @"/slide\[(\d+)\]");
+                if (beforeMatch.Success)
+                {
+                    var bi = int.Parse(beforeMatch.Groups[1].Value);
+                    if (bi >= 1 && bi <= slideIds.Count) beforeAnchor = slideIds[bi - 1];
+                }
+                if (beforeAnchor == null) throw new ArgumentException($"Before anchor not found: {position.Before}");
+            }
+
             slideId.Remove();
 
-            if (index.HasValue)
+            if (afterAnchor != null)
+                afterAnchor.InsertAfterSelf(slideId);
+            else if (beforeAnchor != null)
+                beforeAnchor.InsertBeforeSelf(slideId);
+            else if (index.HasValue)
             {
                 var remaining = slideIdList.Elements<SlideId>().ToList();
                 if (index.Value >= 0 && index.Value < remaining.Count)
@@ -349,13 +392,41 @@ public partial class PowerPointHandler
                 ?? throw new InvalidOperationException("Slide has no shape tree");
         }
 
+        // Reject cross-slide move of placeholder shapes (would cause duplicate IDs)
+        if (srcSlidePart != tgtSlidePart)
+        {
+            var nvSpPr = srcElement.Descendants<DocumentFormat.OpenXml.Presentation.NonVisualShapeProperties>().FirstOrDefault();
+            if (nvSpPr?.ApplicationNonVisualDrawingProperties?.PlaceholderShape != null)
+                throw new ArgumentException("Cannot move placeholder shapes across slides");
+        }
+
         // Copy relationships BEFORE removing from source (so rel IDs are still accessible)
         if (srcSlidePart != tgtSlidePart)
             CopyRelationships(srcElement, srcSlidePart, tgtSlidePart);
 
+        // Resolve after/before anchor for shape-level move
+        OpenXmlElement? shapeAfterAnchor = null, shapeBeforeAnchor = null;
+        if (position?.After != null)
+        {
+            var anchorPath = ResolveIdPath(position.After);
+            var (_, anchor) = ResolveSlideElement(anchorPath, slideParts);
+            shapeAfterAnchor = anchor;
+        }
+        else if (position?.Before != null)
+        {
+            var anchorPath = ResolveIdPath(position.Before);
+            var (_, anchor) = ResolveSlideElement(anchorPath, slideParts);
+            shapeBeforeAnchor = anchor;
+        }
+
         srcElement.Remove();
 
-        InsertAtPosition(tgtShapeTree, srcElement, index);
+        if (shapeAfterAnchor != null)
+            shapeAfterAnchor.InsertAfterSelf(srcElement);
+        else if (shapeBeforeAnchor != null)
+            shapeBeforeAnchor.InsertBeforeSelf(srcElement);
+        else
+            InsertAtPosition(tgtShapeTree, srcElement, index);
 
         GetSlide(srcSlidePart).Save();
         if (srcSlidePart != tgtSlidePart)
@@ -366,6 +437,8 @@ public partial class PowerPointHandler
 
     public (string NewPath1, string NewPath2) Swap(string path1, string path2)
     {
+        path1 = ResolveIdPath(path1);
+        path2 = ResolveIdPath(path2);
         var presentationPart = _doc.PresentationPart
             ?? throw new InvalidOperationException("Presentation not found");
         var slideParts = GetSlideParts().ToList();
@@ -451,8 +524,11 @@ public partial class PowerPointHandler
         }
     }
 
-    public string CopyFrom(string sourcePath, string targetParentPath, int? index)
+    public string CopyFrom(string sourcePath, string targetParentPath, InsertPosition? position)
     {
+        var index = position?.Index;
+        sourcePath = ResolveIdPath(sourcePath);
+        targetParentPath = ResolveIdPath(targetParentPath);
         var slideParts = GetSlideParts().ToList();
 
         // Whole-slide clone: --from /slide[N] to /
@@ -464,6 +540,23 @@ public partial class PowerPointHandler
 
         var (srcSlidePart, srcElement) = ResolveSlideElement(sourcePath, slideParts);
         var clone = srcElement.CloneNode(true);
+
+        // Assign new unique cNvPr.Id to the clone to avoid duplicate IDs on the target slide
+        var cloneNvPr = clone.Descendants<NonVisualDrawingProperties>().FirstOrDefault();
+        if (cloneNvPr != null)
+        {
+            var tgtSlideMatchPre = Regex.Match(targetParentPath, @"^/slide\[(\d+)\]$");
+            if (tgtSlideMatchPre.Success)
+            {
+                var tgtIdx = int.Parse(tgtSlideMatchPre.Groups[1].Value);
+                if (tgtIdx >= 1 && tgtIdx <= slideParts.Count)
+                {
+                    var tgtTree = GetSlide(slideParts[tgtIdx - 1]).CommonSlideData?.ShapeTree;
+                    if (tgtTree != null)
+                        cloneNvPr.Id = GenerateUniqueShapeId(tgtTree);
+                }
+            }
+        }
 
         var tgtSlideMatch = Regex.Match(targetParentPath, @"^/slide\[(\d+)\]$");
         if (!tgtSlideMatch.Success)
@@ -841,6 +934,6 @@ public partial class PowerPointHandler
                 .Where(e => e.LocalName == element.LocalName)
                 .ToList().IndexOf(element) + 1;
         }
-        return $"{parentPath}/{typeName}[{typeIdx}]";
+        return $"{parentPath}/{BuildElementPathSegment(typeName, element, typeIdx)}";
     }
 }

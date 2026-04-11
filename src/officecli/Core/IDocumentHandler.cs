@@ -4,6 +4,42 @@
 namespace OfficeCli.Core;
 
 /// <summary>
+/// Represents where to insert an element: by index, after an anchor, or before an anchor.
+/// At most one field is set. All null = append to end.
+/// </summary>
+public class InsertPosition
+{
+    public int? Index { get; init; }
+    public string? After { get; init; }
+    public string? Before { get; init; }
+
+    public static InsertPosition AtIndex(int idx) => new() { Index = idx };
+    public static InsertPosition AfterElement(string path) => new() { After = path };
+    public static InsertPosition BeforeElement(string path) => new() { Before = path };
+
+    /// <summary>
+    /// Resolve After/Before anchor to a 0-based index among children.
+    /// If this is already an Index or null, returns Index as-is.
+    /// anchorFinder: given the anchor path, returns the 0-based index of that element among siblings, or throws.
+    /// childCount: total number of children of the relevant type.
+    /// </summary>
+    public int? Resolve(Func<string, int> anchorFinder, int childCount)
+    {
+        if (Index.HasValue) return Index;
+        if (After != null)
+        {
+            var anchorIdx = anchorFinder(After);
+            return anchorIdx + 1 >= childCount ? null : anchorIdx + 1; // null = append
+        }
+        if (Before != null)
+        {
+            return anchorFinder(Before);
+        }
+        return null; // append
+    }
+}
+
+/// <summary>
 /// Common interface for all document types (Word/Excel/PowerPoint).
 /// Each handler implements the three-layer architecture:
 ///   - Semantic layer: view (text/annotated/outline/stats/issues)
@@ -31,13 +67,13 @@ public interface IDocumentHandler : IDisposable
     /// Returns list of prop names that were not applied (unsupported for this element type).
     /// </summary>
     List<string> Set(string path, Dictionary<string, string> properties);
-    string Add(string parentPath, string type, int? index, Dictionary<string, string> properties);
+    string Add(string parentPath, string type, InsertPosition? position, Dictionary<string, string> properties);
     /// <summary>
     /// Remove element at path. Returns an optional warning message (e.g. formula cells affected by shift).
     /// </summary>
     string? Remove(string path);
-    string Move(string sourcePath, string? targetParentPath, int? index);
-    string CopyFrom(string sourcePath, string targetParentPath, int? index);
+    string Move(string sourcePath, string? targetParentPath, InsertPosition? position);
+    string CopyFrom(string sourcePath, string targetParentPath, InsertPosition? position);
 
     // === Raw Layer ===
     string Raw(string partPath, int? startRow = null, int? endRow = null, HashSet<string>? cols = null);

@@ -78,6 +78,7 @@ public partial class WordHandler
             else
             {
                 cxPara = new Paragraph(cxRun);
+                AssignParaId(cxPara);
                 AppendToParent(parent, cxPara);
             }
 
@@ -131,6 +132,7 @@ public partial class WordHandler
         else
         {
             chartPara = new Paragraph(chartRun);
+            AssignParaId(chartPara);
             AppendToParent(parent, chartPara);
         }
 
@@ -143,21 +145,43 @@ public partial class WordHandler
         if (!properties.TryGetValue("path", out var imgPath) && !properties.TryGetValue("src", out imgPath))
             throw new ArgumentException("'path' (or 'src') property is required for picture type");
 
-        var (imgStream, imgPartType) = OfficeCli.Core.ImageSource.Resolve(imgPath);
-        using var imgStreamDispose = imgStream;
+        // Buffer the image bytes so we can both feed the image part and sniff
+        // the native pixel dimensions for auto aspect-ratio calculations.
+        var (rawStream, imgPartType) = OfficeCli.Core.ImageSource.Resolve(imgPath);
+        using var rawStreamDispose = rawStream;
+        using var imgStream = new MemoryStream();
+        rawStream.CopyTo(imgStream);
+        imgStream.Position = 0;
 
         var mainPart = _doc.MainDocumentPart!;
         var imagePart = mainPart.AddImagePart(imgPartType);
         imagePart.FeedData(imgStream);
+        imgStream.Position = 0;
         var relId = mainPart.GetIdOfPart(imagePart);
 
-        // Determine dimensions (default: 6 inches wide, auto height)
-        long cxEmu = 5486400; // 6 inches in EMUs (914400 * 6)
-        long cyEmu = 3657600; // 4 inches default
-        if (properties.TryGetValue("width", out var widthStr))
-            cxEmu = ParseEmu(widthStr);
-        if (properties.TryGetValue("height", out var heightStr))
-            cyEmu = ParseEmu(heightStr);
+        // Determine dimensions. When only one axis is supplied, compute the
+        // other from the image's native pixel aspect ratio. When neither is
+        // supplied, width defaults to 6 inches and height follows the aspect
+        // ratio (or a 4 inch fallback when the image header cannot be read).
+        bool hasWidth = properties.TryGetValue("width", out var widthStr);
+        bool hasHeight = properties.TryGetValue("height", out var heightStr);
+        long cxEmu = hasWidth ? ParseEmu(widthStr!) : 5486400;  // 6 inches fallback
+        long cyEmu = hasHeight ? ParseEmu(heightStr!) : 3657600; // 4 inches fallback
+
+        if (!hasWidth || !hasHeight)
+        {
+            var dims = OfficeCli.Core.ImageSource.TryGetDimensions(imgStream);
+            if (dims is { Width: > 0, Height: > 0 } d)
+            {
+                double ratio = (double)d.Height / d.Width;
+                if (hasWidth && !hasHeight)
+                    cyEmu = (long)(cxEmu * ratio);
+                else if (!hasWidth && hasHeight)
+                    cxEmu = (long)(cyEmu / ratio);
+                else
+                    cyEmu = (long)(cxEmu * ratio);
+            }
+        }
 
         var altText = properties.GetValueOrDefault("alt", Path.GetFileName(imgPath));
 
@@ -186,10 +210,21 @@ public partial class WordHandler
         Paragraph imgPara;
         if (parent is Paragraph existingPara)
         {
-            existingPara.AppendChild(imgRun);
+            // When --index N is supplied, insert before the Nth existing run
+            // instead of always appending. Matches AddRun's index semantics.
+            var runCount = existingPara.Elements<Run>().Count();
+            if (index.HasValue && index.Value < runCount)
+            {
+                var refRun = existingPara.Elements<Run>().ElementAt(index.Value);
+                existingPara.InsertBefore(imgRun, refRun);
+            }
+            else
+            {
+                existingPara.AppendChild(imgRun);
+            }
             imgPara = existingPara;
-            var imgRunCount = existingPara.Elements<Run>().Count();
-            resultPath = $"{parentPath}/r[{imgRunCount}]";
+            var imgRunIdx = existingPara.Elements<Run>().ToList().IndexOf(imgRun) + 1;
+            resultPath = $"{parentPath}/r[{imgRunIdx}]";
         }
         else if (parent is TableCell imgCell)
         {
@@ -203,25 +238,42 @@ public partial class WordHandler
             else
             {
                 imgPara = new Paragraph(imgRun);
+                AssignParaId(imgPara);
+                // Prevent fixed line spacing (inherited from Normal style) from
+                // clipping the image to the text line height.
+                imgPara.PrependChild(new ParagraphProperties(
+                    new SpacingBetweenLines { Line = "240", LineRule = LineSpacingRuleValues.Auto }));
                 imgCell.AppendChild(imgPara);
             }
             var imgPIdx = imgCell.Elements<Paragraph>().ToList().IndexOf(imgPara) + 1;
-            resultPath = $"{parentPath}/p[{imgPIdx}]";
+            resultPath = $"{parentPath}/{BuildParaPathSegment(imgPara, imgPIdx)}";
         }
         else
         {
             imgPara = new Paragraph(imgRun);
-            var imgParaCount = parent.Elements<Paragraph>().Count();
-            if (index.HasValue && index.Value < imgParaCount)
+            AssignParaId(imgPara);
+            // Prevent fixed line spacing (inherited from Normal style) from
+            // clipping the image to the text line height.
+            imgPara.PrependChild(new ParagraphProperties(
+                new SpacingBetweenLines { Line = "240", LineRule = LineSpacingRuleValues.Auto }));
+
+            // Use ChildElements for index lookup so that tables and sectPr
+            // siblings do not shift the effective insertion position. This
+            // matches ResolveAnchorPosition, which computes anchor indices
+            // against ChildElements.
+            var allChildren = parent.ChildElements.ToList();
+            if (index.HasValue && index.Value < allChildren.Count)
             {
-                var refPara = parent.Elements<Paragraph>().ElementAt(index.Value);
-                parent.InsertBefore(imgPara, refPara);
-                resultPath = $"{parentPath}/p[{index.Value + 1}]";
+                var refElement = allChildren[index.Value];
+                parent.InsertBefore(imgPara, refElement);
+                var imgPIdx = parent.Elements<Paragraph>().ToList().IndexOf(imgPara) + 1;
+                resultPath = $"{parentPath}/{BuildParaPathSegment(imgPara, imgPIdx)}";
             }
             else
             {
                 AppendToParent(parent, imgPara);
-                resultPath = $"{parentPath}/p[{imgParaCount + 1}]";
+                var imgPIdx = parent.Elements<Paragraph>().Count();
+                resultPath = $"{parentPath}/{BuildParaPathSegment(imgPara, imgPIdx)}";
             }
         }
         return resultPath;

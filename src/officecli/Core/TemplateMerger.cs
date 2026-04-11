@@ -16,7 +16,7 @@ namespace OfficeCli.Core;
 /// Merges a template Office document with JSON data by replacing {{key}} placeholders.
 /// Supports DOCX, XLSX, and PPTX formats.
 /// </summary>
-public static class TemplateMerger
+internal static class TemplateMerger
 {
     private static readonly Regex PlaceholderPattern = new(@"\{\{(\w[\w.]*)\}\}", RegexOptions.Compiled);
 

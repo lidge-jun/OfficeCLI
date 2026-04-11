@@ -47,9 +47,15 @@ public partial class WordHandler
                     var fillMatch = System.Text.RegularExpressions.Regex.Match(xml, @"fillcolor=""([^""]*)""");
                     if (fillMatch.Success) node.Format["color"] = ParseHelpers.FormatHexColor(fillMatch.Groups[1].Value);
 
-                    // Extract opacity
+                    // Extract opacity — normalize to canonical decimal (e.g. ".5" → "0.5")
                     var opacityMatch = System.Text.RegularExpressions.Regex.Match(xml, @"opacity=""([^""]*)""");
-                    if (opacityMatch.Success) node.Format["opacity"] = opacityMatch.Groups[1].Value;
+                    if (opacityMatch.Success)
+                    {
+                        var rawOpacity = opacityMatch.Groups[1].Value;
+                        node.Format["opacity"] = double.TryParse(rawOpacity, System.Globalization.CultureInfo.InvariantCulture, out var opVal)
+                            ? opVal.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                            : rawOpacity;
+                    }
 
                     // Extract font
                     var fontMatch = System.Text.RegularExpressions.Regex.Match(xml, @"font-family:&quot;([^&]*)&quot;");
@@ -82,8 +88,8 @@ public partial class WordHandler
             }
         }
 
-        // Footnote/Endnote paths: /footnote[N], /endnote[N]
-        var fnMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/footnote\[(\d+)\]$");
+        // Footnote/Endnote paths: /footnote[N], /footnote[@footnoteId=N], /endnote[N], /endnote[@endnoteId=N]
+        var fnMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/footnote\[(?:@footnoteId=)?(\d+)\]$");
         if (fnMatch.Success)
         {
             var fnId = int.Parse(fnMatch.Groups[1].Value);
@@ -91,11 +97,12 @@ public partial class WordHandler
                 .Elements<Footnote>().FirstOrDefault(f => f.Id?.Value == fnId);
             if (fn == null)
                 throw new ArgumentException($"Footnote {fnId} not found");
-            var fnNode = new DocumentNode { Path = path, Type = "footnote" };
-            fnNode.Text = string.Join("", fn.Descendants<Text>().Select(t => t.Text));
+            var fnNode = new DocumentNode { Path = $"/footnote[@footnoteId={fnId}]", Type = "footnote" };
+            fnNode.Text = GetFootnoteText(fn);
+            if (fn.Id?.Value != null) fnNode.Format["id"] = fn.Id.Value;
             return fnNode;
         }
-        var enMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/endnote\[(\d+)\]$");
+        var enMatch = System.Text.RegularExpressions.Regex.Match(path, @"^/endnote\[(?:@endnoteId=)?(\d+)\]$");
         if (enMatch.Success)
         {
             var enId = int.Parse(enMatch.Groups[1].Value);
@@ -103,8 +110,9 @@ public partial class WordHandler
                 .Elements<Endnote>().FirstOrDefault(e => e.Id?.Value == enId);
             if (en == null)
                 throw new ArgumentException($"Endnote {enId} not found");
-            var enNode = new DocumentNode { Path = path, Type = "endnote" };
+            var enNode = new DocumentNode { Path = $"/endnote[@endnoteId={enId}]", Type = "endnote" };
             enNode.Text = string.Join("", en.Descendants<Text>().Select(t => t.Text));
+            if (en.Id?.Value != null) enNode.Format["id"] = en.Id.Value;
             return enNode;
         }
 
@@ -176,6 +184,10 @@ public partial class WordHandler
 
             var chartInfo = allCharts[chartIdx - 1];
             var chartNode = new DocumentNode { Path = $"/chart[{chartIdx}]", Type = "chart" };
+            if (chartInfo.DocProperties?.Id?.HasValue == true)
+                chartNode.Format["id"] = chartInfo.DocProperties.Id.Value;
+            if (chartInfo.DocProperties?.Name?.Value != null)
+                chartNode.Format["name"] = chartInfo.DocProperties.Name.Value;
 
             if (chartInfo.IsExtended)
             {
@@ -261,7 +273,8 @@ public partial class WordHandler
             if (cols != null)
             {
                 secNode.Format["columns"] = cols.ColumnCount?.Value ?? 1;
-                if (cols.Space?.Value != null) secNode.Format["columnSpace"] = cols.Space.Value;
+                if (cols.Space?.Value != null && uint.TryParse(cols.Space.Value, out var colSpaceTwips))
+                    secNode.Format["columnSpace"] = FormatTwipsToCm(colSpaceTwips);
                 if (cols.EqualWidth?.Value != null) secNode.Format["equalWidth"] = cols.EqualWidth.Value;
                 if (cols.Separator?.Value == true) secNode.Format["separator"] = true;
                 var colDefs = cols.Elements<Column>().ToList();
@@ -316,12 +329,13 @@ public partial class WordHandler
                 if (pPr.Justification?.Val?.Value != null) styleNode.Format["alignment"] = pPr.Justification.Val.InnerText;
                 if (pPr.SpacingBetweenLines?.Before?.Value != null) styleNode.Format["spaceBefore"] = SpacingConverter.FormatWordSpacing(pPr.SpacingBetweenLines.Before.Value);
                 if (pPr.SpacingBetweenLines?.After?.Value != null) styleNode.Format["spaceAfter"] = SpacingConverter.FormatWordSpacing(pPr.SpacingBetweenLines.After.Value);
+                if (pPr.SpacingBetweenLines?.Line?.Value != null) styleNode.Format["lineSpacing"] = SpacingConverter.FormatWordLineSpacing(pPr.SpacingBetweenLines.Line.Value, pPr.SpacingBetweenLines.LineRule?.InnerText);
             }
             return styleNode;
         }
 
         var parts = ParsePath(path);
-        var element = NavigateToElement(parts, out var ctx);
+        var element = NavigateToElement(parts, out var ctx, out var resolvedPath);
         if (element == null)
         {
             // Check if the path contains footnote/endnote/toc which are handled differently
@@ -332,7 +346,9 @@ public partial class WordHandler
             throw new ArgumentException(msg);
         }
 
-        return ElementToNode(element, path, depth);
+        // Use the resolved positional path when available (normalizes @paraId etc.)
+        var nodePath = !string.IsNullOrEmpty(resolvedPath) ? resolvedPath : path;
+        return ElementToNode(element, nodePath, depth);
     }
 
     /// <summary>Find all SectionProperties in the document (paragraph-level + body-level).</summary>
@@ -522,7 +538,8 @@ public partial class WordHandler
             int pIdx = 0;
             foreach (var para in header.Elements<Paragraph>())
             {
-                node.Children.Add(ElementToNode(para, $"{path}/p[{pIdx + 1}]", depth - 1));
+                var paraSegment = BuildParaPathSegment(para, pIdx + 1);
+                node.Children.Add(ElementToNode(para, $"{path}/{paraSegment}", depth - 1));
                 pIdx++;
             }
         }
@@ -578,7 +595,8 @@ public partial class WordHandler
             int pIdx = 0;
             foreach (var para in footer.Elements<Paragraph>())
             {
-                node.Children.Add(ElementToNode(para, $"{path}/p[{pIdx + 1}]", depth - 1));
+                var paraSegment = BuildParaPathSegment(para, pIdx + 1);
+                node.Children.Add(ElementToNode(para, $"{path}/{paraSegment}", depth - 1));
                 pIdx++;
             }
         }
@@ -625,6 +643,48 @@ public partial class WordHandler
                             results.Add(node);
                     }
                     fIdx++;
+                }
+            }
+            return results;
+        }
+
+        // Handle style selector — styles live in StylesPart, not Body
+        if (parsed.Element == "style")
+        {
+            var styles = _doc.MainDocumentPart?.StyleDefinitionsPart?.Styles;
+            if (styles != null)
+            {
+                int sIdx = 0;
+                foreach (var style in styles.Elements<Style>())
+                {
+                    sIdx++;
+                    var styleId = style.StyleId?.Value ?? "";
+                    var styleName = style.StyleName?.Val?.Value ?? styleId;
+                    var styleNode = new DocumentNode
+                    {
+                        Path = $"/styles/{styleId}",
+                        Type = "style",
+                        Text = styleName
+                    };
+                    styleNode.Format["id"] = styleId;
+                    styleNode.Format["name"] = styleName;
+                    if (style.Type?.Value != null) styleNode.Format["type"] = style.Type.InnerText;
+                    if (style.BasedOn?.Val?.Value != null) styleNode.Format["basedOn"] = style.BasedOn.Val.Value;
+
+                    // Filter by :contains
+                    if (parsed.ContainsText != null && !(styleName.Contains(parsed.ContainsText, StringComparison.OrdinalIgnoreCase) == true))
+                        continue;
+                    // Filter by attributes
+                    bool matchAttrs = true;
+                    foreach (var (attrKey, rawVal) in parsed.Attributes)
+                    {
+                        bool negate = rawVal.StartsWith("!");
+                        var val = negate ? rawVal[1..] : rawVal;
+                        var hasKey = styleNode.Format.TryGetValue(attrKey, out var fmtVal);
+                        bool matches = hasKey && string.Equals(fmtVal?.ToString(), val, StringComparison.OrdinalIgnoreCase);
+                        if (negate ? matches : !matches) { matchAttrs = false; break; }
+                    }
+                    if (matchAttrs) results.Add(styleNode);
                 }
             }
             return results;
@@ -719,7 +779,7 @@ public partial class WordHandler
                 if (sdt is SdtBlock)
                 {
                     blockSdtIdx++;
-                    sdtPath = $"/body/sdt[{blockSdtIdx}]";
+                    sdtPath = $"/body/{BuildSdtPathSegment(sdt, blockSdtIdx)}";
                 }
                 else if (sdt is SdtRun sdtRun)
                 {
@@ -738,12 +798,12 @@ public partial class WordHandler
                             if (child == sdtRun) break;
                             if (child is SdtRun) sdtInParaIdx++;
                         }
-                        sdtPath = $"/body/p[{pIdx}]/sdt[{sdtInParaIdx}]";
+                        sdtPath = $"/body/{BuildParaPathSegment(parentPara, pIdx)}/{BuildSdtPathSegment(sdt, sdtInParaIdx)}";
                     }
                     else
                     {
                         blockSdtIdx++;
-                        sdtPath = $"/body/sdt[{blockSdtIdx}]";
+                        sdtPath = $"/body/{BuildSdtPathSegment(sdt, blockSdtIdx)}";
                     }
                 }
                 else continue;
@@ -770,6 +830,8 @@ public partial class WordHandler
             (parsed.Element == "r" || parsed.Element == "run");
         bool isPictureSelector = parsed.ChildSelector == null &&
             (parsed.Element == "picture" || parsed.Element == "image" || parsed.Element == "img");
+        bool isOleSelector = parsed.ChildSelector == null &&
+            (parsed.Element is "ole" or "object" or "embed");
         bool isEquationSelector = parsed.ChildSelector == null &&
             (parsed.Element == "equation" || parsed.Element == "math" || parsed.Element == "formula");
         bool isBookmarkSelector = parsed.ChildSelector == null &&
@@ -792,8 +854,11 @@ public partial class WordHandler
                 or "field" or "formfield" or "editable"
                 or "table" or "tbl"
                 or "toc" or "tableofcontents"
+                or "style"
                 or "revision" or "change" or "trackchange"
-                or "media";
+                or "media"
+                or "hyperlink"
+                or "ole" or "object" or "embed";
         if (!isKnownType && parsed.ChildSelector == null)
         {
             var root = _doc.MainDocumentPart?.Document;
@@ -814,7 +879,7 @@ public partial class WordHandler
                     var drawing = run.GetFirstChild<Drawing>();
                     if (drawing != null)
                     {
-                        var node = CreateImageNode(drawing, run, $"/body/p[{mediaPIdx + 1}]/r[{mediaRIdx + 1}]");
+                        var node = CreateImageNode(drawing, run, $"/body/{BuildParaPathSegment(para, mediaPIdx + 1)}/r[{mediaRIdx + 1}]");
                         // Add content type from image part
                         var blip = drawing.Descendants<DocumentFormat.OpenXml.Drawing.Blip>().FirstOrDefault();
                         if (blip?.Embed?.Value != null)
@@ -823,7 +888,7 @@ public partial class WordHandler
                             if (part != null)
                             {
                                 node.Format["contentType"] = part.ContentType;
-                                node.Format["size"] = part.GetStream().Length;
+                                node.Format["fileSize"] = part.GetStream().Length;
                             }
                         }
                         results.Add(node);
@@ -865,6 +930,10 @@ public partial class WordHandler
             {
                 var chartInfo = allCharts[i];
                 var node = new DocumentNode { Path = $"/chart[{i + 1}]", Type = "chart" };
+                if (chartInfo.DocProperties?.Id?.HasValue == true)
+                    node.Format["id"] = chartInfo.DocProperties.Id.Value;
+                if (chartInfo.DocProperties?.Name?.Value != null)
+                    node.Format["name"] = chartInfo.DocProperties.Name.Value;
 
                 if (chartInfo.IsExtended)
                 {
@@ -913,7 +982,7 @@ public partial class WordHandler
                         continue;
                     var cNode = new DocumentNode
                     {
-                        Path = $"/comments/comment[{cIdx}]",
+                        Path = comment.Id?.Value != null ? $"/comments/comment[@commentId={comment.Id.Value}]" : $"/comments/comment[{cIdx}]",
                         Type = "comment",
                         Text = text
                     };
@@ -945,12 +1014,12 @@ public partial class WordHandler
                     // Skip separator/continuation footnotes (type != null means special)
                     if (fn.Type?.Value != null) continue;
                     fnIdx++;
-                    var text = string.Join("", fn.Descendants<Text>().Select(t => t.Text));
+                    var text = GetFootnoteText(fn);
                     if (parsed.ContainsText != null && !text.Contains(parsed.ContainsText, StringComparison.OrdinalIgnoreCase))
                         continue;
                     var fnNode = new DocumentNode
                     {
-                        Path = $"/footnote[{fn.Id?.Value ?? fnIdx}]",
+                        Path = fn.Id?.Value != null ? $"/footnote[@footnoteId={fn.Id.Value}]" : $"/footnote[{fnIdx}]",
                         Type = "footnote",
                         Text = text
                     };
@@ -974,12 +1043,12 @@ public partial class WordHandler
                     // Skip separator/continuation endnotes (type != null means special)
                     if (en.Type?.Value != null) continue;
                     enIdx++;
-                    var text = string.Join("", en.Descendants<Text>().Select(t => t.Text));
+                    var text = GetFootnoteText(en);
                     if (parsed.ContainsText != null && !text.Contains(parsed.ContainsText, StringComparison.OrdinalIgnoreCase))
                         continue;
                     var enNode = new DocumentNode
                     {
-                        Path = $"/endnote[{en.Id?.Value ?? enIdx}]",
+                        Path = en.Id?.Value != null ? $"/endnote[@endnoteId={en.Id.Value}]" : $"/endnote[{enIdx}]",
                         Type = "endnote",
                         Text = text
                     };
@@ -1074,6 +1143,54 @@ public partial class WordHandler
             return results;
         }
 
+        // Handle hyperlink query
+        bool isHyperlinkSelector = parsed.ChildSelector == null && parsed.Element == "hyperlink";
+        if (isHyperlinkSelector)
+        {
+            int hlIdx = 0;
+            foreach (var hl in body.Descendants<Hyperlink>())
+            {
+                hlIdx++;
+                var text = string.Concat(hl.Descendants<Text>().Select(t => t.Text));
+                if (parsed.ContainsText != null && !text.Contains(parsed.ContainsText, StringComparison.OrdinalIgnoreCase))
+                { hlIdx--; continue; }
+
+                // Build node via ElementToNode to get full format (link, color, underline, etc.)
+                var parentPara = hl.Ancestors<Paragraph>().FirstOrDefault();
+                int pIdx = 1;
+                int hlInParaIdx = 1;
+                if (parentPara != null)
+                {
+                    foreach (var el in body.ChildElements)
+                    {
+                        if (el == parentPara) break;
+                        if (el is Paragraph) pIdx++;
+                    }
+                    foreach (var child in parentPara.ChildElements)
+                    {
+                        if (child == hl) break;
+                        if (child is Hyperlink) hlInParaIdx++;
+                    }
+                }
+                var hlPath = parentPara != null ? $"/body/{BuildParaPathSegment(parentPara, pIdx)}/hyperlink[{hlInParaIdx}]" : $"/body/p[{pIdx}]/hyperlink[{hlInParaIdx}]";
+                var node = ElementToNode(hl, hlPath, 0);
+
+                // Filter by attributes
+                bool matchAttrs = true;
+                foreach (var (attrKey, rawVal) in parsed.Attributes)
+                {
+                    bool negate = rawVal.StartsWith("!");
+                    var val = negate ? rawVal[1..] : rawVal;
+                    var hasKey = node.Format.TryGetValue(attrKey, out var fmtVal);
+                    bool matches = hasKey && string.Equals(fmtVal?.ToString(), val, StringComparison.OrdinalIgnoreCase);
+                    if (negate ? matches : !matches) { matchAttrs = false; break; }
+                }
+                if (!matchAttrs) continue;
+                results.Add(node);
+            }
+            return results;
+        }
+
         // Handle bookmark query
         if (isBookmarkSelector)
         {
@@ -1103,7 +1220,7 @@ public partial class WordHandler
                 if (sdt is SdtBlock)
                 {
                     blockSdtIdx++;
-                    path = $"/body/sdt[{blockSdtIdx}]";
+                    path = $"/body/{BuildSdtPathSegment(sdt, blockSdtIdx)}";
                 }
                 else if (sdt is SdtRun sdtRun)
                 {
@@ -1123,18 +1240,18 @@ public partial class WordHandler
                             if (child == sdtRun) break;
                             if (child is SdtRun) sdtInParaIdx++;
                         }
-                        path = $"/body/p[{pIdx}]/sdt[{sdtInParaIdx}]";
+                        path = $"/body/{BuildParaPathSegment(parentPara, pIdx)}/{BuildSdtPathSegment(sdt, sdtInParaIdx)}";
                     }
                     else
                     {
                         blockSdtIdx++;
-                        path = $"/body/sdt[{blockSdtIdx}]";
+                        path = $"/body/{BuildSdtPathSegment(sdt, blockSdtIdx)}";
                     }
                 }
                 else
                 {
                     blockSdtIdx++;
-                    path = $"/body/sdt[{blockSdtIdx}]";
+                    path = $"/body/{BuildSdtPathSegment(sdt, blockSdtIdx)}";
                 }
                 var node = ElementToNode(sdt, path, 0);
                 if (parsed.ContainsText != null && !(node.Text?.Contains(parsed.ContainsText, StringComparison.OrdinalIgnoreCase) ?? false))
@@ -1197,6 +1314,63 @@ public partial class WordHandler
                     }
                     results.Add(node);
                 }
+                else if (isEquationSelector)
+                {
+                    // Scan inside table cells for equations
+                    var tblIdx = body.Elements<DocumentFormat.OpenXml.Wordprocessing.Table>()
+                        .TakeWhile(t => t != tbl).Count();
+                    int rowIdx = 0;
+                    foreach (var row in tbl.Elements<TableRow>())
+                    {
+                        rowIdx++;
+                        int cellIdx = 0;
+                        foreach (var cell in row.Elements<TableCell>())
+                        {
+                            cellIdx++;
+                            int cellParaIdx = 0;
+                            foreach (var cellPara in cell.Elements<Paragraph>())
+                            {
+                                cellParaIdx++;
+                                // Display equations inside table cell paragraphs
+                                var oMathParaInCell = cellPara.ChildElements.FirstOrDefault(e => e.LocalName == "oMathPara" || e is M.Paragraph);
+                                if (oMathParaInCell != null)
+                                {
+                                    mathParaIdx++;
+                                    var latex = FormulaParser.ToLatex(oMathParaInCell);
+                                    if (parsed.ContainsText == null || latex.Contains(parsed.ContainsText))
+                                    {
+                                        results.Add(new DocumentNode
+                                        {
+                                            Path = $"/body/tbl[{tblIdx + 1}]/tr[{rowIdx}]/tc[{cellIdx}]/oMathPara[{mathParaIdx + 1}]",
+                                            Type = "equation",
+                                            Text = latex,
+                                            Format = { ["mode"] = "display" }
+                                        });
+                                    }
+                                    continue;
+                                }
+
+                                // Inline equations inside table cell paragraphs
+                                int cellMathIdx = 0;
+                                foreach (var oMath in cellPara.ChildElements.Where(e => e.LocalName == "oMath" || e is M.OfficeMath))
+                                {
+                                    var latex = FormulaParser.ToLatex(oMath);
+                                    if (parsed.ContainsText == null || latex.Contains(parsed.ContainsText))
+                                    {
+                                        results.Add(new DocumentNode
+                                        {
+                                            Path = $"/body/tbl[{tblIdx + 1}]/tr[{rowIdx}]/tc[{cellIdx}]/p[{cellParaIdx}]/oMath[{cellMathIdx + 1}]",
+                                            Type = "equation",
+                                            Text = latex,
+                                            Format = { ["mode"] = "inline" }
+                                        });
+                                    }
+                                    cellMathIdx++;
+                                }
+                            }
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -1234,7 +1408,7 @@ public partial class WordHandler
                         {
                             results.Add(new DocumentNode
                             {
-                                Path = $"/body/p[{paraIdx + 1}]/oMath[{mathIdx + 1}]",
+                                Path = $"/body/{BuildParaPathSegment(para, paraIdx + 1)}/oMath[{mathIdx + 1}]",
                                 Type = "equation",
                                 Text = latex,
                                 Format = { ["mode"] = "inline" }
@@ -1256,12 +1430,36 @@ public partial class WordHandler
                             {
                                 var docProps = drawing.Descendants<DW.DocProperties>().FirstOrDefault();
                                 if (string.IsNullOrEmpty(docProps?.Description?.Value))
-                                    results.Add(CreateImageNode(drawing, run, $"/body/p[{paraIdx + 1}]/r[{runIdx + 1}]"));
+                                    results.Add(CreateImageNode(drawing, run, $"/body/{BuildParaPathSegment(para, paraIdx + 1)}/r[{runIdx + 1}]"));
                             }
                             else
                             {
-                                results.Add(CreateImageNode(drawing, run, $"/body/p[{paraIdx + 1}]/r[{runIdx + 1}]"));
+                                results.Add(CreateImageNode(drawing, run, $"/body/{BuildParaPathSegment(para, paraIdx + 1)}/r[{runIdx + 1}]"));
                             }
+                        }
+
+                        // Embedded OLE objects (Visio, Excel, etc.) also
+                        // appear in the picture listing so that a single
+                        // "what images are in this document" query does
+                        // not miss them.
+                        var oleObject = run.GetFirstChild<EmbeddedObject>();
+                        if (oleObject != null)
+                        {
+                            results.Add(CreateOleNode(oleObject, run, $"/body/{BuildParaPathSegment(para, paraIdx + 1)}/r[{runIdx + 1}]"));
+                        }
+
+                        runIdx++;
+                    }
+                }
+                else if (isOleSelector)
+                {
+                    int runIdx = 0;
+                    foreach (var run in GetAllRuns(para))
+                    {
+                        var oleObject = run.GetFirstChild<EmbeddedObject>();
+                        if (oleObject != null)
+                        {
+                            results.Add(CreateOleNode(oleObject, run, $"/body/{BuildParaPathSegment(para, paraIdx + 1)}/r[{runIdx + 1}]"));
                         }
                         runIdx++;
                     }
@@ -1274,7 +1472,7 @@ public partial class WordHandler
                     {
                         if (MatchesRunSelector(run, para, parsed))
                         {
-                            results.Add(ElementToNode(run, $"/body/p[{paraIdx + 1}]/r[{runIdx + 1}]", 0));
+                            results.Add(ElementToNode(run, $"/body/{BuildParaPathSegment(para, paraIdx + 1)}/r[{runIdx + 1}]", 0));
                         }
                         runIdx++;
                     }
@@ -1283,7 +1481,7 @@ public partial class WordHandler
                 {
                     if (MatchesSelector(para, parsed, paraIdx))
                     {
-                        results.Add(ElementToNode(para, $"/body/p[{paraIdx + 1}]", 0));
+                        results.Add(ElementToNode(para, $"/body/{BuildParaPathSegment(para, paraIdx + 1)}", 0));
                     }
 
                     if (parsed.ChildSelector != null)
@@ -1293,7 +1491,7 @@ public partial class WordHandler
                         {
                             if (MatchesRunSelector(run, para, parsed.ChildSelector))
                             {
-                                results.Add(ElementToNode(run, $"/body/p[{paraIdx + 1}]/r[{runIdx + 1}]", 0));
+                                results.Add(ElementToNode(run, $"/body/{BuildParaPathSegment(para, paraIdx + 1)}/r[{runIdx + 1}]", 0));
                             }
                             runIdx++;
                         }

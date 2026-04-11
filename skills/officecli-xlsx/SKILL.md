@@ -8,25 +8,27 @@ description: "Use this skill any time a .xlsx file is involved -- as input, outp
 
 ## BEFORE YOU START (CRITICAL)
 
-**Every time before using officecli, run this check:**
+**If `officecli` is not installed:**
+
+`macOS / Linux`
 
 ```bash
-if ! command -v officecli &> /dev/null; then
-    echo "Installing officecli..."
-    curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.sh | bash
-    # Windows: irm https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.ps1 | iex
-else
-    CURRENT=$(officecli --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    LATEST=$(curl -fsSL https://api.github.com/repos/iOfficeAI/OfficeCLI/releases/latest | grep '"tag_name"' | sed -E 's/.*"v?([0-9.]+)".*/\1/')
-    if [ "$CURRENT" != "$LATEST" ]; then
-        echo "Upgrading officecli $CURRENT → $LATEST..."
-        curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.sh | bash
-    else
-        echo "officecli $CURRENT is up to date"
-    fi
+if ! command -v officecli >/dev/null 2>&1; then
+    curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
 fi
-officecli --version
 ```
+
+`Windows (PowerShell)`
+
+```powershell
+if (-not (Get-Command officecli -ErrorAction SilentlyContinue)) {
+    irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
+}
+```
+
+Verify: `officecli --version`
+
+If `officecli` is still not found after first install, open a new terminal and run the verify command again.
 
 ---
 
@@ -37,6 +39,20 @@ officecli --version
 | Read / analyze content | Use `view` and `get` commands below |
 | Edit existing workbook | Read [editing.md](editing.md) |
 | Create from scratch | Read [creating.md](creating.md) |
+
+---
+
+## Execution Model
+
+**Run commands one at a time. Do not write all commands into a shell script and execute it as a single block.**
+
+OfficeCLI is incremental: every `add`, `set`, and `remove` immediately modifies the file and returns output. Use this to catch errors early:
+
+1. **One command at a time, then read the output.** Check the exit code before proceeding.
+2. **Non-zero exit = stop and fix immediately.** Do not continue building on a broken state.
+3. **Verify after structural operations.** After adding a sheet, chart, pivot table, or named range, run `get` or `validate` before building on top of it.
+
+Running a 50-command script all at once means the first error cascades silently through every subsequent command. Running incrementally means the failure context is immediate and local — fix it and move on.
 
 ---
 
@@ -371,14 +387,16 @@ officecli validate data.xlsx
 
 ## Performance: Resident Mode
 
+**Always use `open`/`close` — it is the smart default, not a special-case optimization.** Every command benefits: no repeated file I/O, no repeated parse/serialize cycles.
+
 ```bash
-officecli open data.xlsx        # Keep in memory
-officecli add data.xlsx ...
+officecli open data.xlsx        # Load once into memory
+officecli add data.xlsx ...     # All commands run in memory — fast
 officecli set data.xlsx ...
-officecli close data.xlsx       # Save and release
+officecli close data.xlsx       # Write once to disk
 ```
 
-For multi-step workflows (3+ commands on the same file), use open/close.
+Use this pattern for every workbook build, regardless of command count.
 
 ## Performance: Batch Mode
 
@@ -391,13 +409,13 @@ cat <<'EOF' | officecli batch data.xlsx
 EOF
 ```
 
-Batch supports: `add`, `set`, `get`, `query`, `remove`, `move`, `view`, `raw`, `raw-set`, `validate`.
+Batch supports: `add`, `set`, `get`, `query`, `remove`, `move`, `swap`, `view`, `raw`, `raw-set`, `validate`.
 
-Batch fields: `command`, `path`, `parent`, `type`, `from`, `to`, `index`, `props` (dict), `selector`, `mode`, `depth`, `part`, `xpath`, `action`, `xml`.
+Batch fields: `command`, `path`, `parent`, `type`, `from`, `to`, `index`, `after`, `before`, `props` (dict), `selector`, `mode`, `depth`, `part`, `xpath`, `action`, `xml`.
 
-`parent` = container to add into (for `add`). `path` = element to modify (for `set`, `get`, `remove`).
+`parent` = container to add into (for `add`). `path` = element to modify (for `set`, `get`, `remove`, `move`, `swap`).
 
-Batch mode is the default for multi-cell operations. A financial model with 50+ cells MUST use batch, not individual commands.
+Batch mode executes multiple operations in a single open/save cycle.
 
 ---
 

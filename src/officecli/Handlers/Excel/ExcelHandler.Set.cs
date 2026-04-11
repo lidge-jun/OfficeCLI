@@ -41,6 +41,12 @@ public partial class ExcelHandler
         path = NormalizeExcelPath(path);
         path = ResolveSheetIndexInPath(path);
 
+        // Excel only supports find+replace — reject find without replace early (before path dispatch)
+        if (properties.ContainsKey("find") && !properties.ContainsKey("replace"))
+            throw new ArgumentException("Excel only supports 'find' with 'replace'. Use 'find' + 'replace' for text replacement. find+format (without replace) is not supported in Excel.");
+        if (properties.ContainsKey("regex") && properties.ContainsKey("find"))
+            throw new ArgumentException("Excel find+replace does not support regex. Remove 'regex' property.");
+
         // Handle root path "/" — document properties
         if (path == "/")
         {
@@ -48,6 +54,7 @@ public partial class ExcelHandler
             if (properties.TryGetValue("find", out var findText) && properties.TryGetValue("replace", out var replaceText))
             {
                 var count = FindAndReplace(findText, replaceText, null);
+                LastFindMatchCount = count;
                 var remaining = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
                 remaining.Remove("find");
                 remaining.Remove("replace");
@@ -71,7 +78,12 @@ public partial class ExcelHandler
                     case "lastmodifiedby": pkg.LastModifiedBy = value; break;
                     case "revision": pkg.Revision = value; break;
                     default:
-                        unsupported.Add(key);
+                        var lowerKey = key.ToLowerInvariant();
+                        if (!TrySetWorkbookSetting(lowerKey, value)
+                            && !Core.ThemeHandler.TrySetTheme(_doc.WorkbookPart?.ThemePart, lowerKey, value)
+                            && !Core.ExtendedPropertiesHandler.TrySetExtendedProperty(
+                                Core.ExtendedPropertiesHandler.GetOrCreateExtendedPart(_doc), lowerKey, value))
+                            unsupported.Add(key);
                         break;
                 }
             }
@@ -530,7 +542,11 @@ public partial class ExcelHandler
                     case "name": table.Name = value; break;
                     case "displayname": table.DisplayName = value; break;
                     case "headerrow": table.HeaderRowCount = IsTruthy(value) ? 1u : 0u; break;
-                    case "totalrow": table.TotalsRowShown = IsTruthy(value); break;
+                    case "totalrow":
+                        var totalRowEnabled = IsTruthy(value);
+                        table.TotalsRowShown = totalRowEnabled;
+                        table.TotalsRowCount = totalRowEnabled ? 1u : 0u;
+                        break;
                     case "style":
                         var styleInfo = table.GetFirstChild<TableStyleInfo>();
                         if (styleInfo != null) styleInfo.Name = value;
@@ -1152,10 +1168,20 @@ public partial class ExcelHandler
                     break;
                 }
                 default:
-                    if (!GenericXmlQuery.SetGenericAttribute(cell, key, value))
+                    // Check for known flat-key misuse first, even before generic
+                    // attribute fallback — otherwise user typos like `size=14`
+                    // would be silently written as unknown XML attributes.
+                    var cellHint = CellPropHints.TryGetHint(key);
+                    if (cellHint != null)
+                    {
+                        unsupported.Add(cellHint);
+                    }
+                    else if (!GenericXmlQuery.SetGenericAttribute(cell, key, value))
+                    {
                         unsupported.Add(unsupported.Count == 0
                             ? $"{key} (valid cell props: value, formula, arrayformula, type, clear, link, bold, italic, strike, underline, superscript, subscript, font.color, font.size, font.name, fill, border.all, alignment.horizontal, numfmt, locked, formulahidden)"
                             : key);
+                    }
                     break;
             }
         }
@@ -1180,6 +1206,7 @@ public partial class ExcelHandler
         if (properties.TryGetValue("find", out var findText) && properties.TryGetValue("replace", out var replaceText))
         {
             var count = FindAndReplace(findText, replaceText, worksheet);
+            LastFindMatchCount = count;
             var remaining = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
             remaining.Remove("find");
             remaining.Remove("replace");
@@ -1240,6 +1267,23 @@ public partial class ExcelHandler
                             }
                             GetSheet(wsPart).Save();
                         }
+
+                        // Update any pivot cache definitions whose WorksheetSource
+                        // references the old sheet name. Without this the pivot
+                        // cache's stale sheet ref breaks Excel refresh.
+                        // CONSISTENCY(sheet-rename-refs)
+                        var workbookPart = _doc.WorkbookPart!;
+                        foreach (var cacheDefPart in workbookPart.GetPartsOfType<PivotTableCacheDefinitionPart>())
+                        {
+                            var wsSource = cacheDefPart.PivotCacheDefinition?.CacheSource?.WorksheetSource;
+                            if (wsSource?.Sheet?.Value != null &&
+                                wsSource.Sheet.Value.Equals(oldName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                wsSource.Sheet = value;
+                                cacheDefPart.PivotCacheDefinition!.Save();
+                            }
+                        }
+
                         workbook.Save();
                     }
                     break;

@@ -59,8 +59,8 @@ public partial class PowerPointHandler
                 if (properties.TryGetValue("y", out var yStr) || properties.TryGetValue("top", out yStr))
                     yEmu = ParseEmu(yStr);
 
-                var imgShapeId = (uint)(imgShapeTree.Elements<Shape>().Count() + imgShapeTree.Elements<Picture>().Count() + 2);
-                var imgName = properties.GetValueOrDefault("name", $"Picture {imgShapeId}");
+                var imgShapeId = GenerateUniqueShapeId(imgShapeTree);
+                var imgName = properties.GetValueOrDefault("name", $"Picture {imgShapeTree.Elements<Picture>().Count() + 1}");
                 var altText = properties.GetValueOrDefault("alt", Path.GetFileName(imgPath));
 
                 // Build Picture element following Open-XML-SDK conventions
@@ -89,11 +89,10 @@ public partial class PowerPointHandler
                     new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = ParsePresetShape(picGeomName) }
                 );
 
-                imgShapeTree.AppendChild(picture);
+                InsertAtPosition(imgShapeTree, picture, index);
                 GetSlide(imgSlidePart).Save();
 
-                var picCount = imgShapeTree.Elements<Picture>().Count();
-                return $"/slide[{imgSlideIdx}]/picture[{picCount}]";
+                return $"/slide[{imgSlideIdx}]/{BuildElementPathSegment("picture", picture, imgShapeTree.Elements<Picture>().Count())}";
     }
 
 
@@ -130,8 +129,8 @@ public partial class PowerPointHandler
                 long chartY = properties.TryGetValue("y", out var yv) ? ParseEmu(yv) : 1825625;     // ~5cm
                 long chartCx = properties.TryGetValue("width", out var wv) ? ParseEmu(wv) : 8229600; // ~22.9cm
                 long chartCy = properties.TryGetValue("height", out var hv) ? ParseEmu(hv) : 4572000; // ~12.7cm
-                var chartId = (uint)(chartShapeTree.ChildElements.Count + 2);
-                var chartName = properties.GetValueOrDefault("name", chartTitle ?? $"Chart {chartId}");
+                var chartId = GenerateUniqueShapeId(chartShapeTree);
+                var chartName = properties.GetValueOrDefault("name", chartTitle ?? $"Chart {chartShapeTree.Elements<GraphicFrame>().Count(gf => gf.Descendants<DocumentFormat.OpenXml.Drawing.Charts.ChartReference>().Any() || IsExtendedChartFrame(gf)) + 1}");
 
                 // Extended chart types (cx:chart) — funnel, treemap, sunburst, boxWhisker, histogram
                 if (ChartExBuilder.IsExtendedChartType(chartType))
@@ -144,13 +143,13 @@ public partial class PowerPointHandler
 
                     var chartGfEx = BuildExtendedChartGraphicFrame(chartSlidePart, extChartPart,
                         chartId, chartName, chartX, chartY, chartCx, chartCy);
-                    chartShapeTree.AppendChild(chartGfEx);
+                    InsertAtPosition(chartShapeTree, chartGfEx, index);
                     GetSlide(chartSlidePart).Save();
 
                     // Count all charts (both regular and extended)
                     var totalCharts = chartShapeTree.Elements<GraphicFrame>()
                         .Count(gf => gf.Descendants<C.ChartReference>().Any() || IsExtendedChartFrame(gf));
-                    return $"/slide[{chartSlideIdx}]/chart[{totalCharts}]";
+                    return $"/slide[{chartSlideIdx}]/{BuildElementPathSegment("chart", chartGfEx, totalCharts)}";
                 }
 
                 // Build chart content BEFORE adding part (invalid type throws, must not leave empty part)
@@ -168,12 +167,12 @@ public partial class PowerPointHandler
 
                 var chartGf = BuildChartGraphicFrame(chartSlidePart, chartPart, chartId, chartName,
                     chartX, chartY, chartCx, chartCy);
-                chartShapeTree.AppendChild(chartGf);
+                InsertAtPosition(chartShapeTree, chartGf, index);
                 GetSlide(chartSlidePart).Save();
 
                 var chartCount = chartShapeTree.Elements<GraphicFrame>()
                     .Count(gf => gf.Descendants<C.ChartReference>().Any());
-                return $"/slide[{chartSlideIdx}]/chart[{chartCount}]";
+                return $"/slide[{chartSlideIdx}]/{BuildElementPathSegment("chart", chartGf, chartCount)}";
     }
 
 
@@ -261,7 +260,7 @@ public partial class PowerPointHandler
                 long mX = properties.TryGetValue("x", out var mxv) ? ParseEmu(mxv) : (mediaSlideW - mCx) / 2;
                 long mY = properties.TryGetValue("y", out var myv) ? ParseEmu(myv) : (mediaSlideH - mCy) / 2;
 
-                var mediaId = (uint)(mediaShapeTree.ChildElements.Count + 2);
+                var mediaId = GenerateUniqueShapeId(mediaShapeTree);
                 var mediaName = properties.GetValueOrDefault("name", isVideo ? "video" : "audio");
 
                 // 4. Build Picture element with proper video/audio structure
@@ -316,7 +315,7 @@ public partial class PowerPointHandler
                     p14Media.MediaTrim = trim;
                 }
 
-                mediaShapeTree.AppendChild(mediaPic);
+                InsertAtPosition(mediaShapeTree, mediaPic, index);
 
                 // 5. Add media timing node (controls playback behavior)
                 var mediaSlide = GetSlide(mediaSlidePart);
@@ -336,8 +335,15 @@ public partial class PowerPointHandler
 
                 mediaSlide.Save();
 
-                var picCount = mediaShapeTree.Elements<Picture>().Count();
-                return $"/slide[{mediaSlideIdx}]/picture[{picCount}]";
+                // Count how many audio/video items of the same type are on the slide
+                var sameTypeCount = mediaShapeTree.Elements<Picture>().Count(p =>
+                {
+                    var nvPr = p.NonVisualPictureProperties?.ApplicationNonVisualDrawingProperties;
+                    return isVideo
+                        ? nvPr?.GetFirstChild<Drawing.VideoFromFile>() != null
+                        : nvPr?.GetFirstChild<Drawing.AudioFromFile>() != null;
+                });
+                return $"/slide[{mediaSlideIdx}]/{(isVideo ? "video" : "audio")}[{sameTypeCount}]";
     }
 
 

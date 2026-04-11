@@ -19,6 +19,7 @@ public partial class WordHandler
     {
         string resultPath;
         var para = new Paragraph();
+        AssignParaId(para);
         var pProps = new ParagraphProperties();
 
         if (properties.TryGetValue("style", out var style))
@@ -72,9 +73,21 @@ public partial class WordHandler
             }
             else if (shdParts.Length >= 2)
             {
-                WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                shd.Fill = SanitizeHex(shdParts[1]);
-                if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                // Check if the pattern/color order is reversed (hex color in pattern position)
+                var patternPart = shdParts[0].TrimStart('#');
+                if (patternPart.Length >= 6 && patternPart.All(char.IsAsciiHexDigit))
+                {
+                    // Auto-swap: treat as "clear;COLOR" (user put color first)
+                    Console.Error.WriteLine($"Warning: '{shdParts[0]}' looks like a color in the pattern position. Auto-swapping to: clear;{shdParts[0]}");
+                    shd.Val = ShadingPatternValues.Clear;
+                    shd.Fill = SanitizeHex(shdParts[0]);
+                }
+                else
+                {
+                    WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
+                    shd.Fill = SanitizeHex(shdParts[1]);
+                    if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                }
             }
             pProps.Shading = shd;
         }
@@ -120,7 +133,7 @@ public partial class WordHandler
             if (properties.TryGetValue("start", out var sv))
                 startVal = ParseHelpers.SafeParseInt(sv, "start");
             int? levelVal = null;
-            if (properties.TryGetValue("listLevel", out var ll) || properties.TryGetValue("listlevel", out ll) || properties.TryGetValue("level", out ll))
+            if (properties.TryGetValue("listLevel", out var ll) || properties.TryGetValue("listlevel", out ll) || properties.TryGetValue("level", out ll) || properties.TryGetValue("numlevel", out ll))
                 levelVal = ParseHelpers.SafeParseInt(ll, "listLevel");
             ApplyListStyle(para, listStyle, startVal, levelVal);
             // pProps already appended, skip the append below
@@ -199,9 +212,19 @@ public partial class WordHandler
                 }
                 else if (shdParts.Length >= 2)
                 {
-                    WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                    shd.Fill = SanitizeHex(shdParts[1]);
-                    if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                    var rPatternPart = shdParts[0].TrimStart('#');
+                    if (rPatternPart.Length >= 6 && rPatternPart.All(char.IsAsciiHexDigit))
+                    {
+                        Console.Error.WriteLine($"Warning: '{shdParts[0]}' looks like a color in the pattern position. Auto-swapping to: clear;{shdParts[0]}");
+                        shd.Val = ShadingPatternValues.Clear;
+                        shd.Fill = SanitizeHex(shdParts[0]);
+                    }
+                    else
+                    {
+                        WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
+                        shd.Fill = SanitizeHex(shdParts[1]);
+                        if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                    }
                 }
                 rProps.Shading = shd;
             }
@@ -210,17 +233,23 @@ public partial class WordHandler
                 para.AppendChild(segmentedRun);
         }
 
-        var paraCount = parent.Elements<Paragraph>().Count();
-        if (index.HasValue && index.Value < paraCount)
+        // Use ChildElements for index lookup so that tables and sectPr
+        // siblings do not shift the effective insertion position. This
+        // matches ResolveAnchorPosition, which computes anchor indices
+        // against ChildElements.
+        var allChildren = parent.ChildElements.ToList();
+        if (index.HasValue && index.Value < allChildren.Count)
         {
-            var refElement = parent.Elements<Paragraph>().ElementAt(index.Value);
+            var refElement = allChildren[index.Value];
             parent.InsertBefore(para, refElement);
-            resultPath = $"{parentPath}/p[{index.Value + 1}]";
+            var paraPosIdx = parent.Elements<Paragraph>().ToList().IndexOf(para) + 1;
+            resultPath = $"{parentPath}/{BuildParaPathSegment(para, paraPosIdx)}";
         }
         else
         {
             AppendToParent(parent, para);
-            resultPath = $"{parentPath}/p[{paraCount + 1}]";
+            var paraCount = parent.Elements<Paragraph>().Count();
+            resultPath = $"{parentPath}/{BuildParaPathSegment(para, paraCount)}";
         }
         return resultPath;
     }
@@ -258,24 +287,40 @@ public partial class WordHandler
 
             var mathPara = new M.Paragraph(oMath);
 
-            if (parent is Body || parent is SdtBlock)
+            // Display equation must be a direct child of Body (wrapped in w:p).
+            // If parent is a Paragraph, insert after that paragraph as a sibling.
+            var insertTarget = parent;
+            OpenXmlElement? insertAfter = null;
+            if (parent is Paragraph parentPara)
+            {
+                insertTarget = parentPara.Parent ?? parent;
+                insertAfter = parentPara;
+            }
+
+            if (insertTarget is Body || insertTarget is SdtBlock)
             {
                 // Wrap m:oMathPara in w:p for schema validity
                 var wrapPara = new Paragraph(mathPara);
-                var mathParaCount = parent.Descendants<M.Paragraph>().Count();
-                if (index.HasValue)
+                AssignParaId(wrapPara);
+                if (insertAfter != null)
                 {
-                    var children = parent.ChildElements.ToList();
+                    insertTarget.InsertAfter(wrapPara, insertAfter);
+                }
+                else if (index.HasValue)
+                {
+                    var children = insertTarget.ChildElements.ToList();
                     if (index.Value < children.Count)
-                        parent.InsertBefore(wrapPara, children[index.Value]);
+                        insertTarget.InsertBefore(wrapPara, children[index.Value]);
                     else
-                        AppendToParent(parent, wrapPara);
+                        AppendToParent(insertTarget, wrapPara);
                 }
                 else
                 {
-                    AppendToParent(parent, wrapPara);
+                    AppendToParent(insertTarget, wrapPara);
                 }
-                resultPath = $"{parentPath}/oMathPara[{mathParaCount + 1}]";
+                var mathParaCount = insertTarget.Descendants<M.Paragraph>().Count();
+                var bodyPath = insertAfter != null ? parentPath.Substring(0, parentPath.LastIndexOf('/')) : parentPath;
+                resultPath = $"{bodyPath}/oMathPara[{mathParaCount}]";
             }
             else
             {
@@ -371,9 +416,19 @@ public partial class WordHandler
             }
             else if (shdParts.Length >= 2)
             {
-                WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
-                shd.Fill = SanitizeHex(shdParts[1]);
-                if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                var addRunPatternPart = shdParts[0].TrimStart('#');
+                if (addRunPatternPart.Length >= 6 && addRunPatternPart.All(char.IsAsciiHexDigit))
+                {
+                    Console.Error.WriteLine($"Warning: '{shdParts[0]}' looks like a color in the pattern position. Auto-swapping to: clear;{shdParts[0]}");
+                    shd.Val = ShadingPatternValues.Clear;
+                    shd.Fill = SanitizeHex(shdParts[0]);
+                }
+                else
+                {
+                    WarnIfShadingOrderWrong(shdParts[0]); shd.Val = new ShadingPatternValues(shdParts[0]);
+                    shd.Fill = SanitizeHex(shdParts[1]);
+                    if (shdParts.Length >= 3) shd.Color = SanitizeHex(shdParts[2]);
+                }
             }
             newRProps.Shading = shd;
         }
@@ -423,6 +478,9 @@ public partial class WordHandler
                 targetPara.AppendChild(segmentedRun);
             resultPath = $"{parentPath}/r[{runCount + 1}]";
         }
+
+        // Refresh textId since paragraph content changed
+        targetPara.TextId = GenerateParaId();
 
         return resultPath;
     }

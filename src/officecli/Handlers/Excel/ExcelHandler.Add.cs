@@ -16,8 +16,9 @@ namespace OfficeCli.Handlers;
 
 public partial class ExcelHandler
 {
-    public string Add(string parentPath, string type, int? index, Dictionary<string, string> properties)
+    public string Add(string parentPath, string type, InsertPosition? position, Dictionary<string, string> properties)
     {
+        var index = position?.Index;
         // Normalize to case-insensitive lookup so camelCase keys (e.g. minColor) match lowercase lookups
         if (properties != null && properties.Comparer != StringComparer.OrdinalIgnoreCase)
             properties = new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
@@ -34,6 +35,15 @@ public partial class ExcelHandler
                     ?? GetWorkbook().AppendChild(new Sheets());
 
                 var name = properties.GetValueOrDefault("name", $"Sheet{sheets.Elements<Sheet>().Count() + 1}");
+                if (sheets.Elements<Sheet>().Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (_initialSheetNames.Contains(name))
+                    {
+                        // Sheet existed when the file was opened — treat as idempotent no-op
+                        return $"/{name}";
+                    }
+                    throw new ArgumentException($"A sheet named '{name}' already exists. Sheet names must be unique.");
+                }
                 var newWorksheetPart = workbookPart.AddNewPart<WorksheetPart>();
                 newWorksheetPart.Worksheet = new Worksheet(new SheetData());
                 newWorksheetPart.Worksheet.Save();
@@ -43,7 +53,19 @@ public partial class ExcelHandler
                     : 1;
                 var relId = workbookPart.GetIdOfPart(newWorksheetPart);
 
-                sheets.AppendChild(new Sheet { Id = relId, SheetId = (uint)sheetId, Name = name });
+                var newSheet = new Sheet { Id = relId, SheetId = (uint)sheetId, Name = name };
+                if (properties.TryGetValue("position", out var posStr)
+                    && int.TryParse(posStr, out var pos)
+                    && pos >= 0
+                    && pos < sheets.Elements<Sheet>().Count())
+                {
+                    var refSheet = sheets.Elements<Sheet>().ElementAt(pos);
+                    sheets.InsertBefore(newSheet, refSheet);
+                }
+                else
+                {
+                    sheets.AppendChild(newSheet);
+                }
                 GetWorkbook().Save();
                 return $"/{name}";
 
@@ -121,8 +143,13 @@ public partial class ExcelHandler
 
                 if (properties.TryGetValue("value", out var value))
                 {
-                    cell.CellValue = new CellValue(value);
-                    if (!double.TryParse(value, out _))
+                    // R2-2: strip XML-illegal chars (e.g. U+0000) from the cell
+                    // value before it gets serialized to sheet1.xml. Without
+                    // this, a NUL byte from upstream data would crash every
+                    // downstream save (including the pivot cache write).
+                    var safeValue = OfficeCli.Core.PivotTableHelper.SanitizeXmlText(value);
+                    cell.CellValue = new CellValue(safeValue);
+                    if (!double.TryParse(safeValue, out _))
                         cell.DataType = new EnumValue<CellValues>(CellValues.String);
                 }
                 if (properties.TryGetValue("formula", out var formula))
@@ -236,7 +263,13 @@ public partial class ExcelHandler
                             "string" or "str" => new EnumValue<CellValues>(CellValues.String),
                             "number" or "num" => null,
                             "boolean" or "bool" => new EnumValue<CellValues>(CellValues.Boolean),
-                            _ => throw new ArgumentException($"Invalid cell 'type' value '{cellType}'. Valid types: string, number, boolean, richtext.")
+                            // CONSISTENCY(cell-type-parity): Bug #4 — Add must accept
+                            // the same type tokens as Set (ExcelHandler.Set.cs line 1105).
+                            // Dates are stored as numeric OADate, so DataType stays null;
+                            // the date-shaped cell value serialization and default
+                            // numberformat are applied right after this switch.
+                            "date" => null,
+                            _ => throw new ArgumentException($"Invalid cell 'type' value '{cellType}'. Valid types: string, number, boolean, date, richtext.")
                         };
                         // Convert boolean string values to OOXML-compliant 1/0
                         if (cellType.Equals("boolean", StringComparison.OrdinalIgnoreCase) || cellType.Equals("bool", StringComparison.OrdinalIgnoreCase))
@@ -246,6 +279,31 @@ public partial class ExcelHandler
                                 cell.CellValue = new CellValue("1");
                             else if (boolText == "false" || boolText == "no" || boolText == "0")
                                 cell.CellValue = new CellValue("0");
+                        }
+                        // CONSISTENCY(cell-type-parity): mirror Set's value auto-detect
+                        // path (ExcelHandler.Set.cs lines 1025-1033) — parse the cell
+                        // value as an ISO date and write it back as an OADate double so
+                        // Excel renders it as a real date instead of a literal string.
+                        if (cellType.Equals("date", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var dateText = cell.CellValue?.Text?.Trim();
+                            if (!string.IsNullOrEmpty(dateText)
+                                && DateTime.TryParseExact(dateText,
+                                    new[] { "yyyy-MM-dd", "yyyy/MM/dd", "yyyy-MM-dd HH:mm:ss" },
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    System.Globalization.DateTimeStyles.None, out var dt))
+                            {
+                                cell.CellValue = new CellValue(
+                                    dt.ToOADate().ToString(System.Globalization.CultureInfo.InvariantCulture));
+                            }
+                            // Apply a default date number format unless the caller
+                            // already supplied one — matches Set's type=date guard.
+                            if (!properties.ContainsKey("numberformat")
+                                && !properties.ContainsKey("numfmt")
+                                && !properties.ContainsKey("format"))
+                            {
+                                properties["numberformat"] = "yyyy-mm-dd";
+                            }
                         }
                     }
                 }
@@ -556,16 +614,16 @@ public partial class ExcelHandler
                 var cfType = properties.GetValueOrDefault("type", "databar").ToLowerInvariant();
                 return cfType switch
                 {
-                    "iconset" => Add(parentPath, "iconset", index, properties),
-                    "colorscale" => Add(parentPath, "colorscale", index, properties),
-                    "formula" => Add(parentPath, "formulacf", index, properties),
-                    "topn" or "top10" => Add(parentPath, "topn", index, properties),
-                    "aboveaverage" => Add(parentPath, "aboveaverage", index, properties),
-                    "uniquevalues" => Add(parentPath, "uniquevalues", index, properties),
-                    "duplicatevalues" => Add(parentPath, "duplicatevalues", index, properties),
-                    "containstext" => Add(parentPath, "containstext", index, properties),
-                    "dateoccurring" or "timeperiod" => Add(parentPath, "dateoccurring", index, properties),
-                    _ => Add(parentPath, "conditionalformatting", index, properties)
+                    "iconset" => Add(parentPath, "iconset", position, properties),
+                    "colorscale" => Add(parentPath, "colorscale", position, properties),
+                    "formula" => Add(parentPath, "formulacf", position, properties),
+                    "topn" or "top10" => Add(parentPath, "topn", position, properties),
+                    "aboveaverage" => Add(parentPath, "aboveaverage", position, properties),
+                    "uniquevalues" => Add(parentPath, "uniquevalues", position, properties),
+                    "duplicatevalues" => Add(parentPath, "duplicatevalues", position, properties),
+                    "containstext" => Add(parentPath, "containstext", position, properties),
+                    "dateoccurring" or "timeperiod" => Add(parentPath, "dateoccurring", position, properties),
+                    _ => Add(parentPath, "conditionalformatting", position, properties)
                 };
             }
 
@@ -576,15 +634,15 @@ public partial class ExcelHandler
                 if (properties.TryGetValue("type", out var cfTypeVal))
                 {
                     var cfTypeLower = cfTypeVal.ToLowerInvariant();
-                    if (cfTypeLower is "iconset") return Add(parentPath, "iconset", index, properties);
-                    if (cfTypeLower is "colorscale") return Add(parentPath, "colorscale", index, properties);
-                    if (cfTypeLower is "formula") return Add(parentPath, "formulacf", index, properties);
-                    if (cfTypeLower is "topn" or "top10") return Add(parentPath, "topn", index, properties);
-                    if (cfTypeLower is "aboveaverage") return Add(parentPath, "aboveaverage", index, properties);
-                    if (cfTypeLower is "uniquevalues") return Add(parentPath, "uniquevalues", index, properties);
-                    if (cfTypeLower is "duplicatevalues") return Add(parentPath, "duplicatevalues", index, properties);
-                    if (cfTypeLower is "containstext") return Add(parentPath, "containstext", index, properties);
-                    if (cfTypeLower is "dateoccurring" or "timeperiod") return Add(parentPath, "dateoccurring", index, properties);
+                    if (cfTypeLower is "iconset") return Add(parentPath, "iconset", position, properties);
+                    if (cfTypeLower is "colorscale") return Add(parentPath, "colorscale", position, properties);
+                    if (cfTypeLower is "formula") return Add(parentPath, "formulacf", position, properties);
+                    if (cfTypeLower is "topn" or "top10") return Add(parentPath, "topn", position, properties);
+                    if (cfTypeLower is "aboveaverage") return Add(parentPath, "aboveaverage", position, properties);
+                    if (cfTypeLower is "uniquevalues") return Add(parentPath, "uniquevalues", position, properties);
+                    if (cfTypeLower is "duplicatevalues") return Add(parentPath, "duplicatevalues", position, properties);
+                    if (cfTypeLower is "containstext") return Add(parentPath, "containstext", position, properties);
+                    if (cfTypeLower is "dateoccurring" or "timeperiod") return Add(parentPath, "dateoccurring", position, properties);
                 }
                 var cfSegments = parentPath.TrimStart('/').Split('/', 2);
                 var cfSheetName = cfSegments[0];
@@ -974,14 +1032,14 @@ public partial class ExcelHandler
                     if (properties.TryGetValue("shadow", out var shpShadow) && !shpShadow.Equals("none", StringComparison.OrdinalIgnoreCase))
                     {
                         var normalizedShadow = shpShadow.Replace(':', '-');
-                        if (IsTruthy(normalizedShadow)) normalizedShadow = "000000";
+                        if (IsValidBooleanString(normalizedShadow) && IsTruthy(normalizedShadow)) normalizedShadow = "000000";
                         shpEffectList ??= new Drawing.EffectList();
                         shpEffectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildOuterShadow(normalizedShadow, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
                     }
                     if (properties.TryGetValue("glow", out var shpGlow) && !shpGlow.Equals("none", StringComparison.OrdinalIgnoreCase))
                     {
                         var normalizedGlow = shpGlow.Replace(':', '-');
-                        if (IsTruthy(normalizedGlow)) normalizedGlow = "4472C4";
+                        if (IsValidBooleanString(normalizedGlow) && IsTruthy(normalizedGlow)) normalizedGlow = "4472C4";
                         shpEffectList ??= new Drawing.EffectList();
                         shpEffectList.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildGlow(normalizedGlow, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
                     }
@@ -1037,14 +1095,14 @@ public partial class ExcelHandler
                         if (properties.TryGetValue("shadow", out var ts) && !ts.Equals("none", StringComparison.OrdinalIgnoreCase))
                         {
                             var normalizedTs = ts.Replace(':', '-');
-                            if (IsTruthy(normalizedTs)) normalizedTs = "000000";
+                            if (IsValidBooleanString(normalizedTs) && IsTruthy(normalizedTs)) normalizedTs = "000000";
                             txtEffects ??= new Drawing.EffectList();
                             txtEffects.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildOuterShadow(normalizedTs, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
                         }
                         if (properties.TryGetValue("glow", out var tg) && !tg.Equals("none", StringComparison.OrdinalIgnoreCase))
                         {
                             var normalizedTg = tg.Replace(':', '-');
-                            if (IsTruthy(normalizedTg)) normalizedTg = "4472C4";
+                            if (IsValidBooleanString(normalizedTg) && IsTruthy(normalizedTg)) normalizedTg = "4472C4";
                             txtEffects ??= new Drawing.EffectList();
                             txtEffects.AppendChild(OfficeCli.Core.DrawingEffectsHelper.BuildGlow(normalizedTg, OfficeCli.Core.DrawingEffectsHelper.BuildRgbColor));
                         }
@@ -1469,13 +1527,30 @@ public partial class ExcelHandler
                 if (string.IsNullOrEmpty(sourceSpec))
                     throw new ArgumentException("pivottable requires 'source' property (e.g. source=Sheet1!A1:D100)");
 
+                // R8-7: incidental whitespace around the source spec or its
+                // components (" Sheet1 ! A1:D10 ") is a common paste-from-docs
+                // artefact. Trim the whole string and both sides of the '!'
+                // split so the downstream sheet/range lookup sees clean values.
+                sourceSpec = sourceSpec.Trim();
+
+                // R8-3: external workbook refs such as [other.xlsx]Sheet1!A1:D10
+                // used to fall through to FindWorksheet and surface as the
+                // misleading "Source sheet not found: [other.xlsx]Sheet1".
+                // Detect the '[' prefix up front and throw a clear error so
+                // users know the feature is not supported rather than blaming
+                // a missing sheet.
+                if (sourceSpec.StartsWith("["))
+                    throw new ArgumentException(
+                        "External workbook references are not supported in pivot source. "
+                        + "Use a local sheet name (e.g. Sheet1!A1:D10)");
+
                 string sourceSheetName;
                 string sourceRef;
                 if (sourceSpec.Contains('!'))
                 {
                     var srcParts = sourceSpec.Split('!', 2);
-                    sourceSheetName = srcParts[0].Trim('\'', '"');
-                    sourceRef = srcParts[1];
+                    sourceSheetName = srcParts[0].Trim().Trim('\'', '"').Trim();
+                    sourceRef = srcParts[1].Trim();
                 }
                 else
                 {
@@ -1486,22 +1561,58 @@ public partial class ExcelHandler
                 var sourceWorksheet = FindWorksheet(sourceSheetName)
                     ?? throw new ArgumentException($"Source sheet not found: {sourceSheetName}");
 
-                var position = properties.GetValueOrDefault("position", "")
-                    ?? properties.GetValueOrDefault("pos", "");
-                if (string.IsNullOrEmpty(position))
+                var ptPosition = (properties.GetValueOrDefault("position", "")
+                    ?? properties.GetValueOrDefault("pos", ""))
+                    ?.Replace("$", ""); // CONSISTENCY(dollar-strip): parity with source ref handling
+                if (string.IsNullOrEmpty(ptPosition))
                 {
                     // Auto-position: place after the source data range
                     var rangeEnd = sourceRef.Split(':').Last();
                     var colEndMatch = System.Text.RegularExpressions.Regex.Match(rangeEnd, @"([A-Za-z]+)");
                     var nextCol = colEndMatch.Success ? IndexToColumnName(ColumnNameToIndex(colEndMatch.Value.ToUpperInvariant()) + 2) : "H";
-                    position = $"{nextCol}1";
+                    ptPosition = $"{nextCol}1";
+                }
+
+                // R26-1: validate that the pivot output fits within sheet dimensions
+                // before writing any cache/pivot parts. A position near the sheet edge
+                // can produce an end-location beyond XFD1048576, which causes a
+                // partial-write: cache parts are already saved when the render stage
+                // discovers the overflow and throws, leaving a corrupt zip.
+                {
+                    const int ExcelMaxCol = 16384; // XFD
+                    const int ExcelMaxRow = 1048576;
+                    var srcRefParts = sourceRef.Replace("$", "").Split(':');
+                    if (srcRefParts.Length == 2)
+                    {
+                        var (srcStartCol, srcStartRow) = ParseCellReference(srcRefParts[0].Trim().ToUpperInvariant());
+                        var (srcEndCol, srcEndRow)     = ParseCellReference(srcRefParts[1].Trim().ToUpperInvariant());
+                        int nSourceCols = ColumnNameToIndex(srcEndCol) - ColumnNameToIndex(srcStartCol) + 1;
+                        int nDataRows   = srcEndRow - srcStartRow; // header excluded
+                        var (anchorColStr, anchorRow) = ParseCellReference(ptPosition.ToUpperInvariant());
+                        int anchorColIdx = ColumnNameToIndex(anchorColStr);
+                        // Conservative lower-bound: pivot needs at least nSourceCols columns
+                        // (row-label cols + value cols + grand-total col) and at least
+                        // nDataRows + 2 rows (header + data rows + grand-total row).
+                        int minEndColIdx = anchorColIdx + nSourceCols - 1;
+                        int minEndRow    = anchorRow + nDataRows + 1;
+                        if (minEndColIdx > ExcelMaxCol || minEndRow > ExcelMaxRow)
+                        {
+                            throw new ArgumentException(
+                                $"pivot at {ptPosition} does not fit: computed end col={minEndColIdx} row={minEndRow} exceeds sheet dimensions (max XFD1048576)");
+                        }
+                    }
                 }
 
                 var ptIdx = PivotTableHelper.CreatePivotTable(
                     _doc.WorkbookPart!, ptWorksheet, sourceWorksheet,
-                    sourceSheetName, sourceRef, position, properties);
+                    sourceSheetName, sourceRef, ptPosition, properties);
 
                 return $"/{ptSheetName}/pivottable[{ptIdx}]";
+            }
+
+            case "slicer":
+            {
+                return AddSlicer(parentPath, properties);
             }
 
             case "col" or "column":
@@ -1577,8 +1688,8 @@ public partial class ExcelHandler
             {
                 // Route to rowbreak or colbreak based on properties
                 if (properties.ContainsKey("col") || properties.ContainsKey("column"))
-                    return Add(parentPath, "colbreak", index, properties);
-                return Add(parentPath, "rowbreak", index, properties);
+                    return Add(parentPath, "colbreak", position, properties);
+                return Add(parentPath, "rowbreak", position, properties);
             }
 
             case "rowbreak":
@@ -2070,8 +2181,9 @@ public partial class ExcelHandler
     }
 
 
-    public string Move(string sourcePath, string? targetParentPath, int? index)
+    public string Move(string sourcePath, string? targetParentPath, InsertPosition? position)
     {
+        var index = position?.Index;
         var segments = sourcePath.TrimStart('/').Split('/', 2);
         var sheetName = segments[0];
         var worksheet = FindWorksheet(sheetName)
@@ -2079,7 +2191,9 @@ public partial class ExcelHandler
 
         if (segments.Length < 2)
         {
-            // Move (reorder) the sheet within the workbook
+            // Move (reorder) the sheet within the workbook.
+            // CONSISTENCY(move-anchor): mirrors PowerPointHandler.Move slide reorder —
+            // supports --index / --after /Sheet2 / --before /Sheet3.
             var workbook = GetWorkbook();
             var sheets = workbook.GetFirstChild<Sheets>()
                 ?? throw new InvalidOperationException("Workbook has no sheets element");
@@ -2087,13 +2201,49 @@ public partial class ExcelHandler
                 string.Equals(s.Name?.Value, sheetName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"Sheet not found: {sheetName}");
 
-            var targetIndex = index ?? throw new ArgumentException("--index is required when moving a sheet");
+            // Resolve after/before anchor BEFORE removing sheetEl.
+            static string ExtractAnchorSheetName(string raw) =>
+                (raw.StartsWith("/") ? raw[1..] : raw).Split('/', 2)[0];
+
+            Sheet? afterAnchor = null, beforeAnchor = null;
+            if (position?.After != null)
+            {
+                var anchorName = ExtractAnchorSheetName(position.After);
+                afterAnchor = sheets.Elements<Sheet>().FirstOrDefault(s =>
+                    string.Equals(s.Name?.Value, anchorName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"After anchor not found: {position.After}");
+            }
+            else if (position?.Before != null)
+            {
+                var anchorName = ExtractAnchorSheetName(position.Before);
+                beforeAnchor = sheets.Elements<Sheet>().FirstOrDefault(s =>
+                    string.Equals(s.Name?.Value, anchorName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"Before anchor not found: {position.Before}");
+            }
+            else if (index == null)
+            {
+                throw new ArgumentException("One of --index, --after, or --before is required when moving a sheet");
+            }
+
             sheetEl.Remove();
-            var sheetList = sheets.Elements<Sheet>().ToList();
-            if (targetIndex >= 0 && targetIndex < sheetList.Count)
-                sheetList[targetIndex].InsertBeforeSelf(sheetEl);
+
+            if (afterAnchor != null)
+            {
+                afterAnchor.InsertAfterSelf(sheetEl);
+            }
+            else if (beforeAnchor != null)
+            {
+                beforeAnchor.InsertBeforeSelf(sheetEl);
+            }
             else
-                sheets.AppendChild(sheetEl);
+            {
+                var targetIndex = index!.Value;
+                var sheetList = sheets.Elements<Sheet>().ToList();
+                if (targetIndex >= 0 && targetIndex < sheetList.Count)
+                    sheetList[targetIndex].InsertBeforeSelf(sheetEl);
+                else
+                    sheets.AppendChild(sheetEl);
+            }
             workbook.Save();
             return $"/{sheetName}";
         }
@@ -2212,8 +2362,9 @@ public partial class ExcelHandler
         return ($"/{sheetName}/row[{rowIndex2}]", $"/{sheetName}/row[{rowIndex1}]");
     }
 
-    public string CopyFrom(string sourcePath, string targetParentPath, int? index)
+    public string CopyFrom(string sourcePath, string targetParentPath, InsertPosition? position)
     {
+        var index = position?.Index;
         var segments = sourcePath.TrimStart('/').Split('/', 2);
         var sheetName = segments[0];
         var worksheet = FindWorksheet(sheetName)

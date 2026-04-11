@@ -10,7 +10,7 @@ namespace OfficeCli.Core;
 /// 1 inch = 914400 EMU, 1 cm = 360000 EMU, 1 pt = 12700 EMU, 1 px = 9525 EMU.
 /// Accepts: raw EMU integer, or suffixed with cm/in/pt/px.
 /// </summary>
-public static class EmuConverter
+internal static class EmuConverter
 {
     /// <summary>
     /// Parse a dimension/position string into EMU (long).
@@ -97,6 +97,16 @@ public static class EmuConverter
     {
         var cm = emu / 360000.0;
         return $"{cm:0.##}cm";
+    }
+
+    /// <summary>
+    /// Format an EMU value as points (e.g., "2pt"). Used for line widths and other
+    /// thin values where points are more natural than centimeters.
+    /// </summary>
+    public static string FormatLineWidth(long emu)
+    {
+        var pt = emu / 12700.0;
+        return $"{pt:0.##}pt";
     }
 
     /// <summary>

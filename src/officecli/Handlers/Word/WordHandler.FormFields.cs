@@ -253,7 +253,7 @@ public partial class WordHandler
             para = new Paragraph();
             bodyEl.AppendChild(para);
             var paraIdx = bodyEl.Elements<Paragraph>().ToList().IndexOf(para) + 1;
-            parentPath = $"/body/p[{paraIdx}]";
+            parentPath = $"/body/{BuildParaPathSegment(para, paraIdx)}";
         }
         else
         {

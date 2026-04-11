@@ -505,8 +505,7 @@ public partial class PowerPointHandler
             bldLst.AppendChild(new BuildParagraph
             {
                 ShapeId = shapeIdStr,
-                GroupId = new UInt32Value((uint)grpId),
-                Build = ParagraphBuildValues.AllAtOnce
+                GroupId = new UInt32Value((uint)grpId)
             });
         }
     }
@@ -729,12 +728,20 @@ public partial class PowerPointHandler
             effectChildList.AppendChild(animEffect);
         }
 
+        // For emphasis effects with no inner animation element (spin, grow, wave),
+        // store the duration on the effectCTn itself so it can be read back.
+        var hasInnerDuration = effectChildList.Descendants<AnimateEffect>().Any()
+            || effectChildList.Descendants<AnimateScale>().Any()
+            || effectChildList.Descendants<AnimateRotation>().Any()
+            || effectChildList.Descendants<Animate>().Any();
+
         var effectCTn = new CommonTimeNode
         {
             Id = effectId,
             PresetId = presetId,
             PresetClass = presetClass,
             PresetSubtype = presetSubtype,
+            Duration = hasInnerDuration ? null : durationMs.ToString(),
             Fill = TimeNodeFillValues.Hold,
             GroupId = (uint)grpId,
             NodeType = nodeType,
@@ -1145,16 +1152,17 @@ public partial class PowerPointHandler
 
             var rawPresetClass = effectCTn.GetAttributes().FirstOrDefault(a => a.LocalName == "presetClass").Value ?? "";
             var cls = rawPresetClass == "exit" ? "exit"
-                    : rawPresetClass == "emphasis" ? "emphasis"
+                    : rawPresetClass is "emphasis" or "emph" ? "emphasis"
                     : "entrance";
 
-            // Duration: check animEffect, animScale, animRot, or anim children
+            // Duration: check animEffect, animScale, animRot, or anim children, then effectCTn itself
             var dur = 500;
             var animEffect = effectCTn.Descendants<AnimateEffect>().FirstOrDefault();
             if (int.TryParse(animEffect?.CommonBehavior?.CommonTimeNode?.Duration, out var d)) dur = d;
             else if (int.TryParse(effectCTn.Descendants<AnimateScale>().FirstOrDefault()?.CommonBehavior?.CommonTimeNode?.Duration, out var d2)) dur = d2;
             else if (int.TryParse(effectCTn.Descendants<AnimateRotation>().FirstOrDefault()?.CommonBehavior?.CommonTimeNode?.Duration, out var d3)) dur = d3;
             else if (int.TryParse(effectCTn.Descendants<Animate>().FirstOrDefault()?.CommonBehavior?.CommonTimeNode?.Duration, out var d4)) dur = d4;
+            else if (int.TryParse(effectCTn.Duration, out var d5)) dur = d5;
 
             // Effect name from filter string or presetId
             var filter = animEffect?.Filter?.Value ?? "";
@@ -1179,13 +1187,17 @@ public partial class PowerPointHandler
                 var f when f.StartsWith("wipe")             => "wipe",
                 _ => presetId switch
                 {
+                    1  when cls == "emphasis" => "bold",
                     1  => "appear",
                     2  => "fly",
                     10 => "fade",
                     12 => "float",
+                    14 when cls == "emphasis" => "wave",
                     17 => "swivel",
                     21 => "zoom",
                     24 => "bounce",
+                    26 when cls == "emphasis" => "grow",
+                    27 when cls == "emphasis" => "spin",
                     _  => "unknown"
                 }
             };
@@ -1206,6 +1218,27 @@ public partial class PowerPointHandler
             node.Format[key] = dirStr != null
                 ? $"{effectName}-{cls}-{dirStr}-{dur}"
                 : $"{effectName}-{cls}-{dur}";
+        }
+
+        // Read motion path animations (presetClass="motion" — skipped above, handled separately)
+        foreach (var shapeTarget in allShapeTargets)
+        {
+            OpenXmlElement? cur = shapeTarget;
+            while (cur != null)
+            {
+                if (cur is CommonTimeNode ctn)
+                {
+                    var rawCls = ctn.GetAttributes().FirstOrDefault(a => a.LocalName == "presetClass").Value ?? "";
+                    if (rawCls == "motion")
+                    {
+                        var animMotion = ctn.Descendants<AnimateMotion>().FirstOrDefault();
+                        if (animMotion?.Path?.Value != null)
+                            node.Format["motionPath"] = animMotion.Path.Value;
+                        break;
+                    }
+                }
+                cur = cur.Parent;
+            }
         }
     }
 
@@ -1394,11 +1427,12 @@ public partial class PowerPointHandler
     /// </summary>
     private static string? ReadTransitionDirection(OpenXmlElement transElem)
     {
-        // Slide direction transitions: always include direction (users commonly specify these)
+        // Slide direction transitions: include direction only when non-default
+        // WipeTransition default is Left; PushTransition default is Left
         if (transElem is WipeTransition wipe && wipe.Direction?.HasValue == true)
-            return MapSlideDirection(wipe.Direction.Value);
+            return wipe.Direction.Value == TransitionSlideDirectionValues.Left ? null : MapSlideDirection(wipe.Direction.Value);
         if (transElem is PushTransition push && push.Direction?.HasValue == true)
-            return MapSlideDirection(push.Direction.Value);
+            return push.Direction.Value == TransitionSlideDirectionValues.Left ? null : MapSlideDirection(push.Direction.Value);
         if (transElem is CoverTransition cover && cover.Direction != null)
             return ExpandDirectionAbbreviation(cover.Direction.Value?.ToLowerInvariant());
         if (transElem is PullTransition pull && pull.Direction != null)

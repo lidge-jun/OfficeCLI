@@ -260,10 +260,13 @@ public partial class PowerPointHandler
         }
         else
         {
-            // For linear: last segment is angle if it's a short integer
+            // For linear: last segment is angle if it's a short integer (with optional "deg" suffix)
+            var lastPart = colorParts.Last();
+            var angleCandidate = lastPart.EndsWith("deg", StringComparison.OrdinalIgnoreCase)
+                ? lastPart[..^3] : lastPart;
             if (colorParts.Count >= 2 &&
-                int.TryParse(colorParts.Last(), out var angleDeg) &&
-                colorParts.Last().Length <= 3)
+                int.TryParse(angleCandidate, out var angleDeg) &&
+                angleCandidate.Length <= 3)
             {
                 angle = angleDeg * 60000;
                 colorParts.RemoveAt(colorParts.Count - 1);

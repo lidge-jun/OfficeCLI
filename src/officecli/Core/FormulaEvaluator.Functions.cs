@@ -20,11 +20,12 @@ internal partial class FormulaEvaluator
         return name switch
         {
             // ===== Math & Aggregation =====
-            "SUM" => FR(nums().Sum()),
+            "SUM" => CheckRangeErrors(args) ?? FR(nums().Sum()),
             "SUMPRODUCT" => EvalSumProduct(args),
             "AVERAGE" => nums() is { Length: > 0 } a ? FR(a.Average()) : null,
             "COUNT" => FR(nums().Length),
-            "COUNTA" => FR(args.Sum(a => a is FormulaResult r && !r.IsError && r.AsString() != "" ? 1 : a is double[] arr ? arr.Length : 0)),
+            "COUNTA" => FR(args.Sum(a => a is RangeData rd ? rd.ToFlatResults().Count(c => c != null && !c.IsError && c.AsString() != "")
+                : a is FormulaResult r && !r.IsError && r.AsString() != "" ? 1 : a is double[] arr ? arr.Length : 0)),
             "COUNTBLANK" => FR(0),
             "MIN" => nums() is { Length: > 0 } mn ? FR(mn.Min()) : FR(0),
             "MAX" => nums() is { Length: > 0 } mx ? FR(mx.Max()) : FR(0),
@@ -128,7 +129,10 @@ internal partial class FormulaEvaluator
             "ADDRESS" => EvalAddress(args),
             "VLOOKUP" => EvalVlookup(args),
             "HLOOKUP" => EvalHlookup(args),
-            "LOOKUP" or "OFFSET" or "INDIRECT" => null, // unsupported
+            "LOOKUP" => EvalLookup(args),
+            "XLOOKUP" => EvalXlookup(args),
+            "HYPERLINK" => FR_S(args.Count >= 2 && args[1] is FormulaResult fn ? fn.AsString() : str(0)),
+            "OFFSET" or "INDIRECT" => null, // unsupported (requires first-class reference values)
 
             // ===== Date & Time =====
             "TODAY" => FR(DateTime.Today.ToOADate()), "NOW" => FR(DateTime.Now.ToOADate()),
@@ -152,7 +156,9 @@ internal partial class FormulaEvaluator
             "ISNUMBER" => FR_B(arg(0)?.IsNumeric == true),
             "ISTEXT" => FR_B(arg(0)?.IsString == true),
             "ISBLANK" => FR_B(arg(0) == null || (arg(0)?.AsString() == "" && !arg(0)!.IsNumeric)),
-            "ISERROR" or "ISERR" => FR_B(arg(0)?.IsError == true),
+            "ISERROR" or "ISERR" => args.Count > 0 && args[0] is RangeData rd_err
+                ? FormulaResult.Array(rd_err.ToFlatResults().Select(r => r?.IsError == true ? 1.0 : 0.0).ToArray())
+                : FR_B(arg(0)?.IsError == true),
             "ISNA" => FR_B(arg(0)?.ErrorValue == "#N/A"),
             "ISLOGICAL" => FR_B(arg(0)?.IsBool == true),
             "ISEVEN" => FR_B((int)num(0) % 2 == 0), "ISODD" => FR_B((int)num(0) % 2 != 0),
@@ -400,6 +406,149 @@ internal partial class FormulaEvaluator
         return foundCol >= 0 ? (table.Cells[rowIndex - 1, foundCol] ?? FormulaResult.Number(0)) : FormulaResult.Error("#N/A");
     }
 
+    // LOOKUP(lookup_value, lookup_vector, [result_vector])
+    // LOOKUP(lookup_value, array)
+    // Legacy approximate-match lookup. Assumes lookup_vector is sorted ascending.
+    // Array form: searches first row if wider than tall (HLOOKUP-like, returns last row);
+    // otherwise searches first column (VLOOKUP-like, returns last column).
+    private FormulaResult? EvalLookup(List<object> args)
+    {
+        if (args.Count < 2) return null;
+        var lookupVal = args[0] is FormulaResult r ? r : null;
+        if (lookupVal == null) return null;
+        var lv = args[1] is RangeData rd ? rd : null;
+        if (lv == null) return FormulaResult.Error("#N/A");
+
+        // Vector form (1D): optionally with a parallel result_vector
+        if (lv.Rows == 1 || lv.Cols == 1)
+        {
+            int found = ApproximateMatchVector(lv, lookupVal);
+            if (found < 0) return FormulaResult.Error("#N/A");
+
+            var resultVec = args.Count >= 3 && args[2] is RangeData rv ? rv : lv;
+            if (resultVec.Rows == 1 && found < resultVec.Cols)
+                return resultVec.Cells[0, found] ?? FormulaResult.Number(0);
+            if (resultVec.Cols == 1 && found < resultVec.Rows)
+                return resultVec.Cells[found, 0] ?? FormulaResult.Number(0);
+            return FormulaResult.Error("#N/A");
+        }
+
+        // Array form: 2D — search first row or first column depending on orientation
+        if (lv.Cols > lv.Rows)
+        {
+            int foundCol = -1;
+            for (int c = 0; c < lv.Cols; c++)
+            {
+                var cell = lv.Cells[0, c];
+                if (cell == null) continue;
+                if (CompareValues(cell, lookupVal) <= 0) foundCol = c;
+                else break;
+            }
+            return foundCol >= 0
+                ? (lv.Cells[lv.Rows - 1, foundCol] ?? FormulaResult.Number(0))
+                : FormulaResult.Error("#N/A");
+        }
+        else
+        {
+            int foundRow = -1;
+            for (int rr = 0; rr < lv.Rows; rr++)
+            {
+                var cell = lv.Cells[rr, 0];
+                if (cell == null) continue;
+                if (CompareValues(cell, lookupVal) <= 0) foundRow = rr;
+                else break;
+            }
+            return foundRow >= 0
+                ? (lv.Cells[foundRow, lv.Cols - 1] ?? FormulaResult.Number(0))
+                : FormulaResult.Error("#N/A");
+        }
+    }
+
+    private int ApproximateMatchVector(RangeData rd, FormulaResult lookupVal)
+    {
+        int found = -1;
+        if (rd.Rows == 1)
+        {
+            for (int c = 0; c < rd.Cols; c++)
+            {
+                var cell = rd.Cells[0, c];
+                if (cell == null) continue;
+                if (CompareValues(cell, lookupVal) <= 0) found = c;
+                else break;
+            }
+        }
+        else
+        {
+            for (int rr = 0; rr < rd.Rows; rr++)
+            {
+                var cell = rd.Cells[rr, 0];
+                if (cell == null) continue;
+                if (CompareValues(cell, lookupVal) <= 0) found = rr;
+                else break;
+            }
+        }
+        return found;
+    }
+
+    // XLOOKUP(lookup_value, lookup_array, return_array, [if_not_found], [match_mode], [search_mode])
+    // match_mode: 0=exact (default), -1=exact or next smaller, 1=exact or next larger, 2=wildcard (NYI — treated as exact)
+    // search_mode: 1=first to last (default), -1=last to first. Binary modes (2/-2) treated as linear.
+    private FormulaResult? EvalXlookup(List<object> args)
+    {
+        if (args.Count < 3) return null;
+        var lookupVal = args[0] is FormulaResult r ? r : null;
+        if (lookupVal == null) return null;
+        var lookupArr = args[1] is RangeData la ? la : null;
+        var returnArr = args[2] is RangeData ra ? ra : null;
+        if (lookupArr == null || returnArr == null) return FormulaResult.Error("#N/A");
+
+        var ifNotFound = args.Count >= 4 && args[3] is FormulaResult inf ? inf : null;
+        var matchMode = args.Count >= 5 && args[4] is FormulaResult mm ? (int)mm.AsNumber() : 0;
+        var searchMode = args.Count >= 6 && args[5] is FormulaResult sm ? (int)sm.AsNumber() : 1;
+
+        bool isRow = lookupArr.Rows == 1;
+        int len = isRow ? lookupArr.Cols : lookupArr.Rows;
+        int step = searchMode == -1 ? -1 : 1;
+        int start = step == 1 ? 0 : len - 1;
+        int end = step == 1 ? len : -1;
+
+        int found = -1;
+        int bestApprox = -1;
+        double bestDelta = matchMode == -1 ? double.MinValue : double.MaxValue;
+
+        for (int i = start; i != end; i += step)
+        {
+            var cell = isRow ? lookupArr.Cells[0, i] : lookupArr.Cells[i, 0];
+            if (cell == null) continue;
+            var cmp = CompareValues(cell, lookupVal);
+            if (cmp == 0) { found = i; break; }
+            if (matchMode == -1 && cmp < 0)
+            {
+                var delta = cell.AsNumber() - lookupVal.AsNumber();
+                if (delta > bestDelta) { bestDelta = delta; bestApprox = i; }
+            }
+            else if (matchMode == 1 && cmp > 0)
+            {
+                var delta = cell.AsNumber() - lookupVal.AsNumber();
+                if (delta < bestDelta) { bestDelta = delta; bestApprox = i; }
+            }
+        }
+
+        if (found < 0) found = bestApprox;
+        if (found < 0) return ifNotFound ?? FormulaResult.Error("#N/A");
+
+        // Pull the value at `found` from return_array (same orientation as lookup_array).
+        if (isRow)
+        {
+            if (found < returnArr.Cols) return returnArr.Cells[0, found] ?? FormulaResult.Number(0);
+        }
+        else
+        {
+            if (found < returnArr.Rows) return returnArr.Cells[found, 0] ?? FormulaResult.Number(0);
+        }
+        return FormulaResult.Error("#N/A");
+    }
+
     private static FormulaResult? EvalAddress(List<object> args)
     {
         if (args.Count < 2) return null;
@@ -489,27 +638,44 @@ internal partial class FormulaEvaluator
     // Helper: extract double[] from RangeData or double[]
     private static double[]? AsDoubles(object? a) => a is RangeData rd ? rd.ToDoubleArray() : a is double[] arr ? arr : null;
 
+    // Helper: extract FormulaResult?[] from RangeData (preserves string values for criteria matching)
+    private static FormulaResult?[]? AsResults(object? a) => a is RangeData rd ? rd.ToFlatResults() : null;
+
+    // Helper: extract numeric value from a FormulaResult (null for non-numeric).
+    // Used by conditional aggregation to keep value-range indices aligned with criteria-range indices
+    // — AsDoubles/ToDoubleArray collapses non-numerics and shifts indices, which breaks SUMIF/AVERAGEIF alignment.
+    private static double? AsNumeric(FormulaResult? v)
+    {
+        if (v?.IsNumeric == true) return v.NumericValue;
+        if (v?.IsBool == true) return v.BoolValue!.Value ? 1 : 0;
+        return null;
+    }
+
     private FormulaResult? EvalSumIf(List<object> args)
     {
         if (args.Count < 2) return null;
-        var range = AsDoubles(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
-        var sumRange = args.Count > 2 ? AsDoubles(args[2]) ?? range : range; if (range == null || sumRange == null) return null;
-        double sum = 0; for (int i = 0; i < range.Length && i < sumRange.Length; i++) if (MatchesCriteria(range[i], criteria)) sum += sumRange[i];
+        var range = AsResults(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
+        var sumRange = args.Count > 2 ? AsResults(args[2]) : range;
+        if (range == null || sumRange == null) return null;
+        double sum = 0;
+        for (int i = 0; i < range.Length && i < sumRange.Length; i++)
+            if (MatchesCriteria(range[i], criteria))
+            { var n = AsNumeric(sumRange[i]); if (n.HasValue) sum += n.Value; }
         return FR(sum);
     }
 
     private FormulaResult? EvalSumIfs(List<object> args)
     {
         if (args.Count < 3) return null;
-        var sumRange = AsDoubles(args[0]); if (sumRange == null) return null;
+        var sumRange = AsResults(args[0]); if (sumRange == null) return null;
         double sum = 0;
         for (int i = 0; i < sumRange.Length; i++)
         {
             var match = true;
             for (int c = 1; c + 1 < args.Count; c += 2)
-            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsResults(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
-            if (match) sum += sumRange[i];
+            if (match) { var n = AsNumeric(sumRange[i]); if (n.HasValue) sum += n.Value; }
         }
         return FR(sum);
     }
@@ -517,20 +683,20 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalCountIf(List<object> args)
     {
         if (args.Count < 2) return null;
-        var range = AsDoubles(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
+        var range = AsResults(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
         return range != null ? FR(range.Count(v => MatchesCriteria(v, criteria))) : null;
     }
 
     private FormulaResult? EvalCountIfs(List<object> args)
     {
         if (args.Count < 2) return null;
-        var first = AsDoubles(args[0]); if (first == null) return null;
+        var first = AsResults(args[0]); if (first == null) return null;
         int count = 0;
         for (int i = 0; i < first.Length; i++)
         {
             var match = true;
             for (int c = 0; c + 1 < args.Count; c += 2)
-            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsResults(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
             if (match) count++;
         }
@@ -540,25 +706,28 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalAverageIf(List<object> args)
     {
         if (args.Count < 2) return null;
-        var range = AsDoubles(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
-        var avgRange = args.Count > 2 ? AsDoubles(args[2]) ?? range : range; if (range == null || avgRange == null) return null;
+        var range = AsResults(args[0]); var criteria = args[1] is FormulaResult c ? c.AsString() : "";
+        var avgRange = args.Count > 2 ? AsResults(args[2]) : range;
+        if (range == null || avgRange == null) return null;
         var vals = new List<double>();
-        for (int i = 0; i < range.Length && i < avgRange.Length; i++) if (MatchesCriteria(range[i], criteria)) vals.Add(avgRange[i]);
+        for (int i = 0; i < range.Length && i < avgRange.Length; i++)
+            if (MatchesCriteria(range[i], criteria))
+            { var n = AsNumeric(avgRange[i]); if (n.HasValue) vals.Add(n.Value); }
         return vals.Count > 0 ? FR(vals.Average()) : FormulaResult.Error("#DIV/0!");
     }
 
     private FormulaResult? EvalAverageIfs(List<object> args)
     {
         if (args.Count < 3) return null;
-        var avgRange = AsDoubles(args[0]); if (avgRange == null) return null;
+        var avgRange = AsResults(args[0]); if (avgRange == null) return null;
         var vals = new List<double>();
         for (int i = 0; i < avgRange.Length; i++)
         {
             var match = true;
             for (int c = 1; c + 1 < args.Count; c += 2)
-            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsResults(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
-            if (match) vals.Add(avgRange[i]);
+            if (match) { var n = AsNumeric(avgRange[i]); if (n.HasValue) vals.Add(n.Value); }
         }
         return vals.Count > 0 ? FR(vals.Average()) : FormulaResult.Error("#DIV/0!");
     }
@@ -566,15 +735,15 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalMaxMinIfs(List<object> args, bool isMax)
     {
         if (args.Count < 3) return null;
-        var valRange = AsDoubles(args[0]); if (valRange == null) return null;
+        var valRange = AsResults(args[0]); if (valRange == null) return null;
         var vals = new List<double>();
         for (int i = 0; i < valRange.Length; i++)
         {
             var match = true;
             for (int c = 1; c + 1 < args.Count; c += 2)
-            { var cr = AsDoubles(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
+            { var cr = AsResults(args[c]); var crit = args[c + 1] is FormulaResult cv ? cv.AsString() : "";
               if (cr == null || i >= cr.Length || !MatchesCriteria(cr[i], crit)) { match = false; break; } }
-            if (match) vals.Add(valRange[i]);
+            if (match) { var n = AsNumeric(valRange[i]); if (n.HasValue) vals.Add(n.Value); }
         }
         return vals.Count > 0 ? FR(isMax ? vals.Max() : vals.Min()) : FR(0);
     }
@@ -582,7 +751,13 @@ internal partial class FormulaEvaluator
     private FormulaResult? EvalSumProduct(List<object> args)
     {
         if (args.Count == 0) return FR(0);
-        var arrays = args.Select(a => a is RangeData rd ? rd.ToDoubleArray() : a is double[] arr ? arr : null).ToList();
+        var arrays = args.Select(a =>
+            a is RangeData rd ? rd.ToDoubleArray() :
+            a is FormulaResult fr && fr.IsArray ? fr.ArrayValue :
+            a is double[] arr ? arr : null).ToList();
+        // Single numeric value: SUMPRODUCT(scalar) = scalar
+        if (arrays.All(a => a == null) && args.Count == 1 && args[0] is FormulaResult single && single.IsNumeric)
+            return single;
         if (arrays.Any(a => a == null)) return null;
         var len = arrays.Min(a => a!.Length); double sum = 0;
         for (int i = 0; i < len; i++) { double p = 1; foreach (var arr in arrays) p *= arr![i]; sum += p; }

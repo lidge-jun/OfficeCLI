@@ -72,8 +72,8 @@ public partial class PowerPointHandler
         if (properties.TryGetValue("x", out var xs) || properties.TryGetValue("left", out xs)) x = ParseEmu(xs);
         if (properties.TryGetValue("y", out var ys) || properties.TryGetValue("top", out ys)) y = ParseEmu(ys);
 
-        var shapeId = (uint)(shapeTree.ChildElements.Count + 2);
-        var shapeName = properties.GetValueOrDefault("name", $"3D Model {shapeId}");
+        var shapeId = GenerateUniqueShapeId(shapeTree);
+        var shapeName = properties.GetValueOrDefault("name", $"3D Model {GetModel3DElements(shapeTree).Count + 1}");
 
         // Namespaces
         var mcNs = "http://schemas.openxmlformats.org/markup-compatibility/2006";
@@ -209,7 +209,7 @@ public partial class PowerPointHandler
 
         acElement.AppendChild(choiceElement);
         acElement.AppendChild(fallbackElement);
-        shapeTree.AppendChild(acElement);
+        InsertAtPosition(shapeTree, acElement, index);
 
         // Ensure am3d namespace is declared on slide root
         var slide = GetSlide(slidePart);

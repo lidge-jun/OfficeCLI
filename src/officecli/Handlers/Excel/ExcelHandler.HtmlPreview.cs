@@ -5,11 +5,77 @@ using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
-
 namespace OfficeCli.Handlers;
 
 public partial class ExcelHandler
 {
+    // Theme color map (lazy-initialized from theme1.xml)
+    private Dictionary<string, string>? _excelThemeColors;
+    // Indexed color palette (default 64 + custom overrides from styles.xml)
+    private string[]? _resolvedIndexedColors;
+
+    private Dictionary<string, string> GetExcelThemeColors()
+    {
+        if (_excelThemeColors != null) return _excelThemeColors;
+        var colorScheme = _doc.WorkbookPart?.ThemePart?.Theme?.ThemeElements?.ColorScheme;
+        _excelThemeColors = Core.ThemeColorResolver.BuildColorMap(colorScheme);
+        return _excelThemeColors;
+    }
+
+    /// <summary>
+    /// Excel theme color index mapping:
+    /// 0=lt1, 1=dk1, 2=lt2, 3=dk2, 4=accent1, 5=accent2, 6=accent3, 7=accent4, 8=accent5, 9=accent6
+    /// </summary>
+    private static readonly string[] ThemeIndexToName =
+        ["lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6"];
+
+    private string? ResolveThemeColor(uint themeIndex, double? tintValue = null)
+    {
+        if (themeIndex >= (uint)ThemeIndexToName.Length) return null;
+        var themeColors = GetExcelThemeColors();
+        if (!themeColors.TryGetValue(ThemeIndexToName[themeIndex], out var hex)) return null;
+
+        if (tintValue.HasValue && Math.Abs(tintValue.Value) > 0.001)
+        {
+            // Excel tint: positive = tint toward white, negative = shade toward black
+            // Convert to OOXML 0-100000 range
+            var t = tintValue.Value;
+            if (t > 0)
+                return Core.ColorMath.ApplyTransforms(hex, tint: (int)((1 - t) * 100000));
+            else
+                return Core.ColorMath.ApplyTransforms(hex, shade: (int)((1 + t) * 100000));
+        }
+
+        return $"#{hex}";
+    }
+
+    private string[] GetResolvedIndexedColors()
+    {
+        if (_resolvedIndexedColors != null) return _resolvedIndexedColors;
+
+        // Start with default palette
+        _resolvedIndexedColors = (string[])DefaultIndexedColors.Clone();
+
+        // Check for custom overrides in styles.xml
+        var stylesheet = _doc.WorkbookPart?.WorkbookStylesPart?.Stylesheet;
+        var colors = stylesheet?.GetFirstChild<Colors>();
+        var indexedColors = colors?.GetFirstChild<IndexedColors>();
+        if (indexedColors != null)
+        {
+            int idx = 0;
+            foreach (var rgbColor in indexedColors.Elements<RgbColor>())
+            {
+                if (idx < _resolvedIndexedColors.Length && rgbColor.Rgb?.Value != null)
+                {
+                    var raw = rgbColor.Rgb.Value;
+                    _resolvedIndexedColors[idx] = FormatColorForCss(raw);
+                }
+                idx++;
+            }
+        }
+        return _resolvedIndexedColors;
+    }
+
     /// <summary>
     /// Generate a self-contained HTML file that previews all sheets as spreadsheet tables.
     /// Supports cell formatting (font, fill, borders, alignment), merged cells,
@@ -21,6 +87,35 @@ public partial class ExcelHandler
         var sheets = GetWorksheets();
         var wbStylesPart = _doc.WorkbookPart?.WorkbookStylesPart;
         var stylesheet = wbStylesPart?.Stylesheet;
+
+        // If any sheet has a pivot table, open an editable in-memory copy so we
+        // can re-materialize cells from the pivot cache. The copy's WorksheetParts
+        // replace the originals for rendering; styles/theme come from _doc (identical).
+        MemoryStream? pivotMs = null;
+        SpreadsheetDocument? pivotDoc = null;
+        List<(string Name, WorksheetPart Part)>? pivotSheets = null;
+        if (sheets.Any(s => s.Part.PivotTableParts.Any()))
+        {
+            pivotMs = new MemoryStream();
+            // Use FileShare.ReadWrite to avoid conflicting with the handler's
+            // open editable handle on the same file. File.OpenRead() uses
+            // FileShare.Read which fails when another handle has write access.
+            using (var fs = new FileStream(_filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                fs.CopyTo(pivotMs);
+            pivotMs.Position = 0;
+            pivotDoc = SpreadsheetDocument.Open(pivotMs, isEditable: true);
+            pivotSheets = GetWorksheets(pivotDoc);
+
+            foreach (var (_, wsPart) in pivotSheets)
+            {
+                if (wsPart.PivotTableParts.Any())
+                    OfficeCli.Core.PivotTableHelper.RefreshPivotCellsForView(wsPart);
+            }
+
+            // Use the copy's stylesheet so new indent styles created by the
+            // pivot refresh are visible to the HTML renderer.
+            stylesheet = pivotDoc.WorkbookPart?.WorkbookStylesPart?.Stylesheet;
+        }
 
         sb.AppendLine("<!DOCTYPE html>");
         sb.AppendLine("<html>");
@@ -42,14 +137,17 @@ public partial class ExcelHandler
         for (int sheetIdx = 0; sheetIdx < sheets.Count; sheetIdx++)
         {
             var (sheetName, worksheetPart) = sheets[sheetIdx];
+            // Use the pivot-refreshed copy's WorksheetPart when available
+            var renderPart = pivotSheets != null && sheetIdx < pivotSheets.Count
+                ? pivotSheets[sheetIdx].Part : worksheetPart;
             var activeClass = sheetIdx == 0 ? " active" : "";
             // Check if sheet is RTL
-            var sheetView = GetSheet(worksheetPart).GetFirstChild<SheetViews>()?.GetFirstChild<SheetView>();
+            var sheetView = GetSheet(renderPart).GetFirstChild<SheetViews>()?.GetFirstChild<SheetView>();
             var isRtl = sheetView?.RightToLeft?.Value == true;
             var dirAttr = isRtl ? " dir=\"rtl\"" : "";
             sb.AppendLine($"<div class=\"sheet-content{activeClass}\" data-sheet=\"{sheetIdx}\"{dirAttr}>");
-            RenderSheetTable(sb, sheetName, worksheetPart, stylesheet);
-            RenderSheetCharts(sb, worksheetPart);
+            var charts = CollectSheetCharts(worksheetPart);
+            RenderSheetTable(sb, sheetName, renderPart, stylesheet, charts, sheetIdx);
             sb.AppendLine("</div>");
         }
         sb.AppendLine("</div>");
@@ -66,7 +164,7 @@ public partial class ExcelHandler
             {
                 var rgb = tabColorEl.Rgb.Value;
                 if (rgb.Length > 6) rgb = rgb[^6..];
-                tabColorStyle = $" style=\"border-bottom:3px solid #{rgb}\"";
+                tabColorStyle = $" style=\"--tab-color:#{rgb}\"";
             }
             sb.AppendLine($"  <div class=\"sheet-tab{activeClass}\"{tabColorStyle} data-sheet=\"{i}\" role=\"tab\" tabindex=\"0\" onclick=\"switchSheet({i})\" onkeydown=\"if(event.key==='Enter'||event.key===' ')switchSheet({i})\">{HtmlEncode(sheets[i].Name)}</div>");
         }
@@ -79,6 +177,9 @@ public partial class ExcelHandler
 
         sb.AppendLine("</body>");
         sb.AppendLine("</html>");
+
+        pivotDoc?.Dispose();
+        pivotMs?.Dispose();
 
         return sb.ToString();
     }
@@ -100,7 +201,8 @@ public partial class ExcelHandler
 
     // ==================== Sheet Rendering ====================
 
-    private void RenderSheetTable(StringBuilder sb, string sheetName, WorksheetPart worksheetPart, Stylesheet? stylesheet)
+    private void RenderSheetTable(StringBuilder sb, string sheetName, WorksheetPart worksheetPart, Stylesheet? stylesheet,
+        List<(int fromRow, int toRow, int fromCol, int toCol, string html)>? charts = null, int sheetIdx = 0)
     {
         var ws = GetSheet(worksheetPart);
         var sheetData = ws.GetFirstChild<SheetData>();
@@ -112,8 +214,32 @@ public partial class ExcelHandler
             return;
         }
 
+        // Read default dimensions from sheetFormatPr
+        var sheetFmtPr = ws.GetFirstChild<SheetFormatProperties>();
+        // Excel column width → pixels: chars * 7.0017 (POI's DEFAULT_CHARACTER_WIDTH for Calibri 11)
+        // pt = px * 0.75
+        var defaultColWidthPt = sheetFmtPr?.DefaultColumnWidth?.Value != null
+            ? sheetFmtPr.DefaultColumnWidth.Value * 7.0017 * 0.75 : 8.43 * 7.0017 * 0.75;
+        var defaultRowHeightPt = sheetFmtPr?.DefaultRowHeight?.Value ?? 15.0;
+
+        // Read default font size from stylesheet
+        var defaultFontPt = 11.0;
+        if (stylesheet?.Fonts != null && stylesheet.Fonts.Elements<Font>().Any())
+        {
+            var defFont = stylesheet.Fonts.Elements<Font>().First();
+            defaultFontPt = defFont.FontSize?.Val?.Value ?? 11.0;
+        }
+
+        // Create formula evaluator for this sheet to compute uncached formula values
+        var evaluator = new Core.FormulaEvaluator(sheetData, _doc.WorkbookPart);
+
         // Collect merge info
         var mergeMap = BuildMergeMap(ws);
+
+        // Build conditional formatting CSS overrides
+        var cfMap = BuildConditionalFormatMap(ws, stylesheet, sheetData, _doc.WorkbookPart);
+        var dataBarMap = BuildDataBarMap(ws, sheetData);
+        var iconSetMap = BuildIconSetMap(ws, sheetData);
 
         // Collect column widths
         var colWidths = GetColumnWidths(ws);
@@ -130,37 +256,57 @@ public partial class ExcelHandler
             for (int fc = 1; fc <= frozenCols; fc++)
             {
                 frozenLeftOffsets[fc] = cumLeft;
-                cumLeft += colWidths.TryGetValue(fc, out var w) ? w : 48.0;
+                cumLeft += colWidths.TryGetValue(fc, out var w) ? w : defaultColWidthPt;
             }
         }
 
-        // Determine grid dimensions
+        // Determine grid dimensions — only count cells with actual content (value or formula),
+        // not styled-but-empty cells. Mirrors LibreOffice's GetPrintArea / TrimDataArea behavior.
         var rows = sheetData.Elements<Row>().ToList();
         int maxCol = 0;
         int maxRow = 0;
         foreach (var row in rows)
         {
             var rowIdx = (int)(row.RowIndex?.Value ?? 0);
-            if (rowIdx > maxRow) maxRow = rowIdx;
+            bool rowHasContent = false;
             foreach (var cell in row.Elements<Cell>())
             {
                 var cellRef = cell.CellReference?.Value;
-                if (cellRef != null)
-                {
-                    var (colName, _) = ParseCellReference(cellRef);
-                    var colIdx = ColumnNameToIndex(colName);
-                    if (colIdx > maxCol) maxCol = colIdx;
-                }
+                if (cellRef == null) continue;
+                // Skip empty cells (no value, no formula) — they bloat maxCol with styled blanks
+                var hasValue = cell.CellValue != null && !string.IsNullOrEmpty(cell.CellValue.Text);
+                var hasFormula = cell.CellFormula != null;
+                if (!hasValue && !hasFormula) continue;
+                var (colName, _) = ParseCellReference(cellRef);
+                var colIdx = ColumnNameToIndex(colName);
+                if (colIdx > maxCol) maxCol = colIdx;
+                rowHasContent = true;
             }
+            if (rowHasContent && rowIdx > maxRow) maxRow = rowIdx;
         }
 
         // Empty sheet (SheetData exists but no rows/cells)
         if (maxRow == 0 || maxCol == 0)
         {
-            if (worksheetPart.DrawingsPart?.WorksheetDrawing == null)
-                sb.AppendLine("<div class=\"empty-sheet\">Empty sheet</div>");
+            if (charts == null || charts.Count == 0)
+            {
+                if (worksheetPart.DrawingsPart?.WorksheetDrawing == null)
+                    sb.AppendLine("<div class=\"empty-sheet\">Empty sheet</div>");
+                return;
+            }
+            // Charts exist but no cell data — just render charts
+            foreach (var (_, _, _, _, html) in charts)
+                sb.Append(html);
             return;
         }
+
+        // Extend maxRow/maxCol to include chart anchor ranges
+        if (charts != null)
+            foreach (var (_, toRow, fromCol, toCol, _) in charts)
+            {
+                if (toCol > maxCol) maxCol = toCol;
+                if (toRow > maxRow) maxRow = toRow;
+            }
 
         // Limit rendering to reasonable size
         var actualRow = maxRow;
@@ -198,6 +344,41 @@ public partial class ExcelHandler
                 hiddenRows.Add(rowIdx);
         }
 
+        // Compute cumulative top offsets for frozen rows (for sticky positioning)
+        // Includes thead height (~24pt for column headers)
+        var frozenTopOffsets = new Dictionary<int, double>();
+        if (frozenRows > 0)
+        {
+            double cumTop = 24; // approximate thead (column header) height
+            for (int fr = 1; fr <= frozenRows; fr++)
+            {
+                frozenTopOffsets[fr] = cumTop;
+                if (rowHeights.TryGetValue(fr, out var rh))
+                    cumTop += rh;
+                else
+                {
+                    // Estimate row height from max font size in the row's cells
+                    double maxFontPt = defaultFontPt;
+                    foreach (var cell in cellMap.Where(kv => kv.Key.row == fr).Select(kv => kv.Value))
+                    {
+                        var si = cell.StyleIndex?.Value ?? 0;
+                        if (stylesheet?.CellFormats != null && si < (uint)stylesheet.CellFormats.Elements<CellFormat>().Count())
+                        {
+                            var xf = stylesheet.CellFormats.Elements<CellFormat>().ElementAt((int)si);
+                            var fontId = xf.FontId?.Value ?? 0;
+                            if (stylesheet.Fonts != null && fontId < (uint)stylesheet.Fonts.Elements<Font>().Count())
+                            {
+                                var font = stylesheet.Fonts.Elements<Font>().ElementAt((int)fontId);
+                                var sz = font.FontSize?.Val?.Value ?? defaultFontPt;
+                                if (sz > maxFontPt) maxFontPt = sz;
+                            }
+                        }
+                    }
+                    cumTop += maxFontPt * 1.4 + 4; // font height + padding
+                }
+            }
+        }
+
         // Collect hidden columns
         var hiddenCols = new HashSet<int>();
         foreach (var (colIdx, widthPx) in colWidths)
@@ -205,20 +386,62 @@ public partial class ExcelHandler
             if (widthPx <= 0) hiddenCols.Add(colIdx);
         }
 
+        // Auto-fit columns without explicit OOXML widths: scan cell content and
+        // compute a width from the longest text in each column. Uses a simple
+        // char-width heuristic (CJK ≈ 1.8 char units, ASCII ≈ 1) converted to
+        // pt via the same chars × 7.0017 × 0.75 formula as explicit widths.
+        // Only columns that have NO entry in colWidths are auto-fitted; columns
+        // with explicit widths (including 0 = hidden) are left as-is.
+        for (int c = 1; c <= maxCol; c++)
+        {
+            if (colWidths.ContainsKey(c)) continue;
+            double maxChars = 0;
+            for (int r = 1; r <= maxRow; r++)
+            {
+                if (!cellMap.TryGetValue((r, c), out var cell)) continue;
+                var text = GetCellDisplayValue(cell);
+                if (string.IsNullOrEmpty(text)) continue;
+                double chars = 0;
+                foreach (var ch in text)
+                    chars += ch > 0x2E7F ? 2.2 : 1.0; // CJK / fullwidth → ~2.2 char units
+                if (chars > maxChars) maxChars = chars;
+            }
+            if (maxChars > 0)
+            {
+                // Add 2 char padding, cap at 60 chars to avoid extreme widths
+                maxChars = Math.Min(maxChars + 2, 60);
+                colWidths[c] = maxChars * 7.0017 * 0.75;
+            }
+        }
+
+        // Build chart lookup: fromRow → chart info for inline insertion
+        var chartAtRow = new Dictionary<int, (int toRow, int fromCol, int toCol, string html)>();
+        if (charts != null)
+            foreach (var (fromRow, toRow, fromCol, toCol, html) in charts)
+                chartAtRow[fromRow] = (toRow, fromCol, toCol, html);
+
+        // Compute total table width so the table sizes to its content (not the wrapper).
+        // Without an explicit width, table-layout:fixed inside a flex wrapper shrinks columns
+        // proportionally to fit the viewport, ignoring declared col widths.
+        double totalTableWidthPt = 30; // row-header-col width
+        for (int c = 1; c <= maxCol; c++)
+        {
+            if (hiddenCols.Contains(c)) continue;
+            totalTableWidthPt += colWidths.TryGetValue(c, out var cw) ? cw : defaultColWidthPt;
+        }
+
         // Start table
         sb.AppendLine("<div class=\"table-wrapper\">");
-        sb.AppendLine("<table>");
+        sb.AppendLine($"<table style=\"width:{totalTableWidthPt:0.##}pt\">");
         sb.AppendLine($"<caption class=\"sr-only\">{HtmlEncode(sheetName)}</caption>");
 
-        // Colgroup for column widths + header column
+        // Colgroup for column widths + header column (skip hidden columns to match td count)
         sb.Append("<colgroup><col class=\"row-header-col\">");
         for (int c = 1; c <= maxCol; c++)
         {
-            var width = colWidths.TryGetValue(c, out var w) ? w : 48.0; // default ~8.43 chars ≈ 48pt
-            if (width <= 0)
-                sb.Append("<col style=\"width:0;visibility:collapse\">");
-            else
-                sb.Append($"<col style=\"width:{width:0.##}pt\">");
+            if (hiddenCols.Contains(c)) continue; // skip hidden cols — tds are also skipped
+            var width = colWidths.TryGetValue(c, out var w) ? w : defaultColWidthPt;
+            sb.Append($"<col style=\"width:{width:0.##}pt\">");
         }
         sb.AppendLine("</colgroup>");
 
@@ -250,17 +473,92 @@ public partial class ExcelHandler
         }
         sb.AppendLine("</tr></thead>");
 
+        // chartAtRow and sideCharts already built above
+
+        // Visible column count for chart colspan
+        var visibleColCount = Enumerable.Range(1, maxCol).Count(c => !hiddenCols.Contains(c));
+
         // Data rows
         sb.AppendLine("<tbody>");
         for (int r = 1; r <= maxRow; r++)
         {
-            if (hiddenRows.Contains(r)) { sb.AppendLine("<tr style=\"display:none\"></tr>"); continue; }
-            var rowH = rowHeights.TryGetValue(r, out var rh) ? $" style=\"height:{rh:0.##}pt\"" : "";
-            sb.Append($"<tr{rowH}>");
+            // Insert chart at its anchor row position
+            if (chartAtRow.TryGetValue(r, out var chartEntry))
+            {
+                // Chart fromCol is 0-based; columns in table are 1-based
+                var chartFromCol1 = chartEntry.fromCol + 1; // convert to 1-based
+                var chartToCol1 = chartEntry.toCol; // toCol is exclusive in anchor
+                // Count visible columns before and within chart range
+                var colsBefore = Enumerable.Range(1, Math.Min(chartFromCol1 - 1, maxCol))
+                    .Count(c => !hiddenCols.Contains(c));
+                var chartColSpan = Enumerable.Range(chartFromCol1, Math.Min(chartToCol1, maxCol) - chartFromCol1 + 1)
+                    .Count(c => !hiddenCols.Contains(c));
+                var rowSpan = chartEntry.toRow - r;
+
+                sb.Append($"<tr data-row=\"{sheetIdx}-{r}\">");
+                sb.Append($"<th class=\"row-header\">{r}</th>");
+                // Empty cells before the chart
+                for (int c = 1; c < chartFromCol1 && c <= maxCol; c++)
+                {
+                    if (hiddenCols.Contains(c)) continue;
+                    var cellRef = $"{IndexToColumnName(c)}{r}";
+                    var cell = cellMap.TryGetValue((r, c), out var mc) ? mc : null;
+                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets, frozenTopOffsets, cfMap, dataBarMap, iconSetMap);
+                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet, evaluator) : "";
+                    sb.Append($"<td{style}>{BuildCellContent(cellRef, value, dataBarMap, iconSetMap)}</td>");
+                }
+                // Chart cell spanning multiple rows and columns
+                if (chartColSpan > 0)
+                    sb.Append($"<td colspan=\"{chartColSpan}\" rowspan=\"{rowSpan}\" style=\"padding:0;border:none;vertical-align:top\">{chartEntry.html}</td>");
+                // Empty cells after the chart
+                for (int c = chartToCol1 + 1; c <= maxCol; c++)
+                {
+                    if (hiddenCols.Contains(c)) continue;
+                    sb.Append("<td></td>");
+                }
+                sb.AppendLine("</tr>");
+                continue;
+            }
+            // Skip rows that are within a chart's rowspan (but still render non-chart columns)
+            if (charts != null && charts.Any(ch => r > ch.fromRow && r < ch.toRow))
+            {
+                sb.Append($"<tr data-row=\"{sheetIdx}-{r}\">");
+                sb.Append($"<th class=\"row-header\">{r}</th>");
+                var activeChart = charts.First(ch => r > ch.fromRow && r < ch.toRow);
+                var acFromCol1 = activeChart.fromCol + 1;
+                var acToCol1 = activeChart.toCol;
+                for (int c = 1; c <= maxCol; c++)
+                {
+                    if (hiddenCols.Contains(c)) continue;
+                    if (c >= acFromCol1 && c <= acToCol1) continue; // spanned by chart rowspan
+                    var cellRef = $"{IndexToColumnName(c)}{r}";
+                    var cell = cellMap.TryGetValue((r, c), out var mc) ? mc : null;
+                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets, frozenTopOffsets, cfMap, dataBarMap, iconSetMap);
+                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet, evaluator) : "";
+                    sb.Append($"<td{style}>{BuildCellContent(cellRef, value, dataBarMap, iconSetMap)}</td>");
+                }
+                sb.AppendLine("</tr>");
+                continue;
+            }
+
+            if (hiddenRows.Contains(r)) { sb.AppendLine($"<tr data-row=\"{sheetIdx}-{r}\" style=\"display:none\"></tr>"); continue; }
+            bool isRowFrozen = frozenRows > 0 && r <= frozenRows;
+            var rowStyles = new List<string>();
+            if (rowHeights.TryGetValue(r, out var rh)) rowStyles.Add($"height:{rh:0.##}pt");
+            if (isRowFrozen) rowStyles.Add("background:#fff");
+            var rowStyle = rowStyles.Count > 0 ? $" style=\"{string.Join(";", rowStyles)}\"" : "";
+            var frozenAttr = isRowFrozen ? " data-frozen=\"1\"" : "";
+            sb.Append($"<tr data-row=\"{sheetIdx}-{r}\"{rowStyle}{frozenAttr}>");
 
             // Row header
-            var rowHeaderSticky = frozenCols > 0 ? " style=\"position:sticky;left:0;z-index:2\"" : "";
-            sb.Append($"<th class=\"row-header\"{rowHeaderSticky}>{r}</th>");
+            string rowHeaderStyle;
+            if (isRowFrozen)
+                rowHeaderStyle = " style=\"position:sticky;top:0;left:0;z-index:3\"";
+            else if (frozenCols > 0)
+                rowHeaderStyle = " style=\"position:sticky;left:0;z-index:2\"";
+            else
+                rowHeaderStyle = "";
+            sb.Append($"<th class=\"row-header\"{rowHeaderStyle}>{r}</th>");
 
             for (int c = 1; c <= maxCol; c++)
             {
@@ -272,8 +570,8 @@ public partial class ExcelHandler
                     if (!mergeInfo.IsAnchor) continue; // skip non-anchor cells
 
                     var cell = cellMap.TryGetValue((r, c), out var mc) ? mc : null;
-                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets);
-                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet) : "";
+                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets, frozenTopOffsets, cfMap, dataBarMap, iconSetMap);
+                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet, evaluator) : "";
                     // Adjust colspan to exclude hidden columns within the merge range
                     var adjColSpan = mergeInfo.ColSpan;
                     if (adjColSpan > 1 && hiddenCols.Count > 0)
@@ -285,14 +583,14 @@ public partial class ExcelHandler
                     if (adjColSpan > 1) spanAttrs += $" colspan=\"{adjColSpan}\"";
                     if (mergeInfo.RowSpan > 1) spanAttrs += $" rowspan=\"{mergeInfo.RowSpan}\"";
 
-                    sb.Append($"<td{spanAttrs}{style}>{CellHtml(value)}</td>");
+                    sb.Append($"<td{spanAttrs}{style}>{BuildCellContent(cellRef, value, dataBarMap, iconSetMap)}</td>");
                 }
                 else
                 {
                     var cell = cellMap.TryGetValue((r, c), out var nc) ? nc : null;
-                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets);
-                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet) : "";
-                    sb.Append($"<td{style}>{CellHtml(value)}</td>");
+                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets, frozenTopOffsets, cfMap, dataBarMap, iconSetMap);
+                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet, evaluator) : "";
+                    sb.Append($"<td{style}>{BuildCellContent(cellRef, value, dataBarMap, iconSetMap)}</td>");
                 }
             }
             sb.AppendLine("</tr>");
@@ -302,7 +600,7 @@ public partial class ExcelHandler
         // Truncation warning
         if (truncated)
             sb.AppendLine($"<div class=\"truncation-warning\">Showing {maxRow} of {actualRow} rows, {maxCol} of {actualCol} columns</div>");
-        sb.AppendLine("</div>");
+        sb.AppendLine("</div>"); // close table-wrapper
     }
 
     // ==================== Merge Map ====================
@@ -359,7 +657,8 @@ public partial class ExcelHandler
             var min = (int)(col.Min?.Value ?? 1u);
             var max = (int)(col.Max?.Value ?? (uint)min);
             // Hidden columns get width 0
-            var widthPt = col.Hidden?.Value == true ? 0 : (col.Width.Value == 0 ? 0 : col.Width.Value * 5.625 + 3.75);
+            // Excel column width → pixels: chars * 7.0017; pt = px * 0.75 (POI XSSFSheet.getColumnWidthInPixels)
+            var widthPt = col.Hidden?.Value == true ? 0 : (col.Width.Value == 0 ? 0 : col.Width.Value * 7.0017 * 0.75);
             for (int c = min; c <= max; c++)
                 result[c] = widthPt;
         }
@@ -385,9 +684,390 @@ public partial class ExcelHandler
         return (frozenRows, frozenCols);
     }
 
+    // ==================== Conditional Formatting ====================
+
+    /// <summary>
+    /// Evaluate conditional formatting rules and return CSS overrides per cell.
+    /// </summary>
+    private Dictionary<string, string> BuildConditionalFormatMap(
+        Worksheet ws, Stylesheet? stylesheet, SheetData sheetData, WorkbookPart? workbookPart)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (stylesheet == null) return result;
+
+        var dxfs = stylesheet.DifferentialFormats?.Elements<DifferentialFormat>().ToArray();
+        if (dxfs == null || dxfs.Length == 0) return result;
+
+        var cfElements = ws.Elements<ConditionalFormatting>().ToList();
+        if (cfElements.Count == 0) return result;
+
+        var evaluator = new Core.FormulaEvaluator(sheetData, workbookPart);
+
+        foreach (var cf in cfElements)
+        {
+            var sqref = cf.SequenceOfReferences?.Items?.ToList();
+            if (sqref == null || sqref.Count == 0) continue;
+
+            foreach (var rule in cf.Elements<ConditionalFormattingRule>())
+            {
+                var dxfId = rule.FormatId?.Value;
+                if (dxfId == null || dxfId >= dxfs.Length) continue;
+                var dxf = dxfs[(int)dxfId];
+
+                // Extract CSS from dxf
+                var cssParts = new List<string>();
+                var fill = dxf.Fill?.PatternFill;
+                if (fill != null)
+                {
+                    var bgColor = fill.BackgroundColor?.Rgb?.Value ?? fill.ForegroundColor?.Rgb?.Value;
+                    if (bgColor != null)
+                    {
+                        if (bgColor.Length > 6) bgColor = bgColor[^6..];
+                        cssParts.Add($"background:#{bgColor}");
+                    }
+                }
+                var font = dxf.Font;
+                if (font != null)
+                {
+                    var fontColor = font.Color?.Rgb?.Value;
+                    if (fontColor != null)
+                    {
+                        if (fontColor.Length > 6) fontColor = fontColor[^6..];
+                        cssParts.Add($"color:#{fontColor}");
+                    }
+                }
+                if (cssParts.Count == 0) continue;
+                var cssOverride = string.Join(";", cssParts);
+
+                // Expand sqref and evaluate each cell
+                foreach (var rangeStr in sqref)
+                {
+                    var cells = ExpandSqref(rangeStr.Value ?? "");
+                    foreach (var (cellRef, row, col) in cells)
+                    {
+                        if (result.ContainsKey(cellRef)) continue; // first matching rule wins
+
+                        bool matches = EvaluateCfRule(rule, cellRef, row, col, sheetData, evaluator);
+                        if (matches)
+                            result[cellRef] = cssOverride;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Build data bar info per cell: returns HTML for the bar overlay.
+    /// </summary>
+    private Dictionary<string, string> BuildDataBarMap(Worksheet ws, SheetData sheetData)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var cf in ws.Elements<ConditionalFormatting>())
+        {
+            foreach (var rule in cf.Elements<ConditionalFormattingRule>())
+            {
+                var dataBar = rule.GetFirstChild<DataBar>();
+                if (dataBar == null) continue;
+
+                var sqref = cf.SequenceOfReferences?.Items?.ToList();
+                if (sqref == null || sqref.Count == 0) continue;
+
+                // Get bar color
+                var barColorEl = dataBar.GetFirstChild<Color>();
+                var barColor = barColorEl?.Rgb?.Value ?? "FF4472C4";
+                if (barColor.Length > 6) barColor = barColor[^6..];
+
+                // Collect all cell values in range
+                var cells = new List<(string cellRef, double value)>();
+                foreach (var rangeStr in sqref)
+                {
+                    foreach (var (cellRef, row, col) in ExpandSqref(rangeStr.Value ?? ""))
+                    {
+                        var cell = sheetData.Descendants<Cell>()
+                            .FirstOrDefault(c => string.Equals(c.CellReference?.Value, cellRef, StringComparison.OrdinalIgnoreCase));
+                        if (cell?.CellValue != null && double.TryParse(cell.CellValue.Text,
+                            System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v))
+                            cells.Add((cellRef, v));
+                    }
+                }
+                if (cells.Count == 0) continue;
+
+                // Determine min/max from cfvo elements or from data
+                var cfvos = dataBar.Elements<ConditionalFormatValueObject>().ToList();
+                double minVal, maxVal;
+                if (cfvos.Count >= 2 && cfvos[0].Type?.Value == ConditionalFormatValueObjectValues.Number
+                    && double.TryParse(cfvos[0].Val?.Value, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var explicitMin))
+                    minVal = explicitMin;
+                else
+                    minVal = 0; // Excel default: bars start from 0
+
+                if (cfvos.Count >= 2 && cfvos[1].Type?.Value == ConditionalFormatValueObjectValues.Number
+                    && double.TryParse(cfvos[1].Val?.Value, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var explicitMax))
+                    maxVal = explicitMax;
+                else
+                    maxVal = cells.Max(c => c.value);
+
+                if (maxVal <= minVal) maxVal = minVal + 1;
+
+                // Read bar length bounds (Excel defaults: min=10%, max=90%)
+                var minLength = dataBar.MinLength?.Value ?? 10U;
+                var maxLength = dataBar.MaxLength?.Value ?? 90U;
+                var showValue = dataBar.ShowValue?.Value ?? true;
+
+                foreach (var (cellRef, value) in cells)
+                {
+                    var rawPct = (value - minVal) / (maxVal - minVal) * 100;
+                    // Scale to minLength..maxLength range
+                    var pct = Math.Max(0, Math.Min(100, minLength + rawPct / 100 * (maxLength - minLength)));
+                    // Store bar HTML + showValue flag (prefixed with "0|" or "1|")
+                    result[cellRef] = $"{(showValue ? "1" : "0")}|<div style=\"position:absolute;left:0;top:1px;bottom:1px;width:{pct:0.#}%;background:linear-gradient(to right,#{barColor},#{barColor}40);border-radius:1px\"></div>";
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Build icon set info per cell: returns HTML for the icon.
+    /// </summary>
+    private Dictionary<string, string> BuildIconSetMap(Worksheet ws, SheetData sheetData)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var cf in ws.Elements<ConditionalFormatting>())
+        {
+            foreach (var rule in cf.Elements<ConditionalFormattingRule>())
+            {
+                var iconSet = rule.GetFirstChild<IconSet>();
+                if (iconSet == null) continue;
+
+                var sqref = cf.SequenceOfReferences?.Items?.ToList();
+                if (sqref == null || sqref.Count == 0) continue;
+
+                var iconSetName = iconSet.IconSetValue?.Value ?? IconSetValues.ThreeTrafficLights1;
+                var showValue = iconSet.ShowValue?.Value ?? true;
+                var reverse = iconSet.Reverse?.Value ?? false;
+
+                // Collect all cell values in range
+                var cells = new List<(string cellRef, double value)>();
+                foreach (var rangeStr in sqref)
+                {
+                    foreach (var (cellRef, row, col) in ExpandSqref(rangeStr.Value ?? ""))
+                    {
+                        var cell = sheetData.Descendants<Cell>()
+                            .FirstOrDefault(c => string.Equals(c.CellReference?.Value, cellRef, StringComparison.OrdinalIgnoreCase));
+                        if (cell?.CellValue != null && double.TryParse(cell.CellValue.Text,
+                            System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v))
+                            cells.Add((cellRef, v));
+                    }
+                }
+                if (cells.Count == 0) continue;
+
+                // Parse cfvo thresholds
+                var cfvos = iconSet.Elements<ConditionalFormatValueObject>().ToList();
+                var allValues = cells.Select(c => c.value).OrderBy(v => v).ToList();
+                double minVal = allValues.First(), maxVal = allValues.Last();
+                var range = maxVal - minVal;
+                if (range == 0) range = 1;
+
+                // Resolve thresholds (skip first cfvo which is the base)
+                var thresholds = new List<double>();
+                for (int i = 1; i < cfvos.Count; i++)
+                {
+                    var cfvo = cfvos[i];
+                    var type = cfvo.Type?.Value ?? ConditionalFormatValueObjectValues.Percent;
+                    double.TryParse(cfvo.Val?.Value, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var tv);
+                    if (type == ConditionalFormatValueObjectValues.Number)
+                        thresholds.Add(tv);
+                    else if (type == ConditionalFormatValueObjectValues.Percent)
+                        thresholds.Add(minVal + range * tv / 100);
+                    else if (type == ConditionalFormatValueObjectValues.Percentile)
+                    {
+                        var idx = (int)Math.Round(tv / 100.0 * (allValues.Count - 1));
+                        thresholds.Add(allValues[Math.Clamp(idx, 0, allValues.Count - 1)]);
+                    }
+                    else
+                        thresholds.Add(minVal + range * tv / 100);
+                }
+
+                foreach (var (cellRef, value) in cells)
+                {
+                    // Determine which bucket the value falls into
+                    int bucket = 0;
+                    for (int i = 0; i < thresholds.Count; i++)
+                    {
+                        if (value >= thresholds[i]) bucket = i + 1;
+                    }
+                    if (reverse) bucket = cfvos.Count - 1 - bucket;
+                    var icon = GetIconHtml(iconSetName, bucket, cfvos.Count);
+                    // Prefix with showValue flag: "0|" = hide value, "1|" = show value
+                    result[cellRef] = $"{(showValue ? "1" : "0")}|{icon}";
+                }
+            }
+        }
+        return result;
+    }
+
+    private static string GetIconHtml(IconSetValues iconSetName, int bucket, int totalBuckets)
+    {
+        // Traffic lights: red=0, yellow=1, green=2
+        if (iconSetName == IconSetValues.ThreeTrafficLights1 || iconSetName == IconSetValues.ThreeTrafficLights2)
+        {
+            var color = bucket switch { 0 => "#C00000", 1 => "#FFC000", _ => "#00B050" };
+            return $"<span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:{color};margin-right:4px;vertical-align:middle\"></span>";
+        }
+        // Arrows
+        if (iconSetName == IconSetValues.ThreeArrows || iconSetName == IconSetValues.ThreeArrowsGray)
+        {
+            return bucket switch
+            {
+                0 => "<span style=\"color:#C00000;margin-right:4px;vertical-align:middle\">&#x25BC;</span>",
+                1 => "<span style=\"color:#FFC000;margin-right:4px;vertical-align:middle\">&#x25B6;</span>",
+                _ => "<span style=\"color:#00B050;margin-right:4px;vertical-align:middle\">&#x25B2;</span>",
+            };
+        }
+        // 4-icon traffic lights
+        if (iconSetName == IconSetValues.FourTrafficLights)
+        {
+            var color = bucket switch { 0 => "#C00000", 1 => "#FFC000", 2 => "#92D050", _ => "#00B050" };
+            return $"<span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:{color};margin-right:4px;vertical-align:middle\"></span>";
+        }
+        // Default: colored circles
+        if (totalBuckets <= 3)
+        {
+            var color = bucket switch { 0 => "#C00000", 1 => "#FFC000", _ => "#00B050" };
+            return $"<span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:{color};margin-right:4px;vertical-align:middle\"></span>";
+        }
+        else
+        {
+            var pct = totalBuckets > 1 ? (double)bucket / (totalBuckets - 1) : 1;
+            var r = (int)(0xC0 * (1 - pct));
+            var g = (int)(0xB0 * pct);
+            var color = $"#{r:X2}{g:X2}00";
+            return $"<span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:{color};margin-right:4px;vertical-align:middle\"></span>";
+        }
+    }
+
+    /// <summary>Evaluate whether a conditional formatting rule matches a specific cell.</summary>
+    private bool EvaluateCfRule(ConditionalFormattingRule rule, string cellRef, int row, int col,
+        SheetData sheetData, Core.FormulaEvaluator evaluator)
+    {
+        var ruleType = rule.Type?.Value;
+
+        // Get cell value for comparison
+        double? cellValue = null;
+        var cell = sheetData.Descendants<Cell>()
+            .FirstOrDefault(c => string.Equals(c.CellReference?.Value, cellRef, StringComparison.OrdinalIgnoreCase));
+        if (cell != null)
+        {
+            if (double.TryParse(cell.CellValue?.Text, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var v))
+                cellValue = v;
+        }
+
+        if (ruleType == ConditionalFormatValues.Expression)
+        {
+            // Formula-based rule: evaluate with cell reference adjustment
+            var formula = rule.Elements<Formula>().FirstOrDefault()?.Text;
+            if (string.IsNullOrEmpty(formula)) return false;
+
+            // Adjust formula references relative to the first cell in sqref
+            // The formula is written for the top-left cell; adjust for current cell
+            var adjusted = AdjustCfFormula(formula, row, col, rule);
+            var result = evaluator.TryEvaluateFull(adjusted);
+            return result?.BoolValue == true || (result?.NumericValue != null && result.NumericValue != 0);
+        }
+
+        if (ruleType == ConditionalFormatValues.CellIs && cellValue.HasValue)
+        {
+            var op = rule.Operator?.Value;
+            var f1 = rule.Elements<Formula>().FirstOrDefault()?.Text;
+            var f2 = rule.Elements<Formula>().Skip(1).FirstOrDefault()?.Text;
+            double? v1 = f1 != null ? evaluator.TryEvaluate(f1) ?? (double.TryParse(f1, out var p1) ? p1 : null) : null;
+            double? v2 = f2 != null ? evaluator.TryEvaluate(f2) ?? (double.TryParse(f2, out var p2) ? p2 : null) : null;
+            if (v1 == null) return false;
+            if (op == ConditionalFormattingOperatorValues.GreaterThan) return cellValue > v1;
+            if (op == ConditionalFormattingOperatorValues.LessThan) return cellValue < v1;
+            if (op == ConditionalFormattingOperatorValues.GreaterThanOrEqual) return cellValue >= v1;
+            if (op == ConditionalFormattingOperatorValues.LessThanOrEqual) return cellValue <= v1;
+            if (op == ConditionalFormattingOperatorValues.Equal) return cellValue == v1;
+            if (op == ConditionalFormattingOperatorValues.NotEqual) return cellValue != v1;
+            if (op == ConditionalFormattingOperatorValues.Between) return v2.HasValue && cellValue >= v1 && cellValue <= v2;
+            if (op == ConditionalFormattingOperatorValues.NotBetween) return v2.HasValue && (cellValue < v1 || cellValue > v2);
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>Adjust a CF formula's cell references from the anchor cell to the target cell.</summary>
+    private string AdjustCfFormula(string formula, int targetRow, int targetCol, ConditionalFormattingRule rule)
+    {
+        // Find the anchor cell from the parent ConditionalFormatting sqref
+        var cf = rule.Parent as ConditionalFormatting;
+        var sqref = cf?.SequenceOfReferences?.Items?.FirstOrDefault()?.Value;
+        if (string.IsNullOrEmpty(sqref)) return formula;
+
+        // Extract anchor from sqref (e.g. "E7:E21" → anchor is E7)
+        var anchorRef = sqref.Contains(':') ? sqref.Split(':')[0] : sqref;
+        var (anchorColName, anchorRow) = ParseCellReference(anchorRef);
+        var anchorCol = ColumnNameToIndex(anchorColName);
+
+        var rowDelta = targetRow - anchorRow;
+        var colDelta = targetCol - anchorCol;
+        if (rowDelta == 0 && colDelta == 0) return formula;
+
+        // Replace cell references in formula, adjusting by delta
+        return Regex.Replace(formula, @"(\$?)([A-Z]+)(\$?)(\d+)", m =>
+        {
+            var colAbsolute = m.Groups[1].Value == "$";
+            var rowAbsolute = m.Groups[3].Value == "$";
+            var refCol = ColumnNameToIndex(m.Groups[2].Value);
+            var refRow = int.Parse(m.Groups[4].Value);
+
+            var newCol = colAbsolute ? refCol : refCol + colDelta;
+            var newRow = rowAbsolute ? refRow : refRow + rowDelta;
+            if (newCol < 1) newCol = 1;
+            if (newRow < 1) newRow = 1;
+            return $"{(colAbsolute ? "$" : "")}{IndexToColumnName(newCol)}{(rowAbsolute ? "$" : "")}{newRow}";
+        });
+    }
+
+    /// <summary>Expand a sqref string like "E7:E21" into individual cell references.</summary>
+    private List<(string cellRef, int row, int col)> ExpandSqref(string sqref)
+    {
+        var result = new List<(string, int, int)>();
+        foreach (var part in sqref.Split(' '))
+        {
+            if (part.Contains(':'))
+            {
+                var sides = part.Split(':');
+                var (startColName, startRow) = ParseCellReference(sides[0]);
+                var (endColName, endRow) = ParseCellReference(sides[1]);
+                var startCol = ColumnNameToIndex(startColName);
+                var endCol = ColumnNameToIndex(endColName);
+                for (int r = startRow; r <= endRow; r++)
+                    for (int c = startCol; c <= endCol; c++)
+                        result.Add(($"{IndexToColumnName(c)}{r}", r, c));
+            }
+            else
+            {
+                var (colName, row) = ParseCellReference(part);
+                result.Add((part, row, ColumnNameToIndex(colName)));
+            }
+        }
+        return result;
+    }
+
     // ==================== Cell Style to CSS ====================
 
-    private string GetCellStyleCss(Cell? cell, Stylesheet? stylesheet, int frozenRows, int frozenCols, int row, int col, Dictionary<int, double>? frozenLeftOffsets = null)
+    private string GetCellStyleCss(Cell? cell, Stylesheet? stylesheet, int frozenRows, int frozenCols, int row, int col,
+        Dictionary<int, double>? frozenLeftOffsets = null, Dictionary<int, double>? frozenTopOffsets = null,
+        Dictionary<string, string>? cfMap = null, Dictionary<string, string>? dataBarMap = null,
+        Dictionary<string, string>? iconSetMap = null)
     {
         var styles = new List<string>();
 
@@ -396,6 +1076,7 @@ public partial class ExcelHandler
         bool isFrozenCol = frozenCols > 0 && col <= frozenCols;
         // z-index layering: corner-cell=4, col-header=3, frozen-row+col=2, frozen-col=1
         var frozenLeft = frozenLeftOffsets?.TryGetValue(col, out var fl) == true ? fl : 0;
+        var frozenTop = frozenTopOffsets?.TryGetValue(row, out var ft) == true ? ft : 0;
         if (isFrozenRow && isFrozenCol)
             styles.Add($"position:sticky;top:0;left:{frozenLeft:0.##}pt;z-index:2");
         else if (isFrozenRow)
@@ -404,7 +1085,13 @@ public partial class ExcelHandler
             styles.Add($"position:sticky;left:{frozenLeft:0.##}pt;z-index:1");
 
         if (cell == null || stylesheet == null)
+        {
+            // Frozen rows need opaque background so scrolling content doesn't show through
+            // Use actual cell fill if available; fallback to white for cells with no explicit fill
+            if (isFrozenRow && !styles.Any(s => s.StartsWith("background")))
+                styles.Add("background:#fff");
             return styles.Count > 0 ? $" style=\"{string.Join(";", styles)}\"" : "";
+        }
 
         var styleIndex = cell.StyleIndex?.Value ?? 0;
 
@@ -416,14 +1103,38 @@ public partial class ExcelHandler
                 BuildFontCss(xf, stylesheet, styles);
                 BuildFillCss(xf, stylesheet, styles);
                 BuildBorderCss(xf, stylesheet, styles);
-                BuildAlignmentCss(xf, styles);
+                BuildAlignmentCss(xf, styles, cell);
             }
         }
+
+        // Conditional formatting overrides (background, color)
+        var cfCellRef = $"{IndexToColumnName(col)}{row}";
+        if (cfMap != null && cfMap.TryGetValue(cfCellRef, out var cfCss))
+        {
+            // CF overrides existing background/color — remove conflicting base styles
+            foreach (var cfPart in cfCss.Split(';'))
+            {
+                var prop = cfPart.Split(':')[0].Trim();
+                styles.RemoveAll(s => s.StartsWith(prop + ":"));
+            }
+            styles.Add(cfCss);
+        }
+
+        // Data bar or icon set: add position:relative so inner elements can be absolutely positioned
+        if ((dataBarMap != null && dataBarMap.ContainsKey(cfCellRef)) ||
+            (iconSetMap != null && iconSetMap.ContainsKey(cfCellRef)))
+        {
+            styles.Add("position:relative");
+        }
+
+        // Frozen rows need opaque background so scrolling content doesn't show through
+        if (isFrozenRow && !styles.Any(s => s.StartsWith("background:")))
+            styles.Add("background:#fff");
 
         return styles.Count > 0 ? $" style=\"{string.Join(";", styles)}\"" : "";
     }
 
-    private static void BuildFontCss(CellFormat xf, Stylesheet stylesheet, List<string> styles)
+    private void BuildFontCss(CellFormat xf, Stylesheet stylesheet, List<string> styles)
     {
         var fontId = xf.FontId?.Value ?? 0;
         var fonts = stylesheet.Fonts;
@@ -460,7 +1171,7 @@ public partial class ExcelHandler
         if (color != null) styles.Add($"color:{color}");
     }
 
-    private static void BuildFillCss(CellFormat xf, Stylesheet stylesheet, List<string> styles)
+    private void BuildFillCss(CellFormat xf, Stylesheet stylesheet, List<string> styles)
     {
         var fillId = xf.FillId?.Value ?? 0;
         if (fillId <= 1) return; // 0=none, 1=gray125 pattern (default)
@@ -499,7 +1210,7 @@ public partial class ExcelHandler
         }
     }
 
-    private static void BuildBorderCss(CellFormat xf, Stylesheet stylesheet, List<string> styles)
+    private void BuildBorderCss(CellFormat xf, Stylesheet stylesheet, List<string> styles)
     {
         var borderId = xf.BorderId?.Value ?? 0;
         if (borderId == 0) return;
@@ -515,7 +1226,7 @@ public partial class ExcelHandler
         AddBorderSideCss(border.LeftBorder, "left", styles);
     }
 
-    private static void AddBorderSideCss(BorderPropertiesType? bp, string side, List<string> styles)
+    private void AddBorderSideCss(BorderPropertiesType? bp, string side, List<string> styles)
     {
         if (bp?.Style?.Value == null || bp.Style.Value == BorderStyleValues.None) return;
 
@@ -536,14 +1247,14 @@ public partial class ExcelHandler
         styles.Add($"border-{side}:{width} {cssStyle} {color}");
     }
 
-    private static void BuildAlignmentCss(CellFormat xf, List<string> styles)
+    private void BuildAlignmentCss(CellFormat xf, List<string> styles, Cell? cell = null)
     {
         var alignment = xf.Alignment;
-        if (alignment == null) return;
+        bool hasExplicitHAlign = alignment?.Horizontal?.HasValue == true;
 
-        if (alignment.Horizontal?.HasValue == true)
+        if (hasExplicitHAlign)
         {
-            var h = alignment.Horizontal.InnerText;
+            var h = alignment!.Horizontal!.InnerText;
             var cssAlign = h switch
             {
                 "center" => "center",
@@ -551,10 +1262,23 @@ public partial class ExcelHandler
                 "left" => "left",
                 "justify" => "justify",
                 "fill" => "left",
+                "general" => (string?)null, // fall through to auto-detect
                 _ => null
             };
-            if (cssAlign != null) styles.Add($"text-align:{cssAlign}");
+            if (cssAlign != null) { styles.Add($"text-align:{cssAlign}"); hasExplicitHAlign = true; }
+            else hasExplicitHAlign = false;
         }
+
+        // Excel default: numbers right-aligned, text left-aligned (General alignment)
+        if (!hasExplicitHAlign && cell != null)
+        {
+            var dt = cell.DataType?.Value;
+            bool isText = dt == CellValues.SharedString || dt == CellValues.InlineString || dt == CellValues.String;
+            if (!isText && cell.CellValue != null)
+                styles.Add("text-align:right");
+        }
+
+        if (alignment == null) return;
 
         if (alignment.Vertical?.HasValue == true)
         {
@@ -590,7 +1314,13 @@ public partial class ExcelHandler
         }
 
         if (alignment.Indent?.HasValue == true && alignment.Indent.Value > 0)
-            styles.Add($"padding-left:{alignment.Indent.Value * 6}pt");
+        {
+            // 1 indent level ≈ width of "0" in default font ≈ fontSize × 0.6
+            var defFontSz = _doc.WorkbookPart?.WorkbookStylesPart?.Stylesheet
+                ?.Fonts?.Elements<Font>().FirstOrDefault()?.FontSize?.Val?.Value ?? 11.0;
+            var indentPt = alignment.Indent.Value * defFontSz * 0.6;
+            styles.Add($"padding-left:{indentPt:0.#}pt");
+        }
 
         // Reading order: 1=LTR, 2=RTL (for mixed-direction content)
         if (alignment.ReadingOrder?.HasValue == true)
@@ -603,7 +1333,7 @@ public partial class ExcelHandler
 
     // ==================== Color Resolution ====================
 
-    private static string? ResolveFontColor(Font font)
+    private string? ResolveFontColor(Font font)
     {
         if (font.Color?.Rgb?.Value != null)
         {
@@ -612,20 +1342,14 @@ public partial class ExcelHandler
         }
         if (font.Color?.Theme?.Value != null)
         {
-            // Theme 0=lt1 (usually white bg), 1=dk1 (usually black text)
-            // For HTML preview, map common theme colors
-            return font.Color.Theme.Value switch
-            {
-                0 => "#FFFFFF",
-                1 => "#000000",
-                _ => null // skip unresolved theme colors — will use default
-            };
+            var tint = font.Color.Tint?.Value;
+            return ResolveThemeColor(font.Color.Theme.Value, tint);
         }
         return null;
     }
 
-    // Standard Excel indexed color palette (first 64 colors)
-    private static readonly string[] IndexedColors = [
+    // Standard Excel indexed color palette (first 64 colors) — can be overridden by styles.xml
+    private static readonly string[] DefaultIndexedColors = [
         "#000000","#FFFFFF","#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF",
         "#000000","#FFFFFF","#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF",
         "#800000","#008000","#000080","#808000","#800080","#008080","#C0C0C0","#808080",
@@ -636,34 +1360,23 @@ public partial class ExcelHandler
         "#003366","#339966","#003300","#333300","#993300","#993366","#333399","#333333"
     ];
 
-    private static string? ResolveColorRgb(ColorType? color)
+    private string? ResolveColorRgb(ColorType? color)
     {
         if (color?.Rgb?.Value != null)
             return FormatColorForCss(color.Rgb.Value);
         if (color?.Indexed?.Value != null)
         {
             var idx = (int)color.Indexed.Value;
-            if (idx >= 0 && idx < IndexedColors.Length)
-                return IndexedColors[idx];
+            var palette = GetResolvedIndexedColors();
+            if (idx >= 0 && idx < palette.Length)
+                return palette[idx];
             if (idx == 64) return null; // system foreground (context dependent)
             if (idx == 65) return null; // system background
         }
         if (color?.Theme?.Value != null)
         {
-            return color.Theme.Value switch
-            {
-                0 => "#FFFFFF", // lt1
-                1 => "#000000", // dk1
-                2 => "#E7E6E6", // lt2
-                3 => "#44546A", // dk2
-                4 => "#4472C4", // accent1
-                5 => "#ED7D31", // accent2
-                6 => "#A5A5A5", // accent3
-                7 => "#FFC000", // accent4
-                8 => "#5B9BD5", // accent5
-                9 => "#70AD47", // accent6
-                _ => null
-            };
+            var tint = color.Tint?.Value;
+            return ResolveThemeColor(color.Theme.Value, tint);
         }
         return null;
     }
@@ -684,9 +1397,24 @@ public partial class ExcelHandler
     /// Get cell display value with number formatting applied for HTML preview.
     /// Handles common formats: percentage, thousands separator, decimal places, dates.
     /// </summary>
-    private string GetFormattedCellValue(Cell cell, Stylesheet? stylesheet)
+    private string GetFormattedCellValue(Cell cell, Stylesheet? stylesheet, Core.FormulaEvaluator? evaluator = null)
     {
         var rawValue = GetCellDisplayValue(cell);
+
+        // If the cell has a formula, always try to evaluate (cached values may be stale)
+        if (cell.CellFormula?.Text != null && evaluator != null)
+        {
+            var result = evaluator.TryEvaluateFull(cell.CellFormula.Text);
+            if (result != null)
+            {
+                if (result.IsError) return result.ErrorValue!;
+                rawValue = result.ToCellValueText();
+                if (result.IsString) return rawValue;
+                if (result.IsBool) return result.BoolValue!.Value ? "TRUE" : "FALSE";
+            }
+            // If evaluation fails (null), fall through to use cached value / raw display
+        }
+
         if (string.IsNullOrEmpty(rawValue)) return rawValue;
 
         // Boolean: convert 1/0 to TRUE/FALSE
@@ -846,6 +1574,9 @@ public partial class ExcelHandler
         { prefix += "-"; cleanFmt = cleanFmt[1..]; }
 
         var formatted = ApplyNumberFormatCore(value, cleanFmt.Trim());
+        // For single-section formats with currency prefix, negative sign goes before the prefix
+        if (value < 0 && prefix.Length > 0 && formatted.StartsWith('-'))
+            return "-" + prefix + formatted[1..] + suffix;
         return prefix + formatted + suffix;
     }
 
@@ -963,7 +1694,19 @@ public partial class ExcelHandler
 
     // ==================== CSS ====================
 
-    private static string GenerateExcelCss() => """
+    private string GenerateExcelCss()
+    {
+        // Read default font from workbook styles (font index 0)
+        var defFontName = "Calibri";
+        var defFontSize = "11";
+        var stylesheet = _doc.WorkbookPart?.WorkbookStylesPart?.Stylesheet;
+        if (stylesheet?.Fonts != null && stylesheet.Fonts.Elements<Font>().Any())
+        {
+            var f0 = stylesheet.Fonts.Elements<Font>().First();
+            if (f0.FontName?.Val?.Value != null) defFontName = f0.FontName.Val.Value;
+            if (f0.FontSize?.Val?.Value != null) defFontSize = f0.FontSize.Val.Value.ToString("0.##");
+        }
+        return $$"""
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; }
         body {
@@ -993,50 +1736,45 @@ public partial class ExcelHandler
             z-index: 10;
         }
         .sheet-tab {
+            --tab-color: #e8e8e8;
             padding: 8px 16px;
             font-size: 12px;
             cursor: pointer;
-            border: 1px solid transparent;
+            border: 1px solid #bbb;
             border-top: none;
-            background: #e8e8e8;
-            margin-bottom: 4px;
-            border-radius: 0 0 4px 4px;
+            background: var(--tab-color);
+            color: #fff;
+            margin-bottom: 0;
+            border-radius: 0 0 3px 3px;
             white-space: nowrap;
             user-select: none;
             position: relative;
-            transition: background 0.2s, color 0.2s;
+            transition: background 0.15s, color 0.15s;
         }
-        .sheet-tab::after {
-            content: '';
-            position: absolute;
-            bottom: -4px; left: 4px; right: 4px;
-            height: 3px;
-            background: #217346;
-            border-radius: 2px;
-            transform: scaleX(0);
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        .sheet-tab[style*="--tab-color:#e8e8e8"], .sheet-tab:not([style*="--tab-color"]) {
+            color: #333;
         }
-        .sheet-tab:hover { background: #f5f5f5; }
+        .sheet-tab:hover { opacity: 0.85; }
         .sheet-tab.active {
-            background: #fff;
-            border-color: #ccc;
+            background: linear-gradient(to bottom, #fff 60%, color-mix(in srgb, var(--tab-color) 30%, #fff)) !important;
+            color: #333 !important;
+            border-color: #aaa;
+            border-bottom: 3px solid var(--tab-color);
             font-weight: 600;
         }
-        .sheet-tab.active::after {
-            transform: scaleX(1);
-        }
-        .sheet-slider { flex: 1; position: relative; overflow: hidden; }
-        .sheet-content { background: #fff; display: none; }
-        .sheet-content.active { display: block; }
+        .sheet-slider { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+        .sheet-content { background: #fff; display: none; flex: 1; min-height: 0; }
+        .sheet-content.active { display: flex; flex-direction: column; }
         .table-wrapper {
+            flex: 1;
             overflow: auto;
-            max-height: calc(100vh - 90px);
+            min-height: 0;
             background: #fff;
         }
         table {
             border-collapse: collapse;
-            font-size: 11px;
-            font-family: 'Calibri', 'Segoe UI', sans-serif;
+            font-size: {{defFontSize}}px;
+            font-family: '{{defFontName}}', 'Segoe UI', sans-serif;
             table-layout: fixed;
         }
         .row-header-col { width: 30pt; }
@@ -1063,8 +1801,15 @@ public partial class ExcelHandler
             z-index: 2;
             background: #f8f8f8;
             min-width: 40px;
+            /* Drop right border so the data cell's own (often darker) left border shows through.
+               Otherwise, with border-collapse, the row-header's light grey right border can win
+               the collapse contest and erase the merged-cell left border (rowspan cells especially). */
+            border-right: none;
         }
         td {
+            /* Default gridlines. Explicit OOXML borders are rendered as inline
+               styles on individual cells, which win the border-collapse contest
+               because inline specificity > stylesheet rule. */
             border: 1px solid #e0e0e0;
             padding: 2px 4px;
             white-space: nowrap;
@@ -1107,12 +1852,13 @@ public partial class ExcelHandler
         /* Print styles */
         @media print {
             .file-title, .sheet-tabs { display: none !important; }
-            .table-wrapper { max-height: none !important; overflow: visible !important; }
+            .table-wrapper { max-height: none !important; overflow: visible !important; flex: none !important; }
             body { background: #fff !important; min-height: auto !important; }
-            .sheet-content { display: block !important; }
+            .sheet-content { display: block !important; flex: none !important; }
             td { max-width: none !important; white-space: normal !important; overflow: visible !important; }
         }
         """;
+    }
 
     // ==================== JavaScript ====================
 
@@ -1126,6 +1872,20 @@ public partial class ExcelHandler
             });
             window.scrollTo(0, 0);
         }
+        // Fix frozen row sticky top values using actual rendered heights
+        document.querySelectorAll('.table-wrapper table').forEach(function(table) {
+            var thead = table.querySelector('thead');
+            if (!thead) return;
+            var theadH = thead.offsetHeight;
+            var cumTop = theadH;
+            var frozen = table.querySelectorAll('tr[data-frozen]');
+            frozen.forEach(function(tr) {
+                tr.querySelectorAll('th, td').forEach(function(cell) {
+                    if (cell.style.position === 'sticky') cell.style.top = cumTop + 'px';
+                });
+                cumTop += tr.offsetHeight;
+            });
+        });
         """;
 
     // ==================== Utility ====================
@@ -1145,6 +1905,40 @@ public partial class ExcelHandler
     {
         var encoded = HtmlEncode(text);
         return encoded.Contains('\n') ? encoded.Replace("\n", "<br>") : encoded;
+    }
+
+    private static string BuildCellContent(string cellRef, string value,
+        Dictionary<string, string> dataBarMap, Dictionary<string, string> iconSetMap)
+    {
+        var hasBar = dataBarMap.TryGetValue(cellRef, out var barEntry);
+        var hasIcon = iconSetMap.TryGetValue(cellRef, out var iconEntry);
+        if (!hasBar && !hasIcon) return CellHtml(value);
+
+        // Parse "showValue|html" format
+        var barShowValue = true;
+        var barHtml = "";
+        if (hasBar && barEntry != null)
+        {
+            var sep = barEntry.IndexOf('|');
+            barShowValue = sep < 0 || barEntry[0] != '0';
+            barHtml = sep >= 0 ? barEntry[(sep + 1)..] : barEntry;
+        }
+        var iconShowValue = true;
+        var iconHtml = "";
+        if (hasIcon && iconEntry != null)
+        {
+            var sep = iconEntry.IndexOf('|');
+            iconShowValue = sep < 0 || iconEntry[0] != '0';
+            iconHtml = sep >= 0 ? iconEntry[(sep + 1)..] : iconEntry;
+        }
+        var showValue = barShowValue && iconShowValue;
+
+        var sb = new StringBuilder();
+        if (hasBar) sb.Append(barHtml);
+        if (hasIcon) sb.Append($"<span style=\"position:absolute;left:4px;top:50%;transform:translateY(-50%);z-index:1\">{iconHtml}</span>");
+        if (showValue)
+            sb.Append($"<span style=\"position:relative;z-index:1\">{CellHtml(value)}</span>");
+        return sb.ToString();
     }
 
     private static string CssSanitize(string value)

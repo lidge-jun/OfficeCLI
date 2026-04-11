@@ -15,7 +15,7 @@ namespace OfficeCli.Handlers;
 
 public partial class WordHandler
 {
-    public string Add(string parentPath, string type, int? index, Dictionary<string, string> properties)
+    public string Add(string parentPath, string type, InsertPosition? position, Dictionary<string, string> properties)
     {
         var body = _doc.MainDocumentPart?.Document?.Body
             ?? throw new InvalidOperationException("Document body not found");
@@ -24,11 +24,10 @@ public partial class WordHandler
         if (parentPath is "/" or "" or "/body")
         {
             parent = body;
-            parentPath = "/body"; // Normalize so result paths are usable (e.g. /body/p[1] not //p[1])
+            parentPath = "/body";
         }
         else if (parentPath == "/styles")
         {
-            // Ensure styles part exists for style operations
             var stylesPart = _doc.MainDocumentPart!.StyleDefinitionsPart
                 ?? _doc.MainDocumentPart.AddNewPart<StyleDefinitionsPart>();
             stylesPart.Styles ??= new Styles();
@@ -39,6 +38,18 @@ public partial class WordHandler
             var parts = ParsePath(parentPath);
             parent = NavigateToElement(parts, out var ctx)
                 ?? throw new ArgumentException($"Path not found: {parentPath}" + (ctx != null ? $". {ctx}" : ""));
+        }
+
+        // Resolve --after/--before to index (handles find: prefix for text-based anchoring)
+        var index = ResolveAnchorPosition(parent, parentPath, position);
+
+        // Handle find: prefix — text-based anchoring
+        if (index == FindAnchorIndex && position != null)
+        {
+            var anchorValue = (position.After ?? position.Before)!;
+            var findValue = anchorValue["find:".Length..]; // strip "find:" prefix
+            var isAfter = position.After != null;
+            return AddAtFindPosition(parent, parentPath, type, findValue, isAfter, null, properties);
         }
 
         var resultPath = type.ToLowerInvariant() switch
@@ -61,7 +72,7 @@ public partial class WordHandler
             "style" => AddStyle(parent, parentPath, index, properties),
             "header" => AddHeader(parent, parentPath, index, properties),
             "footer" => AddFooter(parent, parentPath, index, properties),
-            "field" or "pagenum" or "pagenumber" or "numpages" or "date" => AddField(parent, parentPath, index, properties, type),
+            "field" or "pagenum" or "pagenumber" or "page" or "numpages" or "date" or "author" => AddField(parent, parentPath, index, properties, type),
             "pagebreak" or "columnbreak" or "break" => AddBreak(parent, parentPath, index, properties, type),
             "sdt" or "contentcontrol" => AddSdt(parent, parentPath, index, properties),
             "watermark" => AddWatermark(parent, parentPath, index, properties),
@@ -129,25 +140,17 @@ public partial class WordHandler
                         ?? _doc.MainDocumentPart.AddNewPart<DocumentSettingsPart>();
                     settingsPart.Settings ??= new Settings();
                     if (settingsPart.Settings.GetFirstChild<DisplayBackgroundShape>() == null)
-                        settingsPart.Settings.AppendChild(new DisplayBackgroundShape());
+                        settingsPart.Settings.AddChild(new DisplayBackgroundShape());
                     settingsPart.Settings.Save();
                     break;
 
                 case "defaultfont":
-                    var stylesPart = _doc.MainDocumentPart!.StyleDefinitionsPart;
-                    if (stylesPart?.Styles != null)
-                    {
-                        var defaultRunProps = stylesPart.Styles.DocDefaults?.RunPropertiesDefault?.RunPropertiesBaseStyle;
-                        if (defaultRunProps != null)
-                        {
-                            var fonts = defaultRunProps.GetFirstChild<RunFonts>()
-                                ?? defaultRunProps.AppendChild(new RunFonts());
-                            fonts.Ascii = value;
-                            fonts.HighAnsi = value;
-                            fonts.EastAsia = value;
-                            stylesPart.Styles.Save();
-                        }
-                    }
+                    // Delegate to TrySetDocDefaults which uses EnsureRunPropsDefault()
+                    // to create the DocDefaults chain when absent (e.g. blank documents).
+                    TrySetDocDefaults("docdefaults.font", value);
+                    break;
+                case "defaultfontsize":
+                    TrySetDocDefaults("docdefaults.fontsize", value);
                     break;
 
                 case "pagewidth":
@@ -157,16 +160,16 @@ public partial class WordHandler
                     EnsureSectionProperties().GetFirstChild<PageSize>()!.Height = ParseTwips(value);
                     break;
                 case "margintop":
-                    EnsurePageMargin().Top = ParseHelpers.SafeParseInt(value, "margintop");
+                    EnsurePageMargin().Top = (int)ParseTwips(value);
                     break;
                 case "marginbottom":
-                    EnsurePageMargin().Bottom = ParseHelpers.SafeParseInt(value, "marginbottom");
+                    EnsurePageMargin().Bottom = (int)ParseTwips(value);
                     break;
                 case "marginleft":
-                    EnsurePageMargin().Left = ParseHelpers.SafeParseUint(value, "marginleft");
+                    EnsurePageMargin().Left = ParseTwips(value);
                     break;
                 case "marginright":
-                    EnsurePageMargin().Right = ParseHelpers.SafeParseUint(value, "marginright");
+                    EnsurePageMargin().Right = ParseTwips(value);
                     break;
 
                 // Core document properties
@@ -227,17 +230,26 @@ public partial class WordHandler
                     break;
                 }
 
-                case "acceptallchanges":
-                    if (IsTruthy(value))
+                case "acceptallchanges" or "accept-changes" or "acceptchanges":
+                    if (value.Equals("all", StringComparison.OrdinalIgnoreCase) || IsTruthy(value))
                         AcceptAllChanges();
                     break;
-                case "rejectallchanges":
-                    if (IsTruthy(value))
+                case "rejectallchanges" or "reject-changes" or "rejectchanges":
+                    if (value.Equals("all", StringComparison.OrdinalIgnoreCase) || IsTruthy(value))
                         RejectAllChanges();
                     break;
 
                 default:
-                    unsupported?.Add(key);
+                    // Try document settings, section layout, compatibility, and docDefaults
+                    var lowerKey = key.ToLowerInvariant();
+                    if (!TrySetDocSetting(lowerKey, value)
+                        && !TrySetSectionLayout(lowerKey, value)
+                        && !TrySetCompatibility(lowerKey, value)
+                        && !TrySetDocDefaults(lowerKey, value)
+                        && !Core.ThemeHandler.TrySetTheme(_doc.MainDocumentPart?.ThemePart, lowerKey, value)
+                        && !Core.ExtendedPropertiesHandler.TrySetExtendedProperty(
+                            Core.ExtendedPropertiesHandler.GetOrCreateExtendedPart(_doc), lowerKey, value))
+                        unsupported?.Add(key);
                     break;
             }
         }
@@ -253,7 +265,16 @@ public partial class WordHandler
             body.AppendChild(sectPr);
         }
         if (sectPr.GetFirstChild<PageSize>() == null)
-            sectPr.AppendChild(new PageSize { Width = 11906, Height = 16838 }); // A4 default
+        {
+            var pgSz = new PageSize { Width = 11906, Height = 16838 }; // A4 default
+            // Schema order: pgSz must come before pgMar, cols, and docGrid
+            var firstNonRef = sectPr.ChildElements.FirstOrDefault(c =>
+                c is not HeaderReference && c is not FooterReference && c is not SectionType);
+            if (firstNonRef != null)
+                firstNonRef.InsertBeforeSelf(pgSz);
+            else
+                sectPr.AppendChild(pgSz);
+        }
         return sectPr;
     }
 
@@ -264,7 +285,12 @@ public partial class WordHandler
         if (margin == null)
         {
             margin = new PageMargin { Top = 1440, Bottom = 1440, Left = 1800, Right = 1800 };
-            sectPr.AppendChild(margin);
+            // Insert after PageSize to maintain CT_SectPr schema order: pgSz → pgMar → ...
+            var pgSz = sectPr.GetFirstChild<PageSize>();
+            if (pgSz != null)
+                pgSz.InsertAfterSelf(margin);
+            else
+                sectPr.AddChild(margin, throwOnError: false);
         }
         return margin;
     }

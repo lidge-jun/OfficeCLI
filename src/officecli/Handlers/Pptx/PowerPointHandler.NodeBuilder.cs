@@ -57,9 +57,10 @@ public partial class PowerPointHandler
         {
             grpIdx++;
             var grpName = grp.NonVisualGroupShapeProperties?.NonVisualDrawingProperties?.Name?.Value ?? "Group";
+            var grpPathSeg = BuildElementPathSegment("group", grp, grpIdx);
             var grpNode = new DocumentNode
             {
-                Path = $"/slide[{slideNum}]/group[{grpIdx}]",
+                Path = $"/slide[{slideNum}]/{grpPathSeg}",
                 Type = "group",
                 Preview = grpName,
                 ChildCount = grp.Elements<Shape>().Count() + grp.Elements<Picture>().Count()
@@ -110,15 +111,18 @@ public partial class PowerPointHandler
         var cols = rows.FirstOrDefault()?.Elements<Drawing.TableCell>().Count() ?? 0;
         var name = gf.NonVisualGraphicFrameProperties?.NonVisualDrawingProperties?.Name?.Value ?? "Table";
 
+        var tblPathSeg = BuildElementPathSegment("table", gf, tblIdx);
         var node = new DocumentNode
         {
-            Path = $"/slide[{slideNum}]/table[{tblIdx}]",
+            Path = $"/slide[{slideNum}]/{tblPathSeg}",
             Type = "table",
             Preview = $"{name} ({rows.Count}x{cols})",
             ChildCount = rows.Count
         };
 
         node.Format["name"] = name;
+        var tblId = GetCNvPrId(gf);
+        if (tblId.HasValue) node.Format["id"] = tblId.Value;
         node.Format["rows"] = rows.Count;
         node.Format["cols"] = cols;
 
@@ -173,7 +177,7 @@ public partial class PowerPointHandler
                 rIdx++;
                 var rowNode = new DocumentNode
                 {
-                    Path = $"/slide[{slideNum}]/table[{tblIdx}]/tr[{rIdx}]",
+                    Path = $"/slide[{slideNum}]/{tblPathSeg}/tr[{rIdx}]",
                     Type = "tr",
                     ChildCount = row.Elements<Drawing.TableCell>().Count()
                 };
@@ -191,7 +195,7 @@ public partial class PowerPointHandler
                         var cellText = cell.TextBody?.InnerText ?? "";
                         var cellNode = new DocumentNode
                         {
-                            Path = $"/slide[{slideNum}]/table[{tblIdx}]/tr[{rIdx}]/tc[{cIdx}]",
+                            Path = $"/slide[{slideNum}]/{tblPathSeg}/tr[{rIdx}]/tc[{cIdx}]",
                             Type = "tc",
                             Text = cellText
                         };
@@ -207,23 +211,9 @@ public partial class PowerPointHandler
                         }
                         else if (tcPr?.GetFirstChild<Drawing.GradientFill>() is { } gradFill)
                         {
-                            var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>().ToList();
-                            if (stops != null && stops.Count >= 2)
-                            {
-                                var gc1 = stops[0].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-                                var gc2 = stops[^1].GetFirstChild<Drawing.RgbColorModelHex>()?.Val?.Value;
-                                if (!string.IsNullOrEmpty(gc1) && !string.IsNullOrEmpty(gc2))
-                                {
-                                    var gc1Fmt = ParseHelpers.FormatHexColor(gc1);
-                                    var gc2Fmt = ParseHelpers.FormatHexColor(gc2);
-                                    var lin = gradFill.GetFirstChild<Drawing.LinearGradientFill>();
-                                    var deg = lin?.Angle?.Value != null ? lin.Angle.Value / 60000.0 : 0.0;
-                                    var degStr = deg % 1 == 0 ? $"{(int)deg}" : $"{deg:0.##}";
-                                    var gradient = $"linear;{gc1Fmt};{gc2Fmt};{degStr}";
-                                    cellNode.Format["gradient"] = gradient;
-                                    cellNode.Format["fill"] = deg != 0 ? $"{gc1Fmt}-{gc2Fmt}-{degStr}" : $"{gc1Fmt}-{gc2Fmt}";
-                                }
-                            }
+                            // Preserve all stops (including intermediate ones) via the shared helper.
+                            cellNode.Format["gradient"] = ReadGradientString(gradFill);
+                            cellNode.Format["fill"] = "gradient";
                         }
                         else
                         {
@@ -319,15 +309,18 @@ public partial class PowerPointHandler
             && shape.TextBody.Descendants().Any(e => e.LocalName == "oMath" || e.LocalName == "oMathPara"
                 || (e.LocalName == "m" && e.NamespaceUri == "http://schemas.microsoft.com/office/drawing/2010/main"));
 
+        var shapePathSeg = BuildElementPathSegment("shape", shape, shapeIdx);
         var node = new DocumentNode
         {
-            Path = $"/slide[{slideNum}]/shape[{shapeIdx}]",
+            Path = $"/slide[{slideNum}]/{shapePathSeg}",
             Type = isTitle ? "title" : isEquation ? "equation" : "textbox",
             Text = text,
             Preview = string.IsNullOrEmpty(text) ? name : (text.Length > 50 ? text[..50] + "..." : text)
         };
 
         node.Format["name"] = name;
+        var shapeId = GetCNvPrId(shape);
+        if (shapeId.HasValue) node.Format["id"] = shapeId.Value;
         if (isTitle) node.Format["isTitle"] = true;
 
         // Position and size
@@ -414,8 +407,32 @@ public partial class PowerPointHandler
         {
             var charBullet = firstParaBullet.GetFirstChild<Drawing.CharacterBullet>();
             var autoBullet = firstParaBullet.GetFirstChild<Drawing.AutoNumberedBullet>();
-            if (charBullet != null) node.Format["list"] = charBullet.Char?.Value ?? "•";
-            else if (autoBullet?.Type?.HasValue == true) node.Format["list"] = autoBullet.Type.InnerText;
+            if (charBullet != null)
+            {
+                var charVal = charBullet.Char?.Value ?? "•";
+                node.Format["list"] = charVal switch
+                {
+                    "•" or "●" or "○" => "bullet",
+                    "–" or "—" or "-" => "dash",
+                    "►" or "▶" or "▸" or "➤" => "arrow",
+                    "✓" or "✔" => "check",
+                    "★" or "☆" or "⭐" => "star",
+                    _ => charVal
+                };
+            }
+            else if (autoBullet?.Type?.HasValue == true)
+            {
+                var autoVal = autoBullet.Type.InnerText;
+                node.Format["list"] = autoVal switch
+                {
+                    "arabicPeriod" or "arabicParenR" or "arabicPlain" or "arabicParenBoth" => "numbered",
+                    "romanLcPeriod" or "romanLcParenR" or "romanLcParenBoth" => "romanLc",
+                    "romanUcPeriod" or "romanUcParenR" or "romanUcParenBoth" => "romanUc",
+                    "alphaLcPeriod" or "alphaLcParenR" or "alphaLcParenBoth" => "alphaLc",
+                    "alphaUcPeriod" or "alphaUcParenR" or "alphaUcParenBoth" => "alphaUc",
+                    _ => autoVal
+                };
+            }
         }
 
         // Collect font info
@@ -493,7 +510,7 @@ public partial class PowerPointHandler
             var lineColor = ReadColorFromFill(lineSolidFill);
             if (lineColor != null) node.Format["line"] = lineColor;
             if (outline.GetFirstChild<Drawing.NoFill>() != null) node.Format["line"] = "none";
-            if (outline.Width?.HasValue == true) node.Format["lineWidth"] = FormatEmu(outline.Width.Value);
+            if (outline.Width?.HasValue == true) node.Format["lineWidth"] = FormatLineWidth(outline.Width.Value);
             var dash = outline.GetFirstChild<Drawing.PresetDash>();
             if (dash?.Val?.HasValue == true)
             {
@@ -709,7 +726,7 @@ public partial class PowerPointHandler
 
                     var paraNode = new DocumentNode
                     {
-                        Path = $"/slide[{slideNum}]/shape[{shapeIdx}]/paragraph[{paraIdx + 1}]",
+                        Path = $"/slide[{slideNum}]/{shapePathSeg}/paragraph[{paraIdx + 1}]",
                         Type = "paragraph",
                         Text = paraText,
                         ChildCount = paraRuns.Count
@@ -744,7 +761,7 @@ public partial class PowerPointHandler
                         foreach (var run in paraRuns)
                         {
                             paraNode.Children.Add(RunToNode(run,
-                                $"/slide[{slideNum}]/shape[{shapeIdx}]/paragraph[{paraIdx + 1}]/run[{runIdx + 1}]", part));
+                                $"/slide[{slideNum}]/{shapePathSeg}/paragraph[{paraIdx + 1}]/run[{runIdx + 1}]", part));
                             runIdx++;
                         }
                     }
@@ -830,14 +847,17 @@ public partial class PowerPointHandler
         var isAudio = nvPr?.GetFirstChild<Drawing.AudioFromFile>() != null;
         var mediaType = isVideo ? "video" : isAudio ? "audio" : "picture";
 
+        var picPathSeg = BuildElementPathSegment("picture", pic, picIdx);
         var node = new DocumentNode
         {
-            Path = $"/slide[{slideNum}]/picture[{picIdx}]",
+            Path = $"/slide[{slideNum}]/{picPathSeg}",
             Type = mediaType,
             Preview = name
         };
 
         node.Format["name"] = name;
+        var picId = GetCNvPrId(pic);
+        if (picId.HasValue) node.Format["id"] = picId.Value;
         if (!isVideo && !isAudio)
         {
             if (!string.IsNullOrEmpty(alt)) node.Format["alt"] = alt;
@@ -982,13 +1002,16 @@ public partial class PowerPointHandler
     private static DocumentNode ConnectorToNode(ConnectionShape cxn, int slideNum, int cxnIdx)
     {
         var name = cxn.NonVisualConnectionShapeProperties?.NonVisualDrawingProperties?.Name?.Value ?? "Connector";
+        var cxnPathSeg = BuildElementPathSegment("connector", cxn, cxnIdx);
         var node = new DocumentNode
         {
-            Path = $"/slide[{slideNum}]/connector[{cxnIdx}]",
+            Path = $"/slide[{slideNum}]/{cxnPathSeg}",
             Type = "connector",
             Preview = name
         };
         node.Format["name"] = name;
+        var cxnId = GetCNvPrId(cxn);
+        if (cxnId.HasValue) node.Format["id"] = cxnId.Value;
 
         var spPr = cxn.ShapeProperties;
         var xfrm = spPr?.GetFirstChild<Drawing.Transform2D>();
@@ -1011,7 +1034,7 @@ public partial class PowerPointHandler
 
         var ln = spPr?.GetFirstChild<Drawing.Outline>();
         if (ln?.Width?.HasValue == true)
-            node.Format["lineWidth"] = FormatEmu(ln.Width.Value);
+            node.Format["lineWidth"] = FormatLineWidth(ln.Width.Value);
         var cxnDash = ln?.GetFirstChild<Drawing.PresetDash>();
         if (cxnDash?.Val?.HasValue == true)
         {

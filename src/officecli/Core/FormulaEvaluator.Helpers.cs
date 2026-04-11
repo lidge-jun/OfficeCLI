@@ -28,6 +28,17 @@ internal partial class FormulaEvaluator
             : a is double[] arr ? arr.Select(v => FormulaResult.Number(v))
             : a is FormulaResult r ? [r] : Enumerable.Empty<FormulaResult>()).ToList();
 
+    /// <summary>Returns the first error found in any RangeData or FormulaResult arg, or null.</summary>
+    private static FormulaResult? CheckRangeErrors(List<object> args)
+    {
+        foreach (var a in args)
+        {
+            if (a is RangeData rd) { var err = rd.FirstError(); if (err != null) return err; }
+            else if (a is FormulaResult { IsError: true } e) return e;
+        }
+        return null;
+    }
+
     private static double[] FlattenNumbers(List<object> args)
     {
         var result = new List<double>();

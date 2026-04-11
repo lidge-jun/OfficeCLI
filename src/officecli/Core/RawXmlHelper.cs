@@ -14,7 +14,7 @@ namespace OfficeCli.Core;
 /// Shared helper for raw XML operations (read/write via XPath).
 /// This enables AI to perform any OpenXML operation by manipulating XML directly.
 /// </summary>
-public static class RawXmlHelper
+internal static class RawXmlHelper
 {
     /// <summary>
     /// Perform a raw XML operation on a document part's root element.

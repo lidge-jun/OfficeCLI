@@ -11,7 +11,7 @@ namespace OfficeCli.Core;
 /// Traverses the OpenXML element tree matching by XML local name and attributes.
 /// Used as a fallback when the element type is not recognized by handler-specific (Scheme A) logic.
 /// </summary>
-public static class GenericXmlQuery
+internal static class GenericXmlQuery
 {
     /// <summary>
     /// Query an OpenXML element tree by XML local name and attribute filters.

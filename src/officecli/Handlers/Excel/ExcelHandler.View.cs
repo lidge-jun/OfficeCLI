@@ -27,6 +27,7 @@ public partial class ExcelHandler
             if (sheetData == null) continue;
 
             int totalRows = sheetData.Elements<Row>().Count();
+            var evaluator = new Core.FormulaEvaluator(sheetData, _doc.WorkbookPart);
             int lineNum = 0;
             foreach (var row in sheetData.Elements<Row>())
             {
@@ -44,7 +45,7 @@ public partial class ExcelHandler
                 var cellElements = row.Elements<Cell>();
                 if (cols != null)
                     cellElements = cellElements.Where(c => cols.Contains(ParseCellReference(c.CellReference?.Value ?? "A1").Column));
-                var cells = cellElements.Select(c => GetCellDisplayValue(c)).ToArray();
+                var cells = cellElements.Select(c => GetCellDisplayValue(c, evaluator)).ToArray();
                 var rowRef = row.RowIndex?.Value ?? (uint)lineNum;
                 sb.AppendLine($"[/{sheetName}/row[{rowRef}]] {string.Join("\t", cells)}");
                 emitted++;
@@ -145,7 +146,16 @@ public partial class ExcelHandler
             }
 
             var formulaInfo = formulaCount > 0 ? $", {formulaCount} formula(s)" : "";
-            sb.AppendLine($"\u251c\u2500\u2500 \"{name}\" ({rowCount} rows \u00d7 {colCount} cols{formulaInfo})");
+
+            // Pivot tables are stored as pivotTableDefinition XML; their rendered cells
+            // are NOT materialized into sheetData (Excel/Calc re-render from pivotCacheRecords
+            // at display time). Without this hint, a pivot-only sheet looks like "0 rows × 0 cols"
+            // and users think it's empty. Surface the pivot count explicitly — same strategy POI
+            // takes via XSSFSheet.getPivotTables(). See also: query pivottable.
+            int pivotCount = worksheetPart.PivotTableParts.Count();
+            var pivotInfo = pivotCount > 0 ? $", {pivotCount} pivot table(s)" : "";
+
+            sb.AppendLine($"\u251c\u2500\u2500 \"{name}\" ({rowCount} rows \u00d7 {colCount} cols{formulaInfo}{pivotInfo})");
         }
 
         return sb.ToString().TrimEnd();

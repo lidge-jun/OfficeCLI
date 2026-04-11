@@ -560,7 +560,16 @@ public partial class PowerPointHandler
                     bodyPr.RemoveAllChildren<Drawing.PresetTextWarp>();
                     if (!string.IsNullOrWhiteSpace(value) && !value.Equals("none", StringComparison.OrdinalIgnoreCase))
                     {
-                        var warpName = value.StartsWith("text") ? value : $"text{char.ToUpper(value[0])}{value[1..]}";
+                        // Resolve ambiguous shorthands before applying the "text" prefix
+                        var resolved = value.ToLowerInvariant() switch
+                        {
+                            "wave" => "textWave1",
+                            "arch" => "textArchUp",
+                            "circle" => "textCircle",
+                            "button" => "textButton",
+                            _ => value
+                        };
+                        var warpName = resolved.StartsWith("text", StringComparison.OrdinalIgnoreCase) ? resolved : $"text{char.ToUpper(resolved[0])}{resolved[1..]}";
                         var warpEnum = new Drawing.TextShapeValues(warpName);
                         var validator = new DocumentFormat.OpenXml.Validation.OpenXmlValidator();
                         var testWarp = new Drawing.PresetTextWarp(new Drawing.AdjustValueList()) { Preset = warpEnum };
@@ -605,7 +614,7 @@ public partial class PowerPointHandler
                     var spPr = shape.ShapeProperties;
                     if (spPr == null) { unsupported.Add(key); break; }
                     var shadowVal = value;
-                    if (IsTruthy(shadowVal)) shadowVal = "000000";
+                    if (IsValidBooleanString(shadowVal) && IsTruthy(shadowVal)) shadowVal = "000000";
                     if (IsNoFillShape(spPr) && runs.Count > 0)
                         foreach (var run in runs) ApplyTextShadow(run, shadowVal);
                     else
@@ -618,7 +627,7 @@ public partial class PowerPointHandler
                     var spPr = shape.ShapeProperties;
                     if (spPr == null) { unsupported.Add(key); break; }
                     var glowVal = value;
-                    if (IsTruthy(glowVal)) glowVal = "4472C4";
+                    if (IsValidBooleanString(glowVal) && IsTruthy(glowVal)) glowVal = "4472C4";
                     if (IsNoFillShape(spPr) && runs.Count > 0)
                         foreach (var run in runs) ApplyTextGlow(run, glowVal);
                     else
@@ -852,6 +861,40 @@ public partial class PowerPointHandler
         para.Append(run);
     }
 
+    /// <summary>
+    /// Replace the text content of a table cell's first paragraph with the given value.
+    /// Removes any existing runs/breaks and preserves EndParagraphRunProperties ordering
+    /// (schema requires Run before EndParagraphRunProperties).
+    /// </summary>
+    private static void ReplaceCellText(Drawing.TableCell cell, string value)
+    {
+        var txBody = cell.TextBody;
+        if (txBody == null)
+        {
+            txBody = new Drawing.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph());
+            cell.AppendChild(txBody);
+        }
+        var para = txBody.Elements<Drawing.Paragraph>().FirstOrDefault()
+            ?? txBody.AppendChild(new Drawing.Paragraph());
+        para.RemoveAllChildren<Drawing.Run>();
+        para.RemoveAllChildren<Drawing.Break>();
+        var savedEndParaRPr = para.Elements<Drawing.EndParagraphRunProperties>().FirstOrDefault();
+        if (savedEndParaRPr != null)
+            savedEndParaRPr.Remove();
+        if (!string.IsNullOrEmpty(value))
+        {
+            var newRun = new Drawing.Run(
+                new Drawing.RunProperties { Language = "en-US" },
+                new Drawing.Text { Text = value });
+            para.AppendChild(newRun);
+        }
+        if (savedEndParaRPr != null)
+            para.AppendChild(savedEndParaRPr);
+    }
+
     private static List<string> SetTableCellProperties(Drawing.TableCell cell, Dictionary<string, string> properties)
     {
         var unsupported = new List<string>();
@@ -930,7 +973,8 @@ public partial class PowerPointHandler
                     {
                         var rProps = run.RunProperties ?? (run.RunProperties = new Drawing.RunProperties());
                         rProps.RemoveAllChildren<Drawing.SolidFill>();
-                        rProps.AppendChild((Drawing.SolidFill)cellColorFill.CloneNode(true));
+                        rProps.RemoveAllChildren<Drawing.GradientFill>();
+                        InsertFillInRunProperties(rProps, (Drawing.SolidFill)cellColorFill.CloneNode(true));
                     }
                     break;
                 }
@@ -1509,6 +1553,16 @@ public partial class PowerPointHandler
                     break;
             }
         }
+
+        // Ensure DrawingML CT_TextCharacterProperties child order (B-R9-2 / B-R13-2).
+        // Our switch arms append children independently (solidFill, latin, ea, ...),
+        // which produces a mixed order that OpenXmlValidator flags as schema violations
+        // and PowerPoint silently drops out-of-order elements. Reorder once at the end.
+        foreach (var rPr in cell.Descendants<Drawing.RunProperties>())
+            ReorderDrawingRunProperties(rPr);
+        foreach (var endRPr in cell.Descendants<Drawing.EndParagraphRunProperties>())
+            ReorderDrawingRunProperties(endRPr);
+
         return unsupported;
     }
 

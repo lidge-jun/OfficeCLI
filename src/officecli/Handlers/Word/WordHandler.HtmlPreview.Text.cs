@@ -15,6 +15,11 @@ namespace OfficeCli.Handlers;
 
 public partial class WordHandler
 {
+    // CJK line-break hooks — partial methods are eliminated by the compiler when no implementation exists
+    partial void OnHtmlParagraphBegin(Paragraph para);
+    partial void OnHtmlParagraphEnd(StringBuilder sb);
+    partial void OnHtmlRenderText(StringBuilder sb, string text, RunProperties? rProps, string? runStyle, ref bool handled);
+
     // ==================== Paragraph Content ====================
 
     private void RenderParagraphHtml(StringBuilder sb, Paragraph para)
@@ -36,6 +41,8 @@ public partial class WordHandler
 
     private void RenderParagraphContentHtml(StringBuilder sb, Paragraph para)
     {
+        OnHtmlParagraphBegin(para);
+
         // Render bookmark anchors for internal hyperlink targets
         foreach (var bm in para.Elements<BookmarkStart>())
         {
@@ -147,6 +154,8 @@ public partial class WordHandler
                     RenderRunHtml(sb, fldRun, para);
             }
         }
+
+        OnHtmlParagraphEnd(sb);
     }
 
     // ==================== Run Rendering ====================
@@ -159,6 +168,15 @@ public partial class WordHandler
         if (drawing != null)
         {
             RenderDrawingHtml(sb, drawing);
+            return;
+        }
+
+        // OLE embedded objects (Visio, Excel, etc.) carry a v:imagedata
+        // preview image that we can render for a read-only snapshot.
+        var oleObject = run.GetFirstChild<EmbeddedObject>();
+        if (oleObject != null)
+        {
+            RenderOlePreviewHtml(sb, oleObject);
             return;
         }
 
@@ -194,7 +212,10 @@ public partial class WordHandler
         var rProps = ResolveEffectiveRunProperties(run, para);
         var style = GetRunInlineCss(rProps);
         var needsSpan = !string.IsNullOrEmpty(style);
-        if (needsSpan)
+
+        // When line-break tracking is active, text is buffered and flushed later
+        // with style spans — skip the outer span to avoid double-wrapping
+        if (needsSpan && !_ctx.LineBreakEnabled)
             sb.Append($"<span style=\"{style}\">");
 
         foreach (var child in run.ChildElements)
@@ -241,7 +262,12 @@ public partial class WordHandler
             else if (child.LocalName == "softHyphen")
                 sb.Append("&shy;");
             else if (child is Text t && !string.IsNullOrEmpty(t.Text))
-                sb.Append(HtmlEncode(t.Text));
+            {
+                bool handled = false;
+                OnHtmlRenderText(sb, t.Text, rProps, style, ref handled);
+                if (!handled)
+                    sb.Append(HtmlEncode(t.Text));
+            }
             else if (child is SymbolChar sym)
             {
                 // w:sym — render with correct font family for symbol fonts
@@ -259,8 +285,102 @@ public partial class WordHandler
             }
         }
 
-        if (needsSpan)
+        if (needsSpan && !_ctx.LineBreakEnabled)
             sb.Append("</span>");
+    }
+
+    // ==================== OLE Object Preview Rendering ====================
+
+    /// <summary>
+    /// Render the VML preview image that accompanies an embedded OLE object
+    /// (e.g. a Visio diagram). Web-compatible formats (PNG/JPEG/GIF/SVG/WebP/BMP)
+    /// render as a data-URI &lt;img&gt;; browser-unrenderable formats (EMF/WMF/TIFF)
+    /// fall back to a sized placeholder &lt;div&gt;. Pure OpenXML — no GDI and no
+    /// System.Drawing dependency.
+    /// </summary>
+    private void RenderOlePreviewHtml(StringBuilder sb, OpenXmlElement oleObj)
+    {
+        var imageData = oleObj.Descendants().FirstOrDefault(e => e.LocalName == "imagedata");
+        if (imageData == null) return;
+
+        // The r:id attribute lives in the relationships namespace.
+        string? relId = null;
+        foreach (var attr in imageData.GetAttributes())
+        {
+            if (attr.LocalName == "id" && (attr.NamespaceUri?.Contains("relationships") ?? false))
+            {
+                relId = attr.Value;
+                break;
+            }
+        }
+        if (string.IsNullOrEmpty(relId)) return;
+
+        var dataUri = LoadImageAsDataUri(relId);
+        if (dataUri == null) return;
+
+        // Display size comes from the companion v:shape style
+        // ("width:Xpt;height:Ypt"), falling back to the w:object
+        // dxaOrig/dyaOrig twip attributes if the shape style is missing.
+        double widthPt = 0, heightPt = 0;
+        var shape = oleObj.Descendants().FirstOrDefault(e => e.LocalName == "shape");
+        if (shape != null)
+        {
+            var styleAttr = shape.GetAttributes().FirstOrDefault(a => a.LocalName == "style").Value;
+            if (!string.IsNullOrEmpty(styleAttr))
+            {
+                var wMatch = Regex.Match(styleAttr, @"width:([\d.]+)pt");
+                var hMatch = Regex.Match(styleAttr, @"height:([\d.]+)pt");
+                if (wMatch.Success)
+                    double.TryParse(wMatch.Groups[1].Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out widthPt);
+                if (hMatch.Success)
+                    double.TryParse(hMatch.Groups[1].Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out heightPt);
+            }
+        }
+        if (widthPt == 0 || heightPt == 0)
+        {
+            foreach (var attr in oleObj.GetAttributes())
+            {
+                if (attr.LocalName == "dxaOrig" && int.TryParse(attr.Value, out var dxa))
+                    widthPt = dxa / 20.0;
+                if (attr.LocalName == "dyaOrig" && int.TryParse(attr.Value, out var dya))
+                    heightPt = dya / 20.0;
+            }
+        }
+
+        var widthPx = widthPt > 0 ? (long)(widthPt * 96 / 72) : 0;
+        var heightPx = heightPt > 0 ? (long)(heightPt * 96 / 72) : 0;
+
+        bool isWebCompatible = dataUri.Contains("image/png")
+            || dataUri.Contains("image/jpeg")
+            || dataUri.Contains("image/gif")
+            || dataUri.Contains("image/svg")
+            || dataUri.Contains("image/webp")
+            || dataUri.Contains("image/bmp");
+
+        if (isWebCompatible)
+        {
+            var widthAttr = widthPx > 0 ? $" width=\"{widthPx}\"" : "";
+            var heightAttr = heightPx > 0 ? $" height=\"{heightPx}\"" : "";
+            var sizeStyle = widthPx > 0
+                ? $"max-width:100%;width:{widthPx}px;height:auto"
+                : "max-width:100%";
+            sb.Append($"<img src=\"{dataUri}\" alt=\"Embedded object\"{widthAttr}{heightAttr} style=\"{sizeStyle}\">");
+        }
+        else
+        {
+            // EMF / WMF / TIFF — browsers cannot render these natively.
+            // Emit a sized placeholder so the layout keeps its footprint.
+            var ph = widthPx > 0 && heightPx > 0
+                ? $"width:{widthPx}px;height:{heightPx}px;max-width:100%"
+                : "min-width:200px;min-height:100px";
+            sb.Append($"<div class=\"ole-placeholder\" style=\"{ph};border:1px dashed #bbb;background:#f5f5f5;display:flex;align-items:center;justify-content:center;color:#888;font-size:13px;margin:8px 0\">");
+            sb.Append("Embedded Object (preview not supported in browser)");
+            sb.Append("</div>");
+        }
     }
 
     // Footnote/endnote reference tracking is in _ctx.FootnoteRefs / _ctx.EndnoteRefs
@@ -271,7 +391,10 @@ public partial class WordHandler
         var fnPart = _doc.MainDocumentPart?.FootnotesPart;
         if (fnPart?.Footnotes == null) return;
 
-        sb.AppendLine("<div class=\"footnotes\" style=\"font-size:9pt;color:#555\">");
+        var fnSize = ResolveStyleFontSize("FootnoteText") ?? "10pt";
+        var fnColor = ResolveStyleColor("FootnoteText");
+        var fnColorCss = fnColor != null ? $";color:{fnColor}" : "";
+        sb.AppendLine($"<div class=\"footnotes\" style=\"font-size:{fnSize}{fnColorCss}\">");
         sb.AppendLine("<hr style=\"margin-top:0;margin-bottom:0.5em;border:none;border-top:1px solid #ccc;width:33%\">");
 
         var fnFmt = GetFootnoteNumFmt();
@@ -301,7 +424,8 @@ public partial class WordHandler
         var enPart = _doc.MainDocumentPart?.EndnotesPart;
         if (enPart?.Endnotes == null) return;
 
-        sb.AppendLine("<div class=\"endnotes\">");
+        var enSize = ResolveStyleFontSize("EndnoteText") ?? "10pt";
+        sb.AppendLine($"<div class=\"endnotes\" style=\"font-size:{enSize}\">");
         sb.AppendLine("<hr style=\"margin-top:2em;margin-bottom:0.5em;border:none;border-top:1px solid #ccc;width:33%\">");
 
         var enFmt = GetEndnoteNumFmt();
@@ -313,7 +437,9 @@ public partial class WordHandler
             if (en == null) continue;
 
             var enLabel = FormatNoteNumber(num, enFmt);
-            sb.Append($"<div id=\"en{enId}\" style=\"margin:0.3em 0;text-indent:21.6pt\"><sup>{enLabel}</sup> ");
+            var enIndent = ResolveStyleIndent("EndnoteText");
+            var enIndentCss = enIndent != null ? $"text-indent:{enIndent}" : "";
+            sb.Append($"<div id=\"en{enId}\" style=\"margin:0.3em 0;{enIndentCss}\"><sup>{enLabel}</sup> ");
             var enParas = en.Elements<Paragraph>().ToList();
             for (int pi = 0; pi < enParas.Count; pi++)
             {

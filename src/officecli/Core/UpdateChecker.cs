@@ -121,20 +121,24 @@ internal static class UpdateChecker
             downloadClient.Timeout = TimeSpan.FromMinutes(5);
 
             var downloadUrl = $"{resolvedBase}/releases/latest/download/{assetName}";
-            var tempPath = exePath + ".update";
+            var finalPath = exePath + ".update";
+            // Stage download to .partial so a crashed/killed download never leaves
+            // a truncated PE at the canonical .update path that ApplyPendingUpdate would apply.
+            var partialPath = exePath + ".update.partial";
+            try { File.Delete(partialPath); } catch { }
             using (var stream = downloadClient.GetStreamAsync(downloadUrl).GetAwaiter().GetResult())
-            using (var fileStream = File.Create(tempPath))
+            using (var fileStream = File.Create(partialPath))
             {
                 stream.CopyTo(fileStream);
             }
 
             // Verify downloaded binary can start
             if (!OperatingSystem.IsWindows())
-                Process.Start("chmod", $"+x \"{tempPath}\"")?.WaitForExit(3000);
+                Process.Start("chmod", $"+x \"{partialPath}\"")?.WaitForExit(3000);
 
             var verify = Process.Start(new ProcessStartInfo
             {
-                FileName = tempPath,
+                FileName = partialPath,
                 Arguments = "--version",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -144,14 +148,26 @@ internal static class UpdateChecker
             });
             if (verify == null)
             {
-                try { File.Delete(tempPath); } catch { }
+                try { File.Delete(partialPath); } catch { }
                 return;
             }
             var exited = verify.WaitForExit(5000);
             if (!exited || verify.ExitCode != 0)
             {
                 if (!exited) try { verify.Kill(); } catch { }
-                try { File.Delete(tempPath); } catch { }
+                try { File.Delete(partialPath); } catch { }
+                return;
+            }
+
+            // Atomically promote .partial -> .update only after verification.
+            try { File.Delete(finalPath); } catch { }
+            try
+            {
+                File.Move(partialPath, finalPath, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(partialPath); } catch { }
                 return;
             }
 
@@ -164,15 +180,15 @@ internal static class UpdateChecker
                 // Unix: replace in-place (safe even while running)
                 var oldPath = exePath + ".old";
                 try { File.Delete(oldPath); } catch { }
-                File.Move(exePath, oldPath);
+                File.Move(exePath, oldPath, overwrite: true);
                 try
                 {
-                    File.Move(tempPath, exePath);
+                    File.Move(finalPath, exePath, overwrite: true);
                 }
                 catch
                 {
                     // Rollback: restore original if new file failed to move
-                    try { File.Move(oldPath, exePath); } catch { }
+                    try { File.Move(oldPath, exePath, overwrite: true); } catch { }
                     return;
                 }
                 try { File.Delete(oldPath); } catch { }
@@ -196,30 +212,40 @@ internal static class UpdateChecker
     /// </summary>
     private static void ApplyPendingUpdate()
     {
+        var exePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+        if (exePath == null) return;
+        TryApplyPendingUpdate(exePath);
+    }
+
+    /// <summary>
+    /// Test seam: applies a pending <c>{exePath}.update</c> by swapping it into place.
+    /// Note: only the canonical <c>.update</c> file is applied — a stale
+    /// <c>.update.partial</c> from an interrupted download is intentionally ignored.
+    /// </summary>
+    internal static bool TryApplyPendingUpdate(string exePath)
+    {
         try
         {
-            var exePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
-            if (exePath == null) return;
-
             var updatePath = exePath + ".update";
-            if (!File.Exists(updatePath)) return;
+            if (!File.Exists(updatePath)) return false;
 
             var oldPath = exePath + ".old";
             try { File.Delete(oldPath); } catch { }
-            File.Move(exePath, oldPath);
+            File.Move(exePath, oldPath, overwrite: true);
             try
             {
-                File.Move(updatePath, exePath);
+                File.Move(updatePath, exePath, overwrite: true);
             }
             catch
             {
                 // Rollback: restore original
-                try { File.Move(oldPath, exePath); } catch { }
-                return;
+                try { File.Move(oldPath, exePath, overwrite: true); } catch { }
+                return false;
             }
             try { File.Delete(oldPath); } catch { }
+            return true;
         }
-        catch { }
+        catch { return false; }
     }
 
     private static string? GetAssetName()
@@ -248,12 +274,39 @@ internal static class UpdateChecker
                 FileName = exePath,
                 Arguments = "__update-check__",
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                // Redirect child stdio away from the parent's console. Without
+                // these flags the child inherits the parent's stdout/stderr,
+                // which is a problem in two concrete scenarios:
+                //   (a) the parent is an MCP server — its stdout carries the
+                //       JSON-RPC protocol stream, and any byte the update-
+                //       check writes there would corrupt the protocol and
+                //       disconnect the MCP client;
+                //   (b) the parent is an interactive shell command that exits
+                //       before the child finishes — the child's "downloaded
+                //       v1.2.3" or error messages would then surface on the
+                //       user's terminal at a seemingly random later moment.
+                // We redirect to pipes and never Read them; the pipes are
+                // closed when the child exits. This cannot break the upgrade
+                // itself: RunRefresh() only writes to stdout/stderr for
+                // debugging/never (it's silent-on-success, silent-on-failure
+                // by design), and the download / verify / File.Move chain
+                // doesn't touch the console stream at all.
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true
             };
 
             var process = Process.Start(startInfo);
-            // Don't wait — let it run independently
-            process?.Dispose();
+            if (process == null) return;
+            // Close our end of stdin immediately so the child sees EOF if it
+            // ever tries to read (defensive — RunRefresh doesn't read stdin).
+            try { process.StandardInput.Close(); } catch { }
+            // Don't wait, don't Read the redirected streams. When the child
+            // exits the OS closes its side of the pipes; the .NET runtime's
+            // SIGCHLD reaper waits on it so it never becomes a zombie even
+            // though we never call WaitForExit.
+            process.Dispose();
         }
         catch { }
     }
@@ -350,11 +403,16 @@ internal static class UpdateChecker
         catch { return new AppConfig(); }
     }
 
-    private static void SaveConfig(AppConfig config)
+    internal static void SaveConfig(AppConfig config)
     {
+        Directory.CreateDirectory(ConfigDir);
         var json = JsonSerializer.Serialize(config, AppConfigContext.Default.AppConfig);
         File.WriteAllText(ConfigPath, json);
     }
+
+    internal static string? GetCurrentVersionPublic() => GetCurrentVersion();
+
+    internal static bool IsNewerPublic(string latest, string current) => IsNewer(latest, current);
 }
 
 internal class AppConfig
@@ -363,6 +421,7 @@ internal class AppConfig
     public string? LatestVersion { get; set; }
     public bool AutoUpdate { get; set; } = true;
     public bool Log { get; set; }
+    public string? InstalledBinaryVersion { get; set; }
 }
 
 [JsonSerializable(typeof(AppConfig))]

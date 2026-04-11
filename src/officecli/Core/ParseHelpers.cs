@@ -11,7 +11,7 @@ namespace OfficeCli.Core;
 /// Accepts flexible user input (e.g. "true", "yes", "1", "on" for booleans;
 /// "24pt" or "24" for font sizes).
 /// </summary>
-public static class ParseHelpers
+internal static class ParseHelpers
 {
     /// <summary>
     /// Map of common CSS/HTML named colors to 6-digit uppercase hex RGB.
@@ -81,6 +81,10 @@ public static class ParseHelpers
         // 8-char ARGB (e.g. "FFFF0000") → strip alpha prefix → "#FF0000"
         if (rawValue.Length == 8 && rawValue.All(char.IsAsciiHexDigit))
             return "#" + rawValue[2..].ToUpperInvariant();
+        // Try resolving named colors (e.g. "silver" → "#C0C0C0")
+        var resolved = TryResolveColorInput(rawValue);
+        if (resolved != null)
+            return "#" + resolved.ToUpperInvariant();
         return rawValue; // scheme colors ("accent1"), "none", "auto", etc.
     }
 
@@ -106,11 +110,40 @@ public static class ParseHelpers
     };
 
     /// <summary>
-    /// Accepts "true", "1", "yes", "on" (case-insensitive) as truthy.
-    /// Returns false for null or empty values.
+    /// Returns true if the value is a recognized boolean string and is truthy.
+    /// Returns false for null, empty, or recognized falsy values ("false", "0", "no", "off").
+    /// Throws <see cref="ArgumentException"/> for non-null values that are not recognized boolean strings.
     /// </summary>
-    public static bool IsTruthy(string? value) =>
-        value != null && value.ToLowerInvariant() is "true" or "1" or "yes" or "on";
+    public static bool IsTruthy(string? value)
+    {
+        if (value == null) return false;
+        return value.ToLowerInvariant() switch
+        {
+            "true" or "1" or "yes" or "on" => true,
+            "false" or "0" or "no" or "off" or "" => false,
+            _ => throw new ArgumentException(
+                $"Invalid boolean value: '{value}'. Expected true/false, yes/no, 1/0, or on/off.")
+        };
+    }
+
+    /// <summary>
+    /// Returns true if the value is a recognized truthy string.
+    /// Returns false for anything else (null, empty, falsy, or unrecognized values).
+    /// Unlike <see cref="IsTruthy"/>, never throws.
+    /// </summary>
+    public static bool IsTruthySafe(string? value)
+    {
+        if (value == null) return false;
+        return value.ToLowerInvariant() is "true" or "1" or "yes" or "on";
+    }
+
+    /// <summary>
+    /// Returns true if the value is a recognized boolean string (truthy or falsy).
+    /// Returns false for null, empty, or non-boolean values (no exception thrown).
+    /// </summary>
+    public static bool IsValidBooleanString(string? value) =>
+        value != null && value.ToLowerInvariant() is "true" or "1" or "yes" or "on"
+                                                  or "false" or "0" or "no" or "off";
 
     /// <summary>
     /// Parse a font size string, stripping optional "pt" suffix.
@@ -126,6 +159,8 @@ public static class ParseHelpers
             throw new ArgumentException($"Invalid font size: '{value}'. Comma is not allowed — use '.' as decimal separator (e.g., '10.5').");
         if (!double.TryParse(trimmed, CultureInfo.InvariantCulture, out var result) || double.IsNaN(result) || double.IsInfinity(result))
             throw new ArgumentException($"Invalid font size: '{value}'. Expected a finite number (e.g., '12', '10.5', '14pt').");
+        if (result <= 0)
+            throw new ArgumentException($"Invalid font size: '{value}'. Font size must be greater than 0.");
         return result;
     }
 

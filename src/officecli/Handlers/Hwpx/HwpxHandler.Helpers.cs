@@ -75,6 +75,14 @@ public partial class HwpxHandler
             paraPr.AddAfterSelf(cloned);
             para.SetAttributeValue("paraPrIDRef", newId.ToString());
             paraPr = cloned;
+
+            // Update itemCnt on the parent <hh:paraProperties> container
+            var container = paraPr.Parent;
+            if (container != null)
+            {
+                var count = container.Elements(HwpxNs.Hh + "paraPr").Count();
+                container.SetAttributeValue("itemCnt", count.ToString());
+            }
         }
 
         return paraPr;

@@ -10,7 +10,7 @@ namespace OfficeCli.Core;
 /// Shared theme color resolution. Builds a scheme-color-name → hex dictionary
 /// from an OOXML ColorScheme. Used by both PowerPoint and Word handlers.
 /// </summary>
-public static class ThemeColorResolver
+internal static class ThemeColorResolver
 {
     /// <summary>
     /// Build a map of scheme color names to hex values from a ColorScheme.

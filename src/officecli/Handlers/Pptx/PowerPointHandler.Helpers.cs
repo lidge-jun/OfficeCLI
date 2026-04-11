@@ -4,6 +4,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
 using OfficeCli.Core;
 using Drawing = DocumentFormat.OpenXml.Drawing;
@@ -16,6 +17,9 @@ public partial class PowerPointHandler
     private static bool IsTruthy(string? value) =>
         ParseHelpers.IsTruthy(value);
 
+    private static bool IsValidBooleanString(string? value) =>
+        ParseHelpers.IsValidBooleanString(value);
+
     /// <summary>
     /// Normalize cell[R,C] shorthand to tr[R]/tc[C] in paths.
     /// E.g. /slide[1]/table[1]/cell[2,3] → /slide[1]/table[1]/tr[2]/tc[3]
@@ -24,6 +28,233 @@ public partial class PowerPointHandler
     private static string NormalizeCellPath(string path)
     {
         return Regex.Replace(path, @"cell\[(\d+),\s*(\d+)\]", m => $"tr[{m.Groups[1].Value}]/tc[{m.Groups[2].Value}]");
+    }
+
+    /// <summary>
+    /// Resolve InsertPosition (After/Before anchor path) to a 0-based int? index for PPT.
+    /// Anchor path can be full (/slide[1]/shape[@id=X]) or short (shape[@id=X]).
+    /// </summary>
+    /// <summary>Sentinel value for find: anchor resolution.</summary>
+    private const int FindAnchorIndex = -99999;
+
+    private int? ResolveAnchorPosition(string parentPath, InsertPosition? position)
+    {
+        if (position == null) return null;
+        if (position.Index.HasValue) return position.Index;
+
+        var anchorPath = position.After ?? position.Before!;
+
+        // Catch bare attribute selector without element wrapper, e.g. @id=XXX instead of shape[@id=XXX]
+        if (Regex.IsMatch(anchorPath, @"^@(\w+)=(.+)$"))
+            throw new ArgumentException($"Invalid anchor path \"{anchorPath}\". Did you mean: shape[{anchorPath}]?");
+
+        // Handle find: prefix — text-based anchoring
+        if (anchorPath.StartsWith("find:", StringComparison.OrdinalIgnoreCase))
+            return FindAnchorIndex;
+
+        // Normalize: if short form, prepend parentPath
+        if (!anchorPath.StartsWith("/"))
+            anchorPath = parentPath.TrimEnd('/') + "/" + anchorPath;
+
+        // Resolve @id=/@name= in the anchor path
+        anchorPath = ResolveIdPath(anchorPath);
+
+        // For slide-level anchors (/slide[N])
+        var slideMatch = Regex.Match(anchorPath, @"^/slide\[(\d+)\]$");
+        if (slideMatch.Success)
+        {
+            var slideIdx = int.Parse(slideMatch.Groups[1].Value) - 1; // 0-based
+            var slideCount = GetSlideParts().Count();
+            if (slideIdx < 0 || slideIdx >= slideCount)
+                throw new ArgumentException($"Anchor slide not found: {anchorPath} (total slides: {slideCount})");
+            if (position.After != null)
+                return slideIdx + 1 >= slideCount ? null : slideIdx + 1;
+            else
+                return slideIdx;
+        }
+
+        // For element-level anchors (/slide[N]/shape[M], /slide[N]/table[M], etc.)
+        var elemMatch = Regex.Match(anchorPath, @"^/slide\[(\d+)\]/(\w+)\[(\d+)\]$");
+        if (elemMatch.Success)
+        {
+            var slideIdx = int.Parse(elemMatch.Groups[1].Value);
+            var elemIdx = int.Parse(elemMatch.Groups[3].Value) - 1; // 0-based
+            // Validate that the anchor element exists
+            var slideParts = GetSlideParts().ToList();
+            if (slideIdx < 1 || slideIdx > slideParts.Count)
+                throw new ArgumentException($"Anchor slide not found: {anchorPath} (total slides: {slideParts.Count})");
+            var anchorShapeTree = GetSlide(slideParts[slideIdx - 1]).CommonSlideData?.ShapeTree;
+            if (anchorShapeTree != null)
+            {
+                var contentChildren = anchorShapeTree.ChildElements
+                    .Where(e => e is not NonVisualGroupShapeProperties && e is not GroupShapeProperties)
+                    .ToList();
+                if (elemIdx < 0 || elemIdx >= contentChildren.Count)
+                    throw new ArgumentException($"Anchor element not found: {anchorPath} (total elements on slide: {contentChildren.Count})");
+            }
+            if (position.After != null)
+                return elemIdx + 1; // InsertAtPosition handles bounds
+            else
+                return elemIdx;
+        }
+
+        throw new ArgumentException($"Cannot resolve anchor path: {anchorPath}");
+    }
+
+    /// <summary>
+    /// Resolve @id= and @name= attribute selectors in a PPT path to positional indices.
+    /// E.g. /slide[1]/shape[@id=5] → /slide[1]/shape[N] where N is the positional index of shape with cNvPr.Id=5.
+    /// </summary>
+    private string ResolveIdPath(string path)
+    {
+        // Quick check: if no [@, nothing to resolve
+        if (!path.Contains("[@"))
+            return path;
+
+        return Regex.Replace(path, @"(\w+)\[@(id|name)=([^\]]+)\]", m =>
+        {
+            var elementType = m.Groups[1].Value.ToLowerInvariant();
+            var attrName = m.Groups[2].Value.ToLowerInvariant();
+            var attrValue = m.Groups[3].Value.Trim('"', '\'', ' ');
+
+            // Extract slide index from the path prefix before this match
+            var prefix = path[..m.Index];
+            var slideMatch = Regex.Match(prefix, @"/slide\[(\d+)\]");
+            if (!slideMatch.Success)
+                throw new ArgumentException($"Cannot resolve @{attrName}= outside of a slide context: {path}");
+            var slideIdx = int.Parse(slideMatch.Groups[1].Value);
+
+            var slideParts = GetSlideParts().ToList();
+            if (slideIdx < 1 || slideIdx > slideParts.Count)
+                throw new ArgumentException($"Slide {slideIdx} not found (total: {slideParts.Count})");
+            var slidePart = slideParts[slideIdx - 1];
+            var shapeTree = GetSlide(slidePart).CommonSlideData?.ShapeTree;
+            if (shapeTree == null)
+                throw new ArgumentException($"Slide {slideIdx} has no shape tree");
+
+            var positionalIdx = FindElementByAttr(shapeTree, elementType, attrName, attrValue);
+            return $"{m.Groups[1].Value}[{positionalIdx}]";
+        });
+    }
+
+    /// <summary>
+    /// Find the 1-based positional index of an element within its type group by @id= or @name=.
+    /// </summary>
+    private static int FindElementByAttr(ShapeTree shapeTree, string elementType, string attrName, string attrValue)
+    {
+        var elements = elementType switch
+        {
+            "shape" or "textbox" or "title" or "equation" => shapeTree.Elements<Shape>()
+                .Select(s => (element: (OpenXmlElement)s, nvPr: s.NonVisualShapeProperties?.NonVisualDrawingProperties)).ToList(),
+            "picture" or "pic" or "image" => shapeTree.Elements<Picture>()
+                .Select(p => (element: (OpenXmlElement)p, nvPr: p.NonVisualPictureProperties?.NonVisualDrawingProperties)).ToList(),
+            "table" => shapeTree.Elements<GraphicFrame>()
+                .Where(gf => gf.Descendants<Drawing.Table>().Any())
+                .Select(gf => (element: (OpenXmlElement)gf, nvPr: gf.NonVisualGraphicFrameProperties?.NonVisualDrawingProperties)).ToList(),
+            "chart" => shapeTree.Elements<GraphicFrame>()
+                .Where(gf => gf.Descendants<DocumentFormat.OpenXml.Drawing.Charts.ChartReference>().Any() || IsExtendedChartFrame(gf))
+                .Select(gf => (element: (OpenXmlElement)gf, nvPr: gf.NonVisualGraphicFrameProperties?.NonVisualDrawingProperties)).ToList(),
+            "connector" or "connection" => shapeTree.Elements<ConnectionShape>()
+                .Select(c => (element: (OpenXmlElement)c, nvPr: c.NonVisualConnectionShapeProperties?.NonVisualDrawingProperties)).ToList(),
+            "group" => shapeTree.Elements<GroupShape>()
+                .Select(g => (element: (OpenXmlElement)g, nvPr: g.NonVisualGroupShapeProperties?.NonVisualDrawingProperties)).ToList(),
+            "video" or "audio" => shapeTree.Elements<Picture>()
+                .Select(p => (element: (OpenXmlElement)p, nvPr: p.NonVisualPictureProperties?.NonVisualDrawingProperties)).ToList(),
+            _ => throw new ArgumentException($"Unknown element type '{elementType}' for @{attrName}= addressing")
+        };
+
+        for (int i = 0; i < elements.Count; i++)
+        {
+            var nvPr = elements[i].nvPr;
+            if (nvPr == null) continue;
+
+            if (attrName == "id" && nvPr.Id?.Value.ToString() == attrValue)
+                return i + 1;
+            if (attrName == "name" && MatchesShapeName(nvPr.Name?.Value, attrValue))
+                return i + 1;
+        }
+
+        throw new ArgumentException($"No {elementType} found with @{attrName}={attrValue}");
+    }
+
+    /// <summary>
+    /// Scan all slides to initialize the global shape ID counter.
+    /// Called once on document open (editable mode).
+    /// </summary>
+    private void InitShapeIdCounter()
+    {
+        const uint minStartId = 10000;
+        _usedShapeIds = new HashSet<uint>();
+        uint maxId = minStartId - 1;
+
+        foreach (var slidePart in GetSlideParts())
+        {
+            var shapeTree = GetSlide(slidePart).CommonSlideData?.ShapeTree;
+            if (shapeTree == null) continue;
+            foreach (var nvPr in shapeTree.Descendants<NonVisualDrawingProperties>())
+            {
+                if (nvPr.Id?.HasValue == true)
+                {
+                    _usedShapeIds.Add(nvPr.Id.Value);
+                    if (nvPr.Id.Value > maxId)
+                        maxId = nvPr.Id.Value;
+                }
+            }
+        }
+
+        _nextShapeId = maxId + 1;
+        if (_nextShapeId < maxId) // uint overflow
+            _nextShapeId = minStartId;
+    }
+
+    /// <summary>
+    /// Generate a unique deterministic cNvPr.Id across all slides.
+    /// Uses global instance counter for reproducible, non-repeating IDs.
+    /// </summary>
+    private uint GenerateUniqueShapeId(ShapeTree shapeTree)
+    {
+        const uint minStartId = 10000;
+        var startId = _nextShapeId;
+        while (true)
+        {
+            var id = _nextShapeId;
+            _nextShapeId++;
+            if (_nextShapeId < id) // uint overflow
+                _nextShapeId = minStartId;
+            if (_usedShapeIds.Add(id))
+                return id;
+            if (_nextShapeId == startId)
+                throw new InvalidOperationException("No available shape ID slots");
+        }
+    }
+
+    /// <summary>
+    /// Get the cNvPr.Id for an element, or null if not available.
+    /// Works for Shape, Picture, GraphicFrame, ConnectionShape, GroupShape.
+    /// </summary>
+    internal static uint? GetCNvPrId(OpenXmlElement element)
+    {
+        return element switch
+        {
+            Shape s => s.NonVisualShapeProperties?.NonVisualDrawingProperties?.Id?.Value,
+            Picture p => p.NonVisualPictureProperties?.NonVisualDrawingProperties?.Id?.Value,
+            GraphicFrame gf => gf.NonVisualGraphicFrameProperties?.NonVisualDrawingProperties?.Id?.Value,
+            ConnectionShape c => c.NonVisualConnectionShapeProperties?.NonVisualDrawingProperties?.Id?.Value,
+            GroupShape g => g.NonVisualGroupShapeProperties?.NonVisualDrawingProperties?.Id?.Value,
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Build a path segment using @id= if the element has a cNvPr.Id, otherwise use positional index.
+    /// E.g. "shape[@id=5]" or "shape[2]".
+    /// </summary>
+    internal static string BuildElementPathSegment(string elementType, OpenXmlElement element, int positionalIndex)
+    {
+        var id = GetCNvPrId(element);
+        return id.HasValue
+            ? $"{elementType}[@id={id.Value}]"
+            : $"{elementType}[{positionalIndex}]";
     }
 
     /// <summary>
@@ -289,6 +520,8 @@ public partial class PowerPointHandler
     private static long ParseEmu(string value) => Core.EmuConverter.ParseEmu(value);
 
     private static string FormatEmu(long emu) => Core.EmuConverter.FormatEmu(emu);
+
+    private static string FormatLineWidth(long emu) => Core.EmuConverter.FormatLineWidth(emu);
 
     /// <summary>
     /// Normalize DrawingML alignment abbreviations to human-readable values.
@@ -566,6 +799,81 @@ public partial class PowerPointHandler
         }
 
         return node;
+    }
+
+    /// <summary>
+    /// Schema order for DrawingML CT_TextCharacterProperties children (a:rPr / a:endParaRPr / a:defRPr).
+    /// Source: Open-XML-SDK CompositeParticle definition of TextCharacterPropertiesType.
+    /// Children must appear in this order or OpenXmlValidator emits schema warnings and
+    /// PowerPoint silently drops the out-of-order ones.
+    /// </summary>
+    private static readonly (Type type, int order)[] DrawingRunPropChildOrder = new (Type, int)[]
+    {
+        (typeof(Drawing.Outline),              1),   // ln
+        (typeof(Drawing.NoFill),               2),   // noFill
+        (typeof(Drawing.SolidFill),            2),   // solidFill
+        (typeof(Drawing.GradientFill),         2),   // gradFill
+        (typeof(Drawing.BlipFill),             2),   // blipFill
+        (typeof(Drawing.PatternFill),          2),   // pattFill
+        (typeof(Drawing.GroupFill),            2),   // grpFill
+        (typeof(Drawing.EffectList),           3),   // effectLst
+        (typeof(Drawing.EffectDag),            3),   // effectDag
+        (typeof(Drawing.Highlight),            4),   // highlight
+        (typeof(Drawing.UnderlineFollowsText), 5),   // uLnTx
+        (typeof(Drawing.Underline),            5),   // uLn
+        (typeof(Drawing.UnderlineFillText),    6),   // uFillTx
+        (typeof(Drawing.UnderlineFill),        6),   // uFill
+        (typeof(Drawing.LatinFont),            7),   // latin
+        (typeof(Drawing.EastAsianFont),        8),   // ea
+        (typeof(Drawing.ComplexScriptFont),    9),   // cs
+        (typeof(Drawing.SymbolFont),          10),   // sym
+        (typeof(Drawing.HyperlinkOnClick),    11),   // hlinkClick
+        (typeof(Drawing.HyperlinkOnMouseOver),12),   // hlinkMouseOver
+        (typeof(Drawing.RightToLeft),         13),   // rtl
+        (typeof(Drawing.ExtensionList),       14),   // extLst
+    };
+
+    /// <summary>
+    /// Reorder children of a DrawingML RunProperties / EndParagraphRunProperties /
+    /// DefaultRunProperties element into schema-valid order.
+    /// Stable within the same order bucket to preserve relative order of existing fills.
+    /// Unknown child types are pushed to the end (preserved but last).
+    /// </summary>
+    internal static void ReorderDrawingRunProperties(OpenXmlCompositeElement rPr)
+    {
+        if (rPr == null || !rPr.HasChildren) return;
+
+        int OrderOf(OpenXmlElement el)
+        {
+            var t = el.GetType();
+            foreach (var (type, order) in DrawingRunPropChildOrder)
+                if (type == t) return order;
+            return int.MaxValue;
+        }
+
+        var children = rPr.ChildElements.ToList();
+        // Check if already sorted — avoid unnecessary reflows
+        bool needsReorder = false;
+        for (int i = 1; i < children.Count; i++)
+        {
+            if (OrderOf(children[i]) < OrderOf(children[i - 1]))
+            {
+                needsReorder = true;
+                break;
+            }
+        }
+        if (!needsReorder) return;
+
+        // Stable sort by schema order
+        var sorted = children
+            .Select((el, idx) => (el, ord: OrderOf(el), idx))
+            .OrderBy(t => t.ord)
+            .ThenBy(t => t.idx)
+            .Select(t => t.el)
+            .ToList();
+
+        foreach (var c in children) c.Remove();
+        foreach (var c in sorted) rPr.AppendChild(c);
     }
 
     /// <summary>
@@ -870,38 +1178,585 @@ public partial class PowerPointHandler
     /// <summary>
     /// Find and replace text across all slides. Returns the number of replacements made.
     /// </summary>
-    private int FindAndReplace(string find, string replace)
+    // ==================== Find / Format / Replace ====================
+
+    /// <summary>
+    /// Build a flat list of (Run, Text, charStart, charEnd) spans for a PPT paragraph.
+    /// </summary>
+    private static List<(Drawing.Run Run, Drawing.Text TextElement, int Start, int End)> BuildPptRunTexts(Drawing.Paragraph para)
     {
-        if (string.IsNullOrEmpty(find)) return 0;
-        int totalCount = 0;
-
-        var presentationPart = _doc.PresentationPart;
-        if (presentationPart == null) return 0;
-
-        foreach (var slidePart in presentationPart.SlideParts)
+        var runTexts = new List<(Drawing.Run Run, Drawing.Text TextElement, int Start, int End)>();
+        int pos = 0;
+        foreach (var run in para.Descendants<Drawing.Run>())
         {
-            var slide = slidePart.Slide;
-            if (slide == null) continue;
+            var text = run.GetFirstChild<Drawing.Text>();
+            var len = text?.Text?.Length ?? 0;
+            if (len > 0)
+                runTexts.Add((run, text!, pos, pos + len));
+            pos += len;
+        }
+        return runTexts;
+    }
 
-            foreach (var text in slide.Descendants<Drawing.Text>())
+    /// <summary>
+    /// Parse a find pattern: plain text or regex (r"..." prefix).
+    /// </summary>
+    private static (string Pattern, bool IsRegex) ParseFindPattern(string value)
+    {
+        if (value.Length >= 3 && value[0] == 'r' && (value[1] == '"' || value[1] == '\''))
+        {
+            var quote = value[1];
+            var endIdx = value.LastIndexOf(quote);
+            if (endIdx > 1)
+                return (value[2..endIdx], true);
+        }
+        return (value, false);
+    }
+
+    /// <summary>
+    /// Find all match ranges in fullText using either plain text or regex.
+    /// </summary>
+    private static List<(int Start, int Length)> FindMatchRanges(string fullText, string pattern, bool isRegex)
+    {
+        var ranges = new List<(int Start, int Length)>();
+        if (isRegex)
+        {
+            try
             {
-                if (text.Text != null && text.Text.Contains(find, StringComparison.Ordinal))
+                foreach (Match m in Regex.Matches(fullText, pattern))
                 {
-                    int count = 0;
-                    int idx = 0;
-                    while ((idx = text.Text.IndexOf(find, idx, StringComparison.Ordinal)) >= 0)
-                    {
-                        count++;
-                        idx += find.Length;
-                    }
-                    text.Text = text.Text.Replace(find, replace, StringComparison.Ordinal);
-                    totalCount += count;
+                    if (m.Length > 0)
+                        ranges.Add((m.Index, m.Length));
                 }
             }
+            catch (RegexParseException ex)
+            {
+                throw new ArgumentException($"Invalid regex pattern '{pattern}': {ex.Message}", ex);
+            }
+        }
+        else
+        {
+            int idx = 0;
+            while ((idx = fullText.IndexOf(pattern, idx, StringComparison.Ordinal)) >= 0)
+            {
+                ranges.Add((idx, pattern.Length));
+                idx += pattern.Length;
+            }
+        }
+        return ranges;
+    }
 
-            slidePart.Slide!.Save();
+    /// <summary>
+    /// Split a PPT run at a character offset. Returns the new right-side run.
+    /// RunProperties are deep-cloned.
+    /// </summary>
+    private static Drawing.Run SplitPptRunAtOffset(Drawing.Run run, int charOffset)
+    {
+        var text = run.GetFirstChild<Drawing.Text>();
+        if (text?.Text == null || charOffset <= 0 || charOffset >= text.Text.Length)
+            return run;
+
+        var leftText = text.Text[..charOffset];
+        var rightText = text.Text[charOffset..];
+
+        // Clone the run for the right side
+        var rightRun = (Drawing.Run)run.CloneNode(true);
+
+        // Set text
+        text.Text = leftText;
+        var rightTextElem = rightRun.GetFirstChild<Drawing.Text>();
+        if (rightTextElem != null) rightTextElem.Text = rightText;
+
+        // Insert after original
+        run.InsertAfterSelf(rightRun);
+        return rightRun;
+    }
+
+    /// <summary>
+    /// Split runs in a PPT paragraph so that [charStart, charEnd) is covered by dedicated runs.
+    /// Returns the runs covering that range.
+    /// </summary>
+    private static List<Drawing.Run> SplitPptRunsAtRange(Drawing.Paragraph para, int charStart, int charEnd)
+    {
+        // Split at charEnd first
+        var runTexts = BuildPptRunTexts(para);
+        foreach (var rt in runTexts)
+        {
+            if (charEnd > rt.Start && charEnd < rt.End)
+            {
+                SplitPptRunAtOffset(rt.Run, charEnd - rt.Start);
+                break;
+            }
+        }
+
+        // Rebuild, then split at charStart
+        runTexts = BuildPptRunTexts(para);
+        foreach (var rt in runTexts)
+        {
+            if (charStart > rt.Start && charStart < rt.End)
+            {
+                SplitPptRunAtOffset(rt.Run, charStart - rt.Start);
+                break;
+            }
+        }
+
+        // Collect runs covering [charStart, charEnd)
+        runTexts = BuildPptRunTexts(para);
+        var result = new List<Drawing.Run>();
+        foreach (var rt in runTexts)
+        {
+            if (rt.Start >= charStart && rt.End <= charEnd)
+                result.Add(rt.Run);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Apply run-level formatting to a PPT run's RunProperties.
+    /// </summary>
+    private static void ApplyPptRunFormatting(Drawing.Run run, string key, string value, Shape? shape = null)
+    {
+        var rPr = run.RunProperties ?? run.PrependChild(new Drawing.RunProperties());
+        switch (key.ToLowerInvariant())
+        {
+            case "bold":
+                rPr.Bold = IsTruthy(value);
+                break;
+            case "italic":
+                rPr.Italic = IsTruthy(value);
+                break;
+            case "size":
+                rPr.FontSize = (int)Math.Round(ParseFontSize(value) * 100, MidpointRounding.AwayFromZero);
+                break;
+            case "color":
+                rPr.RemoveAllChildren<Drawing.SolidFill>();
+                rPr.PrependChild(BuildSolidFill(value));
+                break;
+            case "font":
+                rPr.RemoveAllChildren<Drawing.LatinFont>();
+                rPr.RemoveAllChildren<Drawing.EastAsianFont>();
+                rPr.AppendChild(new Drawing.LatinFont { Typeface = value });
+                rPr.AppendChild(new Drawing.EastAsianFont { Typeface = value });
+                break;
+            case "underline":
+                var ulVal = value.ToLowerInvariant() switch
+                {
+                    "true" or "single" => Drawing.TextUnderlineValues.Single,
+                    "double" => Drawing.TextUnderlineValues.Double,
+                    "heavy" => Drawing.TextUnderlineValues.Heavy,
+                    "false" or "none" => Drawing.TextUnderlineValues.None,
+                    _ => new Drawing.TextUnderlineValues(value)
+                };
+                rPr.Underline = ulVal;
+                break;
+            case "strikethrough" or "strike":
+                var stVal = value.ToLowerInvariant() switch
+                {
+                    "true" or "single" => Drawing.TextStrikeValues.SingleStrike,
+                    "double" => Drawing.TextStrikeValues.DoubleStrike,
+                    "false" or "none" => Drawing.TextStrikeValues.NoStrike,
+                    _ => new Drawing.TextStrikeValues(value)
+                };
+                rPr.Strike = stVal;
+                break;
+            case "superscript":
+                rPr.Baseline = IsTruthy(value) ? 30000 : 0;
+                break;
+            case "subscript":
+                rPr.Baseline = IsTruthy(value) ? -25000 : 0;
+                break;
+            case "charspacing" or "spacing" or "letterspacing":
+                var csPt = value.EndsWith("pt", StringComparison.OrdinalIgnoreCase)
+                    ? ParseHelpers.SafeParseDouble(value[..^2], "charspacing")
+                    : ParseHelpers.SafeParseDouble(value, "charspacing");
+                rPr.Spacing = (int)Math.Round(csPt * 100, MidpointRounding.AwayFromZero);
+                break;
+            case "highlight":
+                rPr.RemoveAllChildren<Drawing.Highlight>();
+                if (!string.Equals(value, "none", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    var hl = new Drawing.Highlight();
+                    hl.AppendChild(BuildSolidFillColor(value));
+                    rPr.AppendChild(hl);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Process find in a single PPT paragraph: replace text and/or apply formatting.
+    /// </summary>
+    private static int ProcessFindInPptParagraph(
+        Drawing.Paragraph para,
+        string pattern,
+        bool isRegex,
+        string? replace,
+        Dictionary<string, string>? formatProps,
+        Shape? shape = null)
+    {
+        var runTexts = BuildPptRunTexts(para);
+        if (runTexts.Count == 0) return 0;
+
+        var fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
+        var matches = FindMatchRanges(fullText, pattern, isRegex);
+        if (matches.Count == 0) return 0;
+
+        for (int i = matches.Count - 1; i >= 0; i--)
+        {
+            var (matchStart, matchLen) = matches[i];
+            var matchEnd = matchStart + matchLen;
+
+            if (replace != null)
+            {
+                // Replace text in affected runs
+                var currentRunTexts = BuildPptRunTexts(para);
+                bool first = true;
+                foreach (var rt in currentRunTexts)
+                {
+                    if (rt.End <= matchStart || rt.Start >= matchEnd)
+                        continue;
+
+                    var textStr = rt.TextElement.Text ?? "";
+                    var localStart = Math.Max(0, matchStart - rt.Start);
+                    var localEnd = Math.Min(textStr.Length, matchEnd - rt.Start);
+
+                    if (first)
+                    {
+                        rt.TextElement.Text = textStr[..localStart] + replace + textStr[localEnd..];
+                        first = false;
+                    }
+                    else
+                    {
+                        rt.TextElement.Text = textStr[..Math.Max(0, matchStart - rt.Start)] + textStr[localEnd..];
+                    }
+                }
+
+                if (formatProps != null && formatProps.Count > 0 && replace.Length > 0)
+                {
+                    var replacedEnd = matchStart + replace.Length;
+                    var targetRuns = SplitPptRunsAtRange(para, matchStart, replacedEnd);
+                    foreach (var run in targetRuns)
+                        foreach (var (key, value) in formatProps)
+                            ApplyPptRunFormatting(run, key, value, shape);
+                }
+            }
+            else if (formatProps != null && formatProps.Count > 0)
+            {
+                var targetRuns = SplitPptRunsAtRange(para, matchStart, matchEnd);
+                foreach (var run in targetRuns)
+                    foreach (var (key, value) in formatProps)
+                        ApplyPptRunFormatting(run, key, value, shape);
+            }
+        }
+
+        return matches.Count;
+    }
+
+    /// <summary>
+    /// Unified find across all paragraphs in the resolved scope.
+    /// </summary>
+    private int ProcessPptFind(string path, string findValue, string? replace, Dictionary<string, string> formatProps)
+    {
+        var (pattern, isRegex) = ParseFindPattern(findValue);
+        if (string.IsNullOrEmpty(pattern) && !isRegex) return 0;
+
+        int totalCount = 0;
+
+        if (path is "/" or "" or "/presentation")
+        {
+            // All slides
+            foreach (var slidePart in _doc.PresentationPart?.SlideParts ?? Enumerable.Empty<SlidePart>())
+            {
+                var slide = slidePart.Slide;
+                if (slide == null) continue;
+                foreach (var para in slide.Descendants<Drawing.Paragraph>())
+                    totalCount += ProcessFindInPptParagraph(para, pattern, isRegex, replace,
+                        formatProps.Count > 0 ? formatProps : null);
+                slidePart.Slide!.Save();
+            }
+        }
+        else
+        {
+            // Path-scoped: resolve to specific paragraphs
+            var paragraphs = ResolvePptParagraphsForFind(path);
+            Shape? contextShape = null;
+            // Try to resolve shape for color context
+            var shapeMatch = Regex.Match(path, @"^/slide\[(\d+)\]/(\w+)\[(\d+)\]");
+            if (shapeMatch.Success)
+            {
+                try
+                {
+                    var (_, shape) = ResolveShape(int.Parse(shapeMatch.Groups[1].Value), int.Parse(shapeMatch.Groups[3].Value));
+                    contextShape = shape;
+                }
+                catch { }
+            }
+
+            foreach (var para in paragraphs)
+                totalCount += ProcessFindInPptParagraph(para, pattern, isRegex, replace,
+                    formatProps.Count > 0 ? formatProps : null, contextShape);
+
+            // Save affected slides
+            foreach (var slidePart in _doc.PresentationPart?.SlideParts ?? Enumerable.Empty<SlidePart>())
+                slidePart.Slide?.Save();
         }
 
         return totalCount;
+    }
+
+    /// <summary>
+    /// Resolve paragraphs from a PPT path for find operations.
+    /// </summary>
+    private List<Drawing.Paragraph> ResolvePptParagraphsForFind(string path)
+    {
+        var paragraphs = new List<Drawing.Paragraph>();
+
+        // /slide[N]/notes → paragraphs in notes slide
+        var notesMatch = Regex.Match(path, @"^/slide\[(\d+)\]/notes$", RegexOptions.IgnoreCase);
+        if (notesMatch.Success)
+        {
+            var slideIdx = int.Parse(notesMatch.Groups[1].Value);
+            var slideParts = GetSlideParts().ToList();
+            if (slideIdx >= 1 && slideIdx <= slideParts.Count)
+            {
+                var notesPart = slideParts[slideIdx - 1].NotesSlidePart;
+                if (notesPart?.NotesSlide != null)
+                    paragraphs.AddRange(notesPart.NotesSlide.Descendants<Drawing.Paragraph>());
+            }
+            return paragraphs;
+        }
+
+        // /slide[N]/table[M]/tr[R]/tc[C] or deeper table paths → paragraphs in table cell
+        var tableCellMatch = Regex.Match(path, @"^/slide\[(\d+)\]/table\[(\d+)\]/tr\[(\d+)\]/tc\[(\d+)\]");
+        if (tableCellMatch.Success)
+        {
+            var slideIdx = int.Parse(tableCellMatch.Groups[1].Value);
+            var tableIdx = int.Parse(tableCellMatch.Groups[2].Value);
+            var rowIdx = int.Parse(tableCellMatch.Groups[3].Value);
+            var colIdx = int.Parse(tableCellMatch.Groups[4].Value);
+            var slideParts = GetSlideParts().ToList();
+            if (slideIdx >= 1 && slideIdx <= slideParts.Count)
+            {
+                var slide = slideParts[slideIdx - 1].Slide;
+                var tables = slide?.Descendants<Drawing.Table>().ToList();
+                if (tables != null && tableIdx >= 1 && tableIdx <= tables.Count)
+                {
+                    var rows = tables[tableIdx - 1].Elements<Drawing.TableRow>().ToList();
+                    if (rowIdx >= 1 && rowIdx <= rows.Count)
+                    {
+                        var cells = rows[rowIdx - 1].Elements<Drawing.TableCell>().ToList();
+                        if (colIdx >= 1 && colIdx <= cells.Count)
+                            paragraphs.AddRange(cells[colIdx - 1].Descendants<Drawing.Paragraph>());
+                    }
+                }
+            }
+            return paragraphs;
+        }
+
+        // /slide[N]/table[M] → all paragraphs in table
+        var tableMatch = Regex.Match(path, @"^/slide\[(\d+)\]/table\[(\d+)\]$");
+        if (tableMatch.Success)
+        {
+            var slideIdx = int.Parse(tableMatch.Groups[1].Value);
+            var tableIdx = int.Parse(tableMatch.Groups[2].Value);
+            var slideParts = GetSlideParts().ToList();
+            if (slideIdx >= 1 && slideIdx <= slideParts.Count)
+            {
+                var slide = slideParts[slideIdx - 1].Slide;
+                var tables = slide?.Descendants<Drawing.Table>().ToList();
+                if (tables != null && tableIdx >= 1 && tableIdx <= tables.Count)
+                    paragraphs.AddRange(tables[tableIdx - 1].Descendants<Drawing.Paragraph>());
+            }
+            return paragraphs;
+        }
+
+        // /slide[N]/shape[M] or /slide[N]/placeholder[M] → paragraphs in shape
+        var shapeMatch = Regex.Match(path, @"^/slide\[(\d+)\]/\w+\[(\d+)\]");
+        if (shapeMatch.Success)
+        {
+            var slideIdx = int.Parse(shapeMatch.Groups[1].Value);
+            var shapeIdx = int.Parse(shapeMatch.Groups[2].Value);
+            try
+            {
+                var (_, shape) = ResolveShape(slideIdx, shapeIdx);
+                if (shape.TextBody != null)
+                    paragraphs.AddRange(shape.TextBody.Elements<Drawing.Paragraph>());
+            }
+            catch { }
+            return paragraphs;
+        }
+
+        // /slide[N] → all paragraphs in slide
+        var slideOnlyMatch = Regex.Match(path, @"^/slide\[(\d+)\]$");
+        if (slideOnlyMatch.Success)
+        {
+            var slideIdx = int.Parse(slideOnlyMatch.Groups[1].Value);
+            var slideParts = GetSlideParts().ToList();
+            if (slideIdx >= 1 && slideIdx <= slideParts.Count)
+            {
+                var slide = slideParts[slideIdx - 1].Slide;
+                if (slide != null)
+                    paragraphs.AddRange(slide.Descendants<Drawing.Paragraph>());
+            }
+            return paragraphs;
+        }
+
+        // Fallback: all slides
+        foreach (var slidePart in _doc.PresentationPart?.SlideParts ?? Enumerable.Empty<SlidePart>())
+        {
+            if (slidePart.Slide != null)
+                paragraphs.AddRange(slidePart.Slide.Descendants<Drawing.Paragraph>());
+        }
+        return paragraphs;
+    }
+
+    /// <summary>
+    /// Build a color element for PPT highlight from a color value.
+    /// </summary>
+    private static Drawing.RgbColorModelHex BuildSolidFillColor(string value)
+    {
+        var hex = ParseHelpers.NormalizeArgbColor(value);
+        return new Drawing.RgbColorModelHex { Val = hex };
+    }
+
+    /// <summary>
+    /// Add an element at a text-find position within a PPT paragraph.
+    /// For PPT, this only supports inline types (run) — splits the run at the find position.
+    /// </summary>
+    private string AddPptAtFindPosition(
+        string parentPath,
+        string type,
+        string findValue,
+        bool isAfter,
+        Dictionary<string, string> properties)
+    {
+        // Resolve paragraphs from parent path
+        var paragraphs = ResolvePptParagraphsForFind(parentPath);
+        if (paragraphs.Count == 0)
+            throw new ArgumentException($"No paragraphs found at path: {parentPath}");
+
+        // Support regex=true prop as alternative to r"..." prefix.
+        // CONSISTENCY(find-regex): mirror of WordHandler.Set.cs:60-61. grep
+        // "CONSISTENCY(find-regex)" for every project-wide call site.
+        if (properties.TryGetValue("regex", out var regexFlag) && ParseHelpers.IsTruthySafe(regexFlag) && !findValue.StartsWith("r\"") && !findValue.StartsWith("r'"))
+            findValue = $"r\"{findValue}\"";
+
+        var (pattern, isRegex) = ParseFindPattern(findValue);
+
+        // Find first match in any paragraph
+        Drawing.Paragraph? targetPara = null;
+        int splitPoint = -1;
+
+        foreach (var para in paragraphs)
+        {
+            var runTexts = BuildPptRunTexts(para);
+            if (runTexts.Count == 0) continue;
+            var fullText = string.Concat(runTexts.Select(rt => rt.TextElement.Text));
+            var matches = FindMatchRanges(fullText, pattern, isRegex);
+            if (matches.Count > 0)
+            {
+                targetPara = para;
+                var (matchStart, matchLen) = matches[0];
+                splitPoint = isAfter ? matchStart + matchLen : matchStart;
+                break;
+            }
+        }
+
+        if (targetPara == null)
+            throw new ArgumentException($"Text '{findValue}' not found in paragraphs at {parentPath}.");
+
+        // Split run at the position
+        var rts = BuildPptRunTexts(targetPara);
+        Drawing.Run? insertAfterRun = null;
+
+        foreach (var rt in rts)
+        {
+            if (splitPoint >= rt.Start && splitPoint <= rt.End)
+            {
+                if (splitPoint == rt.Start)
+                    insertAfterRun = rt.Run.PreviousSibling<Drawing.Run>();
+                else if (splitPoint == rt.End)
+                    insertAfterRun = rt.Run;
+                else
+                {
+                    SplitPptRunAtOffset(rt.Run, splitPoint - rt.Start);
+                    insertAfterRun = rt.Run;
+                }
+                break;
+            }
+        }
+
+        // Build and insert new run directly into targetPara (avoids path-based routing
+        // that only supports /slide[N]/shape[M] paths, not table cell or other paths).
+        var newRun = BuildPptRunFromProperties(properties);
+
+        if (insertAfterRun != null)
+            insertAfterRun.InsertAfterSelf(newRun);
+        else
+        {
+            // Insert at beginning: before first run or end-paragraph props
+            var firstChild = targetPara.FirstChild;
+            if (firstChild != null)
+                firstChild.InsertBeforeSelf(newRun);
+            else
+                targetPara.Append(newRun);
+        }
+
+        // Save all slides
+        foreach (var slidePart in _doc.PresentationPart?.SlideParts ?? Enumerable.Empty<SlidePart>())
+            slidePart.Slide?.Save();
+
+        return parentPath;
+    }
+
+    /// <summary>
+    /// Build a Drawing.Run from a properties dictionary (text, bold, italic, color, size, font, etc.)
+    /// </summary>
+    private static Drawing.Run BuildPptRunFromProperties(Dictionary<string, string> properties)
+    {
+        var newRun = new Drawing.Run();
+        var rProps = new Drawing.RunProperties { Language = "en-US" };
+
+        if (properties.TryGetValue("size", out var rSize))
+            rProps.FontSize = (int)Math.Round(ParseFontSize(rSize) * 100);
+        if (properties.TryGetValue("bold", out var rBold))
+            rProps.Bold = IsTruthy(rBold);
+        if (properties.TryGetValue("italic", out var rItalic))
+            rProps.Italic = IsTruthy(rItalic);
+        if (properties.TryGetValue("underline", out var rUnderline))
+            rProps.Underline = rUnderline.ToLowerInvariant() switch
+            {
+                "true" or "single" or "sng" => Drawing.TextUnderlineValues.Single,
+                "double" or "dbl" => Drawing.TextUnderlineValues.Double,
+                "heavy" => Drawing.TextUnderlineValues.Heavy,
+                "dotted" => Drawing.TextUnderlineValues.Dotted,
+                "dash" => Drawing.TextUnderlineValues.Dash,
+                "wavy" => Drawing.TextUnderlineValues.Wavy,
+                "false" or "none" => Drawing.TextUnderlineValues.None,
+                _ => throw new ArgumentException($"Invalid underline value: '{rUnderline}'.")
+            };
+        if (properties.TryGetValue("strikethrough", out var rStrike) || properties.TryGetValue("strike", out rStrike))
+            rProps.Strike = rStrike.ToLowerInvariant() switch
+            {
+                "true" or "single" => Drawing.TextStrikeValues.SingleStrike,
+                "double" => Drawing.TextStrikeValues.DoubleStrike,
+                "false" or "none" => Drawing.TextStrikeValues.NoStrike,
+                _ => throw new ArgumentException($"Invalid strikethrough value: '{rStrike}'.")
+            };
+        if (properties.TryGetValue("color", out var rColor))
+            rProps.AppendChild(BuildSolidFill(rColor));
+        if (properties.TryGetValue("font", out var rFont))
+        {
+            rProps.Append(new Drawing.LatinFont { Typeface = rFont });
+            rProps.Append(new Drawing.EastAsianFont { Typeface = rFont });
+        }
+        if (properties.TryGetValue("spacing", out var rSpacing) || properties.TryGetValue("charspacing", out rSpacing))
+            rProps.Spacing = (int)(ParseHelpers.SafeParseDouble(rSpacing, "charspacing") * 100);
+
+        newRun.RunProperties = rProps;
+        var runText = properties.GetValueOrDefault("text", "");
+        newRun.Text = new Drawing.Text { Text = runText.Replace("\\n", "\n") };
+        return newRun;
     }
 }

@@ -1354,8 +1354,8 @@ static class CommandBuilder
         rootCommand.Add(importCommand);
 
         // ==================== create command ====================
-        var createFileArg = new Argument<string>("file") { Description = "Output file path (.docx, .xlsx, .pptx)" };
-        var createTypeOpt = new Option<string>("--type") { Description = "Document type (docx, xlsx, pptx) — optional, inferred from file extension" };
+        var createFileArg = new Argument<string>("file") { Description = "Output file path (.docx, .xlsx, .pptx, .hwpx)" };
+        var createTypeOpt = new Option<string>("--type") { Description = "Document type (docx, xlsx, pptx, hwpx) — optional, inferred from file extension" };
         var createCommand = new Command("create", "Create a blank Office document");
         createCommand.Aliases.Add("new");
         createCommand.Add(createFileArg);

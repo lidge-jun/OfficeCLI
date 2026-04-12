@@ -1028,6 +1028,11 @@ static partial class CommandBuilder
             WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "full", FullHtml = word.ViewAsHtml(), ScrollTo = scrollTo });
             return;
         }
+        if (handler is OfficeCli.Handlers.HwpxHandler hwpx)
+        {
+            WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "full", FullHtml = hwpx.ViewAsHtml() });
+            return;
+        }
         if (handler is not OfficeCli.Handlers.PowerPointHandler ppt) return;
         var slideNum = WatchMessage.ExtractSlideNum(changedPath);
         if (slideNum > 0)
@@ -1047,6 +1052,11 @@ static partial class CommandBuilder
 
     private static void NotifyWatchRoot(IDocumentHandler handler, string filePath, int oldSlideCount)
     {
+        if (handler is OfficeCli.Handlers.HwpxHandler hwpx)
+        {
+            WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "full", FullHtml = hwpx.ViewAsHtml() });
+            return;
+        }
         if (handler is OfficeCli.Handlers.ExcelHandler excel)
         {
             WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "full", FullHtml = excel.ViewAsHtml() });

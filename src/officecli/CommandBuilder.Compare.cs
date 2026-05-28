@@ -12,7 +12,7 @@ static partial class CommandBuilder
     {
         var fileAArg = new Argument<FileInfo>("fileA") { Description = "First document" };
         var fileBArg = new Argument<FileInfo>("fileB") { Description = "Second document" };
-        var modeOpt = new Option<string>("--mode") { Description = "Diff mode: text, outline, table" };
+        var modeOpt = new Option<string>("--mode") { Description = "Diff mode: text, outline, table, structural" };
         modeOpt.DefaultValueFactory = _ => "text";
 
         var cmd = new Command("compare", "Compare two HWPX documents and show differences");
@@ -76,8 +76,69 @@ static partial class CommandBuilder
                 result["diff"] = DiffLines(linesA, linesB);
                 break;
             }
+            case "structural":
+            case "struct":
+            {
+                var changes = new JsonArray();
+
+                // Paragraph-level diff (from text view)
+                var textDiff = a.CompareText(b);
+                var textChanges = textDiff["changes"]?.AsArray();
+                if (textChanges != null)
+                {
+                    foreach (var c in textChanges)
+                    {
+                        if (c is JsonObject obj && obj["type"]?.GetValue<string>() != "unchanged")
+                        {
+                            var entry = new JsonObject { ["level"] = "paragraph" };
+                            foreach (var kv in obj) entry[kv.Key] = kv.Value?.DeepClone();
+                            changes.Add(entry);
+                        }
+                    }
+                }
+
+                // Table-level diff
+                var tabA = a.ViewAsTables();
+                var tabB = b.ViewAsTables();
+                var tabLinesA = ExtractLines(tabA);
+                var tabLinesB = ExtractLines(tabB);
+                var tableDiff = DiffLines(tabLinesA, tabLinesB);
+                foreach (var item in tableDiff)
+                {
+                    if (item is JsonObject obj && !obj.ContainsKey("summary") && obj["status"]?.GetValue<string>() is string s && s != "unchanged")
+                    {
+                        changes.Add(new JsonObject { ["level"] = "table", ["type"] = s, ["text"] = obj["text"]?.DeepClone() });
+                    }
+                }
+
+                // Outline-level diff (heading structure)
+                var outA = ExtractLines(a.ViewAsOutline());
+                var outB = ExtractLines(b.ViewAsOutline());
+                var outDiff = DiffLines(outA, outB);
+                foreach (var item in outDiff)
+                {
+                    if (item is JsonObject obj && !obj.ContainsKey("summary") && obj["status"]?.GetValue<string>() is string s && s != "unchanged")
+                    {
+                        changes.Add(new JsonObject { ["level"] = "outline", ["type"] = s, ["text"] = obj["text"]?.DeepClone() });
+                    }
+                }
+
+                int paraChanges = changes.Count(c => c?["level"]?.GetValue<string>() == "paragraph");
+                int tableChanges = changes.Count(c => c?["level"]?.GetValue<string>() == "table");
+                int outlineChanges = changes.Count(c => c?["level"]?.GetValue<string>() == "outline");
+
+                result["summary"] = new JsonObject
+                {
+                    ["paragraphChanges"] = paraChanges,
+                    ["tableChanges"] = tableChanges,
+                    ["outlineChanges"] = outlineChanges,
+                    ["totalChanges"] = changes.Count,
+                };
+                result["changes"] = changes;
+                break;
+            }
             default:
-                throw new CliException($"Unknown diff mode: {mode}. Available: text, outline, table")
+                throw new CliException($"Unknown diff mode: {mode}. Available: text, outline, table, structural")
                     { Code = "invalid_value" };
         }
 

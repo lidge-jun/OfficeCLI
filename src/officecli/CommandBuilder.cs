@@ -153,6 +153,8 @@ static partial class CommandBuilder
         rootCommand.Add(BuildMergeCommand(jsonOption));
         rootCommand.Add(BuildPluginsCommand(jsonOption));
         rootCommand.Add(BuildCompareCommand(jsonOption));
+        rootCommand.Add(BuildConvertCommand(jsonOption));
+        rootCommand.Add(BuildNativeOpsCommand(jsonOption));
         rootCommand.Add(BuildCapabilitiesCommand(jsonOption));
         rootCommand.Add(BuildSchemaCommand(jsonOption));
 

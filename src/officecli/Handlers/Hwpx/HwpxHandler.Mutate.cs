@@ -529,7 +529,7 @@ public partial class HwpxHandler
     /// Special paths: /watermark, /pagebackground, /toc.
     /// Returns null on success. Throws CliException if not found.
     /// </summary>
-    public string? Remove(string path)
+    public string? Remove(string path, Dictionary<string, string>? properties = null)
     {
         // Special path handlers (not element-based)
         if (path.Equals("/watermark", StringComparison.OrdinalIgnoreCase)
@@ -894,7 +894,7 @@ public partial class HwpxHandler
     /// 4. Insert at the specified index under the target parent.
     /// </summary>
     /// <returns>New path of the moved element.</returns>
-    public string Move(string sourcePath, string? targetParentPath, InsertPosition? position)
+    public string Move(string sourcePath, string? targetParentPath, InsertPosition? position, Dictionary<string, string>? properties = null)
     {
         var index = position?.Index;
         if (string.IsNullOrEmpty(targetParentPath))

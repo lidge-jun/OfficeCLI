@@ -12,8 +12,8 @@ static partial class CommandBuilder
     private static Command BuildConvertCommand(Option<bool> jsonOption)
     {
         var fileArg = new Argument<FileInfo>("file") { Description = "Source document (.docx, .xlsx, .pptx, .hwpx)" };
-        var toOpt = new Option<string>("--to", "Target format (pdf, docx, xlsx, pptx, html, txt)") { IsRequired = true };
-        var outputOpt = new Option<FileInfo?>("--output", "Output file path (default: same name with new extension)");
+        var toOpt = new Option<string>("--to") { Description = "Target format (pdf, docx, xlsx, pptx, html, txt)", Required = true };
+        var outputOpt = new Option<FileInfo?>("--output") { Description = "Output file path (default: same name with new extension)" };
 
         var cmd = new Command("convert", "Convert document to another format using LibreOffice");
         cmd.Add(fileArg);

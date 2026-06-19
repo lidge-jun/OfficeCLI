@@ -106,6 +106,21 @@ pub(crate) fn try_run_native_header_footer_op(
                 req_usize(options, "--hf-para")?,
             ))
         }
+        "get-hf-picture-properties" => json_call(doc.get_header_footer_picture_properties_native(
+            section(options)?,
+            req_usize(options, "--outer-para")?,
+            req_usize(options, "--outer-control")?,
+            req_usize(options, "--inner-para")?,
+            req_usize(options, "--inner-control")?,
+        )),
+        "set-hf-picture-properties" => json_call(doc.set_header_footer_picture_properties_native(
+            section(options)?,
+            req_usize(options, "--outer-para")?,
+            req_usize(options, "--outer-control")?,
+            req_usize(options, "--inner-para")?,
+            req_usize(options, "--inner-control")?,
+            props_json(options),
+        )),
         _ => return Ok(None),
     }?;
     Ok(Some(value))

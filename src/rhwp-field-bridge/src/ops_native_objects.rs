@@ -151,6 +151,9 @@ pub(crate) fn try_run_native_object_op(
             control(options)?,
             req_usize(options, "--footnote-para")?,
         )),
+        "get-page-overlay-images" => json_call(doc.get_page_overlay_images_native(
+            req_u32(options, "--page-num")?,
+        )),
         _ => return Ok(None),
     }?;
     Ok(Some(value))

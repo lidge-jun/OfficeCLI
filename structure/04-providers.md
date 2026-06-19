@@ -54,6 +54,10 @@ Supported HWPX rhwp operations listed there:
   `list-fields`, `get-field`, `set-field`, `replace-text`, `insert-text`,
   `get-cell-text`, `scan-cells`, `set-cell-text`, `native-op`, `save-as-hwp`.
 
+rhwp engine pinned at **v0.7.12** (see `docs/hwp-source-inventory.md`). `native-op` sub-operations
+wired in v0.7.12 (2026-06-20): `search-all-text`, `insert-new-number`, `get-page-overlay-images`,
+`get-hf-picture-properties`, `set-hf-picture-properties`.
+
 ## Safe-save policy
 
 `docs/safety/safe-save-policy.md` separates four categories:

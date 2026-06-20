@@ -54,6 +54,9 @@ static partial class CommandBuilder
                 if (!string.IsNullOrEmpty(savePath)) req.Args["save"] = savePath;
             }, json) is {} rc) return rc;
 
+            if (TryHandleHwpProviderRhwpGet(file.FullName, path, json, out var hwpProviderRc))
+                return hwpProviderRc;
+
             using var handler = DocumentHandlerFactory.Open(file.FullName);
             var node = handler.Get(path, depth);
 

@@ -68,6 +68,31 @@ public partial class HwpBridgeSidecarTests
     }
 
     [Fact]
+    public void OfficeCliViewNative_SearchAllTextAcceptsTextAliasAndReturnsMatches()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_BRIDGE_PATH", LocateBridgeDll());
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_API_BIN", CreateFakeRhwpApi());
+        var input = CreateInput(".hwp");
+
+        var (exitCode, stdout) = InvokeOfficeCli(
+            [
+                "view", input, "native",
+                "--op", "search-all-text",
+                "--native-arg", "text=before",
+                "--json"
+            ]);
+
+        Assert.Equal(0, exitCode);
+        var root = JsonNode.Parse(stdout)!;
+        Assert.True(root["success"]!.GetValue<bool>());
+        Assert.Equal("search-all-text", root["data"]!["operation"]!.GetValue<string>());
+        Assert.Equal("before", root["data"]!["result"]!["matches"]![0]!["query"]!.GetValue<string>());
+        Assert.Equal("before before", root["data"]!["result"]!["matches"]![0]!["text"]!.GetValue<string>());
+        Assert.True(string.IsNullOrEmpty(root["data"]!["output"]!.GetValue<string>()));
+    }
+
+    [Fact]
     public void OfficeCliViewNative_RejectsMutatingNativeOp()
     {
         if (OperatingSystem.IsWindows()) return;

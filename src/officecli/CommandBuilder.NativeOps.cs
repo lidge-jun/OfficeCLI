@@ -63,7 +63,7 @@ static partial class CommandBuilder
                 new("delete-paragraph", "mutation"), new("insert-page-break", "mutation"),
                 new("insert-column-break", "mutation"), new("set-column-def", "mutation"),
                 new("insert-text", "mutation", true), new("replace-text", "mutation", true),
-                new("read-text", "read", true),
+                new("read-text", "read", true), new("search-all-text", "read"),
             }),
             new NativeOpsCategory("Table Operations", new NativeOp[]
             {

@@ -903,6 +903,9 @@ static partial class CommandBuilder
                 foreach (var (key, value) in ParsePropsArray(nativeArgs ?? Array.Empty<string>()))
                 {
                     var normalized = key.StartsWith("--", StringComparison.Ordinal) ? key : $"--{key}";
+                    if (nativeOp.Equals("search-all-text", StringComparison.OrdinalIgnoreCase)
+                        && normalized.Equals("--text", StringComparison.OrdinalIgnoreCase))
+                        normalized = "--query";
                     args[normalized] = value;
                 }
             }

@@ -13,6 +13,7 @@ static partial class CommandBuilder
         "get-paragraph-count",
         "get-paragraph-length",
         "get-text-range",
+        "search-all-text",
         "get-textbox-control-index",
         "find-next-editable-control",
         "find-nearest-control-backward",

@@ -388,6 +388,7 @@ fi
 if [ "$cmd" = "native-op" ]; then
   output=""
   op=""
+  query=""
   while [ "$#" -gt 0 ]; do
     if [ "$1" = "--output" ]; then
       shift
@@ -395,11 +396,18 @@ if [ "$cmd" = "native-op" ]; then
     elif [ "$1" = "--op" ]; then
       shift
       op="$1"
+    elif [ "$1" = "--query" ]; then
+      shift
+      query="$1"
     fi
     shift
   done
   if [ -n "$output" ]; then
     printf 'fake native op hwp' > "$output"
+  fi
+  if [ "$op" = "search-all-text" ]; then
+    printf '{"operation":"%s","result":{"matches":[{"query":"%s","text":"before before","paragraph":0,"offset":0}]},"output":"%s","engineVersion":"rhwp-api v0.test","format":"hwp","warnings":["experimental native-op"]}\n' "$op" "$query" "$output"
+    exit 0
   fi
   printf '{"operation":"%s","result":{"ok":true},"output":"%s","engineVersion":"rhwp-api v0.test","format":"hwp","warnings":["experimental native-op"]}\n' "$op" "$output"
   exit 0

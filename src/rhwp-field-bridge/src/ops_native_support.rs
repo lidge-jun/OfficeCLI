@@ -16,11 +16,13 @@ pub(crate) fn insert_picture(
         .map(String::as_str)
         .or_else(|| image.rsplit('.').next())
         .unwrap_or("png");
+    let cell_path: [(usize, usize, usize); 0] = [];
     json_call(
         doc.insert_picture_native(
             section(options)?,
             paragraph(options)?,
             offset(options)?,
+            &cell_path,
             &image_data,
             req_u32(options, "--width")?,
             req_u32(options, "--height")?,
@@ -31,6 +33,8 @@ pub(crate) fn insert_picture(
                 .get("--description")
                 .map(String::as_str)
                 .unwrap_or(""),
+            None,
+            None,
         ),
     )
 }

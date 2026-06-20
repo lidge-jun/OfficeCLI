@@ -8,6 +8,6 @@ publish = false
 native-skia = ["rhwp/native-skia"]
 
 [dependencies]
-rhwp = { git = "https://github.com/edwardkim/rhwp.git", rev = "1899ef9bc2dfd1c6c0c4d18b192d253a2d0a1fb5" }
+rhwp = { git = "https://github.com/edwardkim/rhwp.git", rev = "de02159ab4d2c5d165d6e25568bad3f8af5ef6cb" }
 serde_json = "1"
 sha2 = "0.10"

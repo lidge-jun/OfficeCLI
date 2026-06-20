@@ -9,13 +9,16 @@ re-fork onto v1.0.115; see the cli-jaw devlog `260620_officecli_refork_and_rhwp_
 |---|---|
 | Crate | `rhwp` (external) |
 | Source | `https://github.com/edwardkim/rhwp.git` |
-| **Pinned rev** | `1899ef9bc2dfd1c6c0c4d18b192d253a2d0a1fb5` (**tag v0.7.12**) |
+| **Pinned rev** | `de02159ab4d2c5d165d6e25568bad3f8af5ef6cb` (**tag v0.7.16**) |
 | Pinned at | `src/rhwp-field-bridge/Cargo.toml` |
-| Previous pin | `62a458aa…` (v0.7.10) — bumped 2026-06-20 |
+| Previous pin | `1899ef9b…` (v0.7.12) — bumped 2026-06-20 |
 
-**Why v0.7.12:** it is the earliest tag exposing the 5 newly-wired methods (see below).
-v0.7.10/v0.7.11 lack them; v0.7.16 was rejected because its `insert_picture` signature change breaks
-the bridge (E0061/E0308) — revisit when intentionally chasing the latest rhwp.
+**Why v0.7.16:** it is the latest release tag confirmed on 2026-06-20 and keeps the
+5 newly-wired methods introduced by v0.7.12. The v0.7.16 `insert_picture_native`
+signature adds `cell_path` plus optional paper offsets; OfficeCLI preserves the old
+`insert-picture` behavior by passing an empty cell path and `None` offsets from
+`src/rhwp-field-bridge/src/ops_native_support.rs`. v0.7.10/v0.7.11 lack the
+newly-wired methods.
 
 ## Bridge layers (call chain)
 
@@ -30,9 +33,9 @@ Build: `scripts/build-rhwp-sidecars.sh` (local-RID only). Runtime discovery: `Hw
 (env `OFFICECLI_RHWP_BIN` / `OFFICECLI_RHWP_API_BIN`, then PATH/app-dir). Capability gating is
 command-driven (`NativeOpAvailable` = bridge advertises `native-op`).
 
-## Native ops wired in v0.7.12 (new, 2026-06-20)
+## Native ops wired from v0.7.12+ (new, 2026-06-20)
 
-Reflected from upstream rhwp `devel`/`v0.7.12`. Each is a `native-op` sub-operation (the `.NET`
+Reflected from upstream rhwp `devel`/`v0.7.12` and retained in `v0.7.16`. Each is a `native-op` sub-operation (the `.NET`
 side forwards `--prop key=value` generically, so no .NET change was required):
 
 | Op string | rhwp method | Args | Family file |

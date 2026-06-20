@@ -79,7 +79,8 @@ Supported HWPX rhwp operations:
 - `native-op`
 
 `native-op` is a generic escape hatch routing to the pinned rhwp native sub-operations
-(text, table, style, header/footer, objects, search). Sub-ops added with rhwp **v0.7.12**
+(text, table, style, header/footer, objects, search). Sub-ops first added with rhwp **v0.7.12**
+and retained in the current **v0.7.16** pin
 (2026-06-20): `search-all-text`, `insert-new-number`, `get-page-overlay-images`,
 `get-hf-picture-properties`, `set-hf-picture-properties`. See `docs/hwp-source-inventory.md`.
 

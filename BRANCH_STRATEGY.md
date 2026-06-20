@@ -20,7 +20,7 @@ git cherry-pick --empty=drop -x $(cat /tmp/fork_delta.txt)    # resolve the seam
 
 The fork delta is clean + additive (HWPX handlers, rhwp Rust+.NET bridge, CJK, fork installer/fixtures).
 The 2026-06-20 re-fork onto **v1.0.115** replayed all **56** fork-unique commits with **zero conflicts**
-and a green **269-test** suite. rhwp engine pinned at **v0.7.12** (`docs/hwp-source-inventory.md`).
+and a green **269-test** suite. rhwp engine pinned at **v0.7.16** (`docs/hwp-source-inventory.md`).
 
 **Integration seams** (resolve keeping BOTH sides — upstream plugin/PDF/minimal-doc **and** fork native
 `.hwpx`/`.hwp` bridge + CJK): `CommandBuilder*.cs`, `DocumentHandlerFactory.cs`, `BlankDocCreator.cs`,

@@ -6,6 +6,36 @@ namespace OfficeCli.Tests.Hwp;
 public partial class HwpBridgeSidecarTests
 {
     [Fact]
+    public void OfficeCliSetText_TopLevelFindReplaceRoutesBinaryHwpThroughRhwpBridge()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        Environment.SetEnvironmentVariable("OFFICECLI_HWP_ENGINE", "rhwp-experimental");
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_BRIDGE_PATH", LocateBridgeDll());
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_BIN", CreateFakeRhwp());
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_API_BIN", CreateFakeRhwpApi());
+        var input = CreateInput(".hwp");
+        var output = CreateOutput(".hwp");
+
+        var (exitCode, stdout) = InvokeOfficeCli(
+            [
+                "set", input, "/text",
+                "--find", "before",
+                "--replace", "after",
+                "--prop", "mode=all",
+                "--prop", $"output={output}",
+                "--json"
+            ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(output));
+        Assert.Equal("after after", File.ReadAllText(output));
+        var root = JsonNode.Parse(stdout)!;
+        Assert.True(root["success"]!.GetValue<bool>());
+        Assert.Equal(output, root["data"]!["outputPath"]!.GetValue<string>());
+        Assert.Equal("rhwp-bridge", root["data"]!["engine"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void OfficeCliSetText_InPlaceRequiresVerifyBeforeMutation()
     {
         if (OperatingSystem.IsWindows()) return;

@@ -96,7 +96,7 @@ static partial class CommandBuilder
         bool verify)
     {
         var query = FirstValue(properties, "find", "query", "old");
-        var value = FirstValue(properties, "value", "text", "new");
+        var value = FirstValue(properties, "value", "text", "new", "replace");
         var output = FirstValue(properties, "output", "out");
         var mode = FirstValue(properties, "mode") ?? "one";
         var caseSensitiveRaw = FirstValue(properties, "case-sensitive", "caseSensitive") ?? "false";

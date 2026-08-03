@@ -112,7 +112,11 @@ def main() -> int:
     ALLOWED = {
         ("A", "restore"), ("A", "exclude"), ("A", "undecided"),
         ("M", "adapt"), ("M", "exclude"), ("M", "undecided"),
-        ("D", "exclude"), ("R", "exclude"),
+        # D,adapt is legitimate: the file is newer than our backup (so it reads
+        # as "deleted" from the backup's perspective) but we still add a hook to
+        # it. DocumentLimits.cs is the case -- upstream added it after the fork
+        # point, and the zip-bomb recovery bounds belong there.
+        ("D", "exclude"), ("D", "adapt"), ("R", "exclude"),
     }
 
     def in_scope(owner: str) -> bool:
@@ -187,8 +191,28 @@ def main() -> int:
             ):
                 fail["M,exclude modified (must match upstream)"].append(path)
         elif st.startswith("D"):
-            # Upstream-newer file: keep it, untouched.
-            if not exists:
+            if decision == "adapt":
+                if not exists:
+                    fail["D,adapt missing"].append(path)
+                elif not check_id:
+                    fail["D,adapt without check_id"].append(path)
+                elif not checks_manifest:
+                    fail["D,adapt in scope but no --checks manifest supplied"].append(
+                        f"{path} ({check_id})"
+                    )
+                elif check_id not in checks_manifest:
+                    fail["check_id not in manifest"].append(f"{path} ({check_id})")
+                else:
+                    rc = subprocess.run(
+                        ["grep", "-qE", checks_manifest[check_id], abs_path],
+                        capture_output=True,
+                    ).returncode
+                    if rc != 0:
+                        fail["adapt hook NOT found in file"].append(
+                            f"{path} ({check_id})"
+                        )
+            # Upstream-newer file we did not touch: keep it, untouched.
+            elif not exists:
                 fail["D,exclude DELETED (upstream regression)"].append(path)
             elif not unchanged_vs_upstream(a.repo, a.upstream, path):
                 fail["D,exclude modified"].append(path)

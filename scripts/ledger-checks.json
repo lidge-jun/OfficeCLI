@@ -9,5 +9,6 @@
   "hook.error.hwp_envelope": "Handlers\\.Hwp\\.HwpEngineException",
   "hook.validation.severity_init_jsonignore": "IssueSeverity Severity \\{ get; init; \\}",
   "hook.csproj.embed_base_hwpx": "EmbeddedResource Include=\"Resources/base\\.hwpx\"",
-  "hook.limits.per_entry+cumulative": "MaxRecoveryInputBytes|MaxPerEntryUncompressedBytes"
+  "hook.limits.per_entry+cumulative": "MaxRecoveryInputBytes|MaxPerEntryUncompressedBytes",
+  "hook.schemahelp.hwp_formats": "\"hwpx\".*\"hwp\"|\\[\"hwpx\"\\] = \"hwpx\""
 }

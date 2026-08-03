@@ -1,6 +1,17 @@
 // Copyright 2025 OfficeCli (officecli.ai)
 // SPDX-License-Identifier: Apache-2.0
 
+// DORMANT (wp5 decision): these PowerPointHandler CJK helpers have no callers in
+// this port. Their call sites live in fork-side Word/PPT host modifications
+// that were NOT ported -- upstream has since rewritten those paths, and
+// forcing the old call sites back in would regress upstream behavior for a
+// benefit no HWP route needs (HWPX Korean handling lives in
+// HwpxHandler.Korean.cs and Core/CjkHelper.cs, both of which ARE wired).
+//
+// Kept rather than deleted because they are the reference implementation for
+// CJK run segmentation if OOXML Korean support is picked up later. Classified
+// explicitly so this is a recorded decision, not unexplained dead code.
+
 using OfficeCli.Core;
 using Drawing = DocumentFormat.OpenXml.Drawing;
 

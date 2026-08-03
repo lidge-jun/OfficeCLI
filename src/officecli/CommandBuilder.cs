@@ -200,6 +200,7 @@ static partial class CommandBuilder
         rootCommand.Add(BuildCapabilitiesCommand(jsonOption));
         rootCommand.Add(BuildSchemaCommand(jsonOption));
         rootCommand.Add(BuildNativeOpsCommand(jsonOption));
+        rootCommand.Add(BuildCompareCommand(jsonOption));
 
         foreach (var stub in BuildIntegrationStubCommands())
             rootCommand.Add(stub);

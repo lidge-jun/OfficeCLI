@@ -58,7 +58,10 @@ runtime_surfaces() {          # shared by wp5 and wp7
       || { echo "FAIL: root command $c not exposed (dead code)"; return 1; }
   done
   run capabilities "$BIN" capabilities --json
-  run schema-cmd   "$BIN" schema --json
+  # `schema` is a container command; `schema --json` is a usage error, not a
+  # health check. Exercise the real subcommands.
+  run schema-list     "$BIN" schema list --json
+  run schema-validate "$BIN" schema validate --json
   # OOXML must survive our host-file surgery: create AND read AND mutate.
   run docx-create "$BIN" create /tmp/ocx-gate.docx --json
   run docx-view   "$BIN" view   /tmp/ocx-gate.docx text --json

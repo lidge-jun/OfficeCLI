@@ -72,12 +72,18 @@ gate_wp2() {
   run bridge-build dotnet build src/rhwp-officecli-bridge/rhwp-officecli-bridge.csproj
   local tracked; tracked=$(git ls-files 'src/rhwp-field-bridge/target/*' | wc -l | tr -d ' ')
   assert "no tracked rust target artifacts" "$tracked" = "0"
-  # Capability probing greps these exact names out of --help, so the log is the
-  # source of truth for what the C# side will believe is available.
+  # HwpRuntimeProbe.DiscoverApiCommands decides availability by running
+  # `--help` and doing stdout.Contains(command) per KnownApiCommands, so this
+  # log is the source of truth for what the C# side will believe exists.
+  #
+  # Match on a token boundary rather than a bare substring: plain `grep -- set-field`
+  # also matches `unset-field`. The C# side uses Contains() and has the same
+  # blind spot, so a rename to a superstring would silently keep a capability
+  # "available" -- assert the stricter property here and flag it in wp5.
   run bridge-help ./src/rhwp-field-bridge/target/debug/rhwp-field-bridge --help
   for c in create-blank read-text list-fields set-field replace-text native-op; do
-    grep -q -- "$c" "$LOG_DIR/bridge-help.log" \
-      || { echo "FAIL: bridge does not advertise $c"; return 1; }
+    grep -qE "(^|[^a-z-])${c}([^a-z-]|$)" "$LOG_DIR/bridge-help.log" \
+      || { echo "FAIL: bridge does not advertise $c as a distinct command"; return 1; }
   done
 }
 

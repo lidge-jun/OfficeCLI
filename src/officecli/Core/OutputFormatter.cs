@@ -50,6 +50,19 @@ internal class ErrorResult
     public string? Help { get; set; }
     [JsonPropertyName("validValues")]
     public string[]? ValidValues { get; set; }
+
+    // HWP/rhwp diagnostic channel. The sidecar reports which engine and mode
+    // handled an operation, and errors are only actionable with that context.
+    [JsonPropertyName("format")]
+    public string? Format { get; set; }
+    [JsonPropertyName("operation")]
+    public string? Operation { get; set; }
+    [JsonPropertyName("engine")]
+    public string? Engine { get; set; }
+    [JsonPropertyName("engineMode")]
+    public string? EngineMode { get; set; }
+    [JsonPropertyName("nextCommand")]
+    public string? NextCommand { get; set; }
 }
 
 internal class CliWarning
@@ -271,6 +284,16 @@ internal static class OutputFormatter
             ["success"] = false,
             ["error"] = JsonSerializer.SerializeToNode(errorResult, AppJsonContext.Default.ErrorResult)
         };
+        // A failed SafeSave carries the whole transaction: which checks ran, what
+        // the backup path is, whether the source was replaced. Without this the
+        // caller knows the write failed but not whether the original survived.
+        if (ex is OfficeCli.Handlers.Hwp.HwpEngineException { Transaction: not null } hwp)
+        {
+            envelope["data"] = new JsonObject
+            {
+                ["transaction"] = hwp.Transaction.DeepClone()
+            };
+        }
         return envelope.ToJsonString(JsonOptions);
     }
 
@@ -290,12 +313,43 @@ internal static class OutputFormatter
             result.Help = cli.Help;
             result.ValidValues = cli.ValidValues;
         }
+        else if (ex is OfficeCli.Handlers.Hwp.HwpEngineException hwp)
+        {
+            // HwpEngineException already carries a structured OfficeCliError from
+            // the sidecar. Falling through to EnrichFromMessage would throw that
+            // away and re-derive a worse code by regex-matching the message.
+            result.Code = hwp.Error.Code;
+            result.Suggestion = hwp.Error.Suggestion;
+            result.Help = "officecli help hwp";
+            result.ValidValues = hwp.Error.ValidValues;
+            result.Format = hwp.Error.Format;
+            result.Operation = hwp.Error.Operation;
+            result.Engine = hwp.Error.Engine;
+            result.EngineMode = hwp.Error.EngineMode;
+            result.NextCommand = BuildHwpNextCommand(hwp.Error.Code, hwp.Error.Operation);
+        }
         else
         {
             EnrichFromMessage(result, ex);
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Point the user at the one command that will actually help: a missing
+    /// runtime needs doctor, a failed operation needs the capability report,
+    /// and anything else needs the recipe list.
+    /// </summary>
+    private static string BuildHwpNextCommand(string? code, string? operation)
+    {
+        if (code is "bridge_not_enabled" or "bridge_missing" or "rhwp_runtime_missing" or "rhwp_api_missing")
+            return "officecli hwp doctor --json";
+
+        if (operation is not null)
+            return "officecli capabilities --json";
+
+        return "officecli help hwp";
     }
 
     /// <summary>

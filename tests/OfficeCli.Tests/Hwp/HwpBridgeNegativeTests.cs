@@ -305,17 +305,36 @@ exit 0
     {
         var root = CommandBuilder.BuildRootCommand();
         var originalOut = Console.Out;
+        var originalErr = Console.Error;
         using var writer = new StringWriter();
+        using var errWriter = new StringWriter();
         Console.SetOut(writer);
+        Console.SetError(errWriter);
+        int exitCode;
+        string stdout;
         try
         {
-            var exitCode = root.Parse(args).Invoke();
-            return (exitCode, writer.ToString());
+            exitCode = root.Parse(args).Invoke();
+            stdout = writer.ToString();
         }
         finally
         {
             Console.SetOut(originalOut);
+            Console.SetError(originalErr);
         }
+
+        // Emit after the real streams are restored; writing while Console.Error
+        // still points at errWriter just feeds the capture back into itself.
+        if (exitCode != 0)
+        {
+            var stderr = errWriter.ToString();
+            if (!string.IsNullOrWhiteSpace(stderr))
+                originalErr.WriteLine($"[officecli stderr] {stderr.Trim()}");
+            if (!string.IsNullOrWhiteSpace(stdout))
+                originalErr.WriteLine($"[officecli stdout] {stdout.Trim()}");
+        }
+
+        return (exitCode, stdout);
     }
 
     private static void ClearHwpRuntimeForMissingRuntimeAssertions()

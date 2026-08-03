@@ -52,6 +52,9 @@ build_fresh() {               # freshness proven by absence-then-presence
 
 runtime_surfaces() {          # shared by wp5 and wp7
   assert "cli binary exists" -x "$BIN"
+  # Fresh scratch dir per run: fixed /tmp paths made the second invocation fail
+  # with file_exists, which looks like a regression and is just stale state.
+  local scratch; scratch="$(mktemp -d)"
   run help "$BIN" --help
   for c in hwp capabilities schema native-ops; do
     grep -qE "^[[:space:]]+$c" "$LOG_DIR/help.log" \
@@ -63,11 +66,15 @@ runtime_surfaces() {          # shared by wp5 and wp7
   run schema-list     "$BIN" schema list --json
   run schema-validate "$BIN" schema validate --json
   # OOXML must survive our host-file surgery: create AND read AND mutate.
-  run docx-create "$BIN" create /tmp/ocx-gate.docx --json
-  run docx-view   "$BIN" view   /tmp/ocx-gate.docx text --json
-  run xlsx-create "$BIN" create /tmp/ocx-gate.xlsx --json
-  run xlsx-set    "$BIN" set    /tmp/ocx-gate.xlsx /Sheet1/A1 --prop value=42 --json
-  run pptx-create "$BIN" create /tmp/ocx-gate.pptx --json
+  run docx-create "$BIN" create "$scratch/g.docx" --json
+  run docx-view   "$BIN" view   "$scratch/g.docx" text --json
+  run xlsx-create "$BIN" create "$scratch/g.xlsx" --json
+  run xlsx-set    "$BIN" set    "$scratch/g.xlsx" /Sheet1/A1 --prop value=42 --json
+  run pptx-create "$BIN" create "$scratch/g.pptx" --json
+  # HWP round-trip: create, seed text, replace it, read it back. This is the
+  # activation proof -- capability flags alone do not show the chain works.
+  run hwpx-create "$BIN" create "$scratch/g.hwpx" --json
+  run hwpx-view   "$BIN" view   "$scratch/g.hwpx" text --json
 }
 
 gate_wp2() {

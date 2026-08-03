@@ -126,4 +126,29 @@ public interface IDocumentHandler : IDisposable
     void Save();
 }
 
-public record ValidationError(string ErrorType, string Description, string? Path, string? Part);
+public record ValidationError(string ErrorType, string Description, string? Path, string? Part)
+{
+    /// <summary>
+    /// Severity of this finding. HWPX validation distinguishes fatal package
+    /// damage from cosmetic issues, so it needs more than a flat error list.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT a fifth positional parameter. Adding one would change
+    /// the generated primary constructor arity and widen Deconstruct from four
+    /// outputs to five, breaking every positional use. As a standard property
+    /// it stays out of positional deconstruction.
+    ///
+    /// [JsonIgnore] keeps the plugin wire contract at four fields:
+    /// ValidationError crosses the plugin boundary through PluginJsonContext,
+    /// and IssueSeverity.Error is a non-null enum, so without this the source
+    /// generator would start emitting a "severity" field to every plugin.
+    /// In-process readers (HwpxPackageValidator) are unaffected.
+    ///
+    /// Record equality and ToString DO change, since declared members
+    /// participate in both. That is intended: two findings that differ only in
+    /// severity are genuinely different findings. No current call site uses
+    /// ValidationError as an equality key.
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IssueSeverity Severity { get; init; } = IssueSeverity.Error;
+}

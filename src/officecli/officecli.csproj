@@ -36,6 +36,10 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Resources/chartex-colors.xml" />
     <EmbeddedResource Include="Resources/chartex-style.xml" />
+    <!-- Blank HWPX template. There is no Resources/**/* wildcard here, so
+         without this entry the file ships on disk but never lands in the
+         assembly manifest and BlankDocCreator.CreateHwpx fails at runtime. -->
+    <EmbeddedResource Include="Resources/base.hwpx" />
     <EmbeddedResource Include="Handlers/Pptx/EffectTemplates/*.xml">
       <LogicalName>OfficeCli.Handlers.Pptx.EffectTemplates.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>

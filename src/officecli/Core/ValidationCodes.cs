@@ -10,6 +10,18 @@ namespace OfficeCli.Core;
 /// Kept in its own file rather than inside IDocumentHandler.cs so the HWPX
 /// layer adds a file instead of growing an upstream one — the additive-only
 /// rule that keeps this fork mergeable.
+///
+/// STATUS: declared but not yet wired (audit finding, wp3). HwpxHandler.Validate
+/// emits lowercase literals such as "bindata_missing", while these constants are
+/// uppercase ("BINDATA_MISSING"). Swapping them today would change the observable
+/// error_type on the CLI/JSON surface, so it is a deliberate wp6 task with golden
+/// fixtures to catch the diff — not a quiet rename here.
+///
+/// Likewise, no ValidationError initializer currently sets Severity, so every
+/// finding carries the default Error. HwpxPackageValidator compensates by
+/// special-casing package_version_missing and bindata_orphan in IsPackageBlocking.
+/// The severity model exists and is honored where read; it is not yet doing the
+/// classification work these codes imply.
 /// </remarks>
 public static class ValidationCodes
 {

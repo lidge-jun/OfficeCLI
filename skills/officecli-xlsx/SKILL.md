@@ -34,7 +34,7 @@ Help reflects the installed CLI version. When this skill and help disagree, **he
 - ALWAYS quote element paths: `"/Sheet1/row[1]"`, not `/Sheet1/row[1]`.
 - Use **single quotes** for any prop value containing `$`: `numFmt='$#,##0'`.
 - For formulas with cross-sheet `!` references, use `batch` with a `<<'EOF'` heredoc (see Known Issues).
-- `\n` and `\t` in a prop value ARE interpreted by the CLI — `\n` is a real in-cell line break (pair with `--prop wrapText=true`), `\t` a tab — consistent across xlsx / docx / pptx. Double them (`\\n`) for a literal backslash-n (rarely wanted). (`$` is the shell layer above — single-quote it.)
+- NEVER hand-write `\$`, `\t`, `\n` inside executable examples. The CLI does not interpret backslash escapes; they will land in your file as literal characters.
 
 **Incremental execution.** Run commands one at a time and read each exit code. `officecli` mutates the file on every call; a 50-command script that fails at command 3 will cascade silently. One command → check output → continue.
 
@@ -66,17 +66,13 @@ Before you declare done, run `officecli view "$FILE" html` and Read the returned
 
 If any of the above fails, STOP and fix before declaring done.
 
-**Print layout.** Any sheet the user may print or send as a board pack needs page setup. Default portrait + no fit-to-page splits wide tables and charts mid-way. Pick the fit mode by sheet shape:
+**Print layout.** Any sheet the user may print or send as a board pack needs page setup. Default portrait + no fit-to-page splits wide tables and charts mid-way. Apply per sheet:
 
 ```bash
-# Summary / chart / dashboard sheet (small, ≤ ~40 rows): fit to a single page.
 officecli set "$FILE" "/Summary" --prop orientation=landscape --prop fitToPage=true
-# Tall data table (dozens+ rows): fit WIDTH only, let height paginate naturally.
-# fitToPage=true here crushes every row onto one page → unreadable (### dates, 5px rows).
-officecli set "$FILE" "/Data" --prop orientation=landscape --prop fitToPage=1x0
 ```
 
-`fitToPage=true` == `1x1` == fit both axes to one page — correct only when the sheet is already short. `1x0` = fit 1 page wide, unlimited pages tall. Trigger: sheet holds a chart, or > 8 columns, or the user's ask mentions print / board / investor.
+Trigger: sheet holds a chart, or > 8 columns, or the user's ask mentions print / board / investor.
 
 ### Financial models only — skip this section if you are building a template, tracker, CSV import, or operational sheet
 
@@ -117,11 +113,11 @@ Any hardcoded number without a source is an undocumented assumption — a review
 
 Six steps. Every non-trivial build follows this shape.
 
-1. **Open/save lifecycle.** Use `officecli open <file>` at the start and `officecli save <file>` at the end to flush to disk — `save` only writes and leaves the resident warm for follow-up edits; reach for `officecli close <file>` only to release the resident on a one-shot handoff. Both are always safe (never error or lose work). For many cells, use `batch`: **≤ 50 ops/block recommended; tested up to 80+ ops per block on pure value-set payloads with zero failures. Cross-sheet formula batches are the exception — run those non-resident, single heredoc (see Known Issues)**. **Flush only at the non-officecli boundary:** officecli's own reads always see your edits; run `save`/`close` only before a non-officecli program reads the file (openpyxl/pandas, Excel, a renderer, delivery).
+1. **Choose the mode.** Always use `officecli open <file>` at the start and `officecli close <file>` at the end. Resident mode is the default, not an optimization — it avoids re-parsing the file on every command. For many cells, use `batch`: **≤ 50 ops/block recommended; tested up to 80+ ops per block on pure value-set payloads with zero failures. Cross-sheet formula batches are the exception — run those non-resident, single heredoc (see Known Issues)**.
 2. **Create or load.** `officecli create "$FILE"` (new) or `officecli view "$FILE" outline` (existing — get the lay of the land first).
 3. **Build incrementally.** One command, read the output, continue. After any structural op (new sheet, chart, named range, pivot), run `get` on it to confirm shape before stacking more on top.
 4. **Format.** Column widths, number formats, freeze panes, tab colors, header fills. Formatting is not optional polish — per "Requirements for Outputs" it is part of the deliverable.
-5. **Save, then reckon with the cache.** `officecli save <file>` writes to disk. Newly-added formulas ship without cached values; when a human opens the file in a spreadsheet app, the app recalculates and populates them. **But your downstream `INDEX/MATCH`, `SUMPRODUCT`, or any formula that references an upstream formula will cache whatever the upstream cached at write-time — often `0` or a stale value — and that cached lie survives into non-recalculating readers.** After any multi-formula build involving array formulas (`SUMPRODUCT`, `SUMIFS` with dynamic criteria) or cross-sheet chains, **re-touch every downstream cell** (run `set` again with the same formula) so the engine recomputes its cache from the freshly-cached upstream. ⚠️ Re-touch on cross-sheet chains via resident is unreliable (see Batch / resident caveats) — prefer non-resident `set` for the re-touch pass. Then `officecli get` a few downstream cells and eyeball that their `cachedValue=` is plausible. `validate` is safe with a resident open and itself flushes pending edits to disk (same as docx / pptx).
+5. **Close, then reckon with the cache.** `officecli close <file>` writes to disk. Newly-added formulas ship without cached values; when a human opens the file in a spreadsheet app, the app recalculates and populates them. **But your downstream `INDEX/MATCH`, `SUMPRODUCT`, or any formula that references an upstream formula will cache whatever the upstream cached at write-time — often `0` or a stale value — and that cached lie survives into non-recalculating readers.** After any multi-formula build involving array formulas (`SUMPRODUCT`, `SUMIFS` with dynamic criteria) or cross-sheet chains, **re-touch every downstream cell** (run `set` again with the same formula) so the engine recomputes its cache from the freshly-cached upstream. ⚠️ Re-touch on cross-sheet chains via resident is unreliable (see Batch / resident caveats) — prefer non-resident `set` for the re-touch pass. Then `officecli get` a few downstream cells and eyeball that their `cachedValue=` is plausible. **Array-formula fallback:** for `SUMPRODUCT(1/COUNTIF(range, range))` distinct-count patterns, the CLI engine treats the inner division as scalar and caches `1/N` (e.g. `0.001543`) rather than the true distinct count. Re-touching won't fix it. **Fallback: hardcode the correct value + an adjacent comment `"hardcoded distinct count; update if Data rows change"`, and tell the reader at delivery**. Better than shipping a cached lie. Do NOT run `validate` while a resident is open — it reports spurious drawing errors.
 6. **QA — assume there are problems.** See the QA section. You are not done when your last command exited 0; you are done after one fix-and-verify cycle finds zero new issues.
 
 ## Quick Start
@@ -147,7 +143,10 @@ officecli close "$FILE"
 officecli validate "$FILE"
 ```
 
-Verified: `validate` returns `no errors found`, `B5` resolves to `135000`. This is the shape of every build: open → set cells/formulas → format → close → validate.
+Verified: `validate` returns `no errors found`, `B5` resolves to `135000` in
+this simple fixture. This is the shape of every build: open → set
+cells/formulas → format → close → validate. For formula-heavy work, add the
+formula-error/recalc gate; structural validation alone is not delivery proof.
 
 ## CSV / bulk import
 
@@ -207,14 +206,6 @@ officecli view "$FILE" text --start 1 --end 50 --cols A,B,C
 
 Other `view` modes worth knowing: `annotated` (cell values + types/formulas + warnings), `stats` (numeric summaries), `issues` (broken formulas, empty sheets, missing refs).
 
-**Round-trip dump.** `officecli dump "$FILE" [path]` serializes the workbook — or one worksheet (`/Sheet1`, `/sheet[N]`) — into a replayable batch JSON; `officecli batch new.xlsx --input dump.json` replays it. Use it to learn from an existing workbook's structure or clone/adapt a template instead of reading raw OOXML. Coverage per `dump --help`; subtree dumps don't carry workbook-level resources (settings, named ranges) — the replay target must already define them.
-
-```bash
-officecli dump "$FILE" -o blueprint.json            # whole workbook
-officecli dump "$FILE" /Sheet1 -o sheet.json        # one worksheet
-officecli batch new.xlsx --input blueprint.json
-```
-
 **Inspect one element.** Use XPath-style paths. Always quote — shells glob `[N]`.
 
 ```bash
@@ -238,12 +229,12 @@ officecli query "$FILE" 'Sheet1!B[value!=0]'      # sheet-scoped
 
 Operators: `=`, `!=`, `~=` (contains), `>=`, `<=`, `[attr]` (exists).
 
-**Merge cells shortcut.** `officecli query $FILE merge` or `mergedrange` — both are aliases for `mergeCell`. Returns every merged range in the workbook without hand-walking `<mergeCell>` entries.
+**Merge cells shortcut.** `officecli query $FILE merge` or `mergedrange` — both are aliases for `mergeCell` (1.0.60+). Returns every merged range in the workbook without hand-walking `<mergeCell>` entries.
 
 **When the data is big enough that a row-walk is useless**, reach for Excel's own analytical elements:
 
 - Build a **pivot table** with `officecli add` (`--type pivottable`) to group/aggregate without writing 20 SUMIFs. Attach a **slicer** (`--type slicer`) to give the reader a filter UI.
-- Drop a **sparkline** (`--type sparkline`) in a row to show per-row trends — cheaper than one line chart per row and they print inline. `type` is a strict enum: **`line | column | stacked`** (plus aliases `winloss` / `win-loss` → `stacked`). Invalid `type=` values hard-fail — no silent fallback to `line` anymore.
+- Drop a **sparkline** (`--type sparkline`) in a row to show per-row trends — cheaper than one line chart per row and they print inline. `type` is a strict enum: **`line | column | stacked`** (plus aliases `winloss` / `win-loss` → `stacked`). Invalid `type=` values hard-fail on 1.0.58+ — no silent fallback to `line` anymore.
 - Run `officecli help xlsx pivottable`, `officecli help xlsx slicer`, `officecli help xlsx sparkline` for the exact prop names.
 
 ## Creating & Editing
@@ -297,13 +288,13 @@ Chart types live under `officecli help xlsx chart` — the enum is long (20+). P
 
 **The single-column trap.** `dataRange="Sheet1!B2:B13"` looks like "value column" but the engine rejects it with `Chart requires data`. Either widen the range to include the category column (`A2:B13`), or switch to form (c) with explicit `series1.categories`.
 
-**Move / resize a chart after create:** `set chart[N] --prop anchor="F5:N25"` (also `--prop x= --prop y= --prop width= --prop height=`). **Series are still immutable** — to add/change a series, `officecli remove` the chart and `officecli add` with the full series list. Note `remove chart[1]` shifts `chart[2] → chart[1]` and re-add **appends at the end** — to preserve chart order, remove all and rebuild in order.
+**Chart `anchor` and series are immutable after create.** `set chart[N] --prop anchor=...` is rejected (`UNSUPPORTED props: anchor`); likewise new series cannot be appended. To resize, move, or add a series: `officecli remove` the chart, then `officecli add` with the new anchor / full series list. Also note: `remove chart[1]` shifts `chart[2] → chart[1]`, and re-add **appends at the end** — to preserve chart order, remove all and rebuild in order.
 
 **Anchor sizing.** No auto-fit. A column chart with 5-6 categories + 2 series needs roughly `A5:L22` (12 cols × 18 rows) to show all labels uncut. Narrower and X-axis labels clip; wider and the chart can split across pages on print/export. If in doubt, start narrow, preview via `view html` (Read the returned HTML path), widen in increments. Page layout (below) is the other half of the fix.
 
 **Chart `dataRange` — always prefix with the sheet.** Even when the chart lives on the same sheet, write `dataRange="Summary!A17:C22"`, not `A17:C22`. The sheet-less form works inconsistently; the prefixed form is 100% reliable.
 
-officecli adds extended chart types the classic Excel object model lacks: `boxWhisker`, `waterfall`, `funnel`, `histogram`, `treemap`, `sunburst`, `pareto`. Use them when the data calls for them.
+officecli adds extended chart types the classic Excel object model lacks: `boxWhisker`, `waterfall`, `funnel`, `histogram`, `treemap`, `sunburst`. Use them when the data calls for them. Known-bad: `chartType=pareto` (produces invalid XML — use `column` or `boxWhisker`).
 
 **NEVER put unreplaced template tokens in chart title / series name / legend / axis title.** `$fy$24`, `{var}`, `<TODO>`, `$VAR`, `{{placeholder}}` render **literally** in the legend — validate passes, but a CFO sees `$fy$24` where "FY2024" should be. Always bind to final text or a cell reference (`title="FY2024 Revenue"` or `series1.name="Sheet1!A1"`).
 
@@ -312,8 +303,8 @@ officecli adds extended chart types the classic Excel object model lacks: `boxWh
 Three common flavors, each with its own prop shape (consult `officecli help xlsx cf`):
 
 - **Color scales**: cells shaded on a gradient by value — `type=colorscale` with `minColor` / `midColor` / `maxColor`.
-- **Data bars**: in-cell bars showing magnitude — `type=databar`. Set explicit `min` / `max` for consistent scaling across a column; defaults are valid if you omit them.
-- **Formula rules** (the `formulacf` element): highlight row when a condition is true — `type=formula` with `formula="$C2>1000"` and a fill/font.
+- **Data bars**: in-cell bars showing magnitude — `type=databar`. ALWAYS set explicit `min` and `max`; defaults emit invalid XML (see Known Issues).
+- **Formula rules**: highlight row when a condition is true — `type=formulacf` with `formula="$C2>1000"` and a fill/font.
 
 Rule: apply CF sparingly. A workbook where every cell is colored tells the reader nothing.
 
@@ -371,7 +362,7 @@ officecli set "$FILE" "/Sheet1/chart[1]/axis[@role=value]" --prop min=0 --prop m
 officecli set "$FILE" "/Sheet1/chart[1]/axis[@role=category]" --prop title="Month"
 ```
 
-Safe props: `title`, `min`, `max`, `majorGridlines`, `visible`, `labelRotation`.
+Safe props: `title`, `min`, `max`, `majorGridlines`, `visible`. Do NOT use `labelRotation` — it emits invalid XML today (see Known Issues).
 
 ## QA (Required)
 
@@ -391,16 +382,13 @@ Your first workbook is almost never correct. Treat QA as a bug hunt, not a confi
    officecli query "$FILE" 'cell:contains("#NAME?")'
    officecli query "$FILE" 'cell:contains("#N/A")'
    ```
-4. `officecli validate "$FILE"` — safe with a resident open; `validate` flushes pending edits to disk itself.
+4. `officecli validate "$FILE"` — close any resident first (see Known Issues).
 5. **Visual pass — walk every sheet via the HTML preview.** Run `officecli view "$FILE" html` and Read the returned HTML path. Each sheet renders with charts inline. Scan for `###`, truncated titles, placeholder tokens (`$fy$24`, `{var}`, `<TODO>`), sliced charts, white-slice pie charts, empty chart anchors — **STOP and fix before declaring done**. "validate pass" is not delivery; "the preview looks like a real workbook" is delivery. For human preview, run `officecli watch "$FILE"` (user opens the live preview at their own discretion) or have them open the `.xlsx` directly in Excel / WPS / Numbers.
-6. **Print layout fix (wide tables / multi-chart sheets).** When a sheet holds a chart or a wide table and the user will print it, set per-sheet page layout — but match the fit mode to the sheet's height:
+6. **Print layout fix (wide tables / multi-chart sheets).** When a sheet holds a chart or a wide table and the user will print it, set per-sheet page layout so it fits on one page:
    ```bash
-   # Short summary / chart sheet → fit to one page.
    officecli set "$FILE" "/Summary" --prop orientation=landscape --prop fitToPage=true
-   # Tall data table → fit width only (fitToPage=true would crush all rows onto one unreadable page).
-   officecli set "$FILE" "/Data" --prop orientation=landscape --prop fitToPage=1x0
    ```
-   Outcome: charts/wide tables print without mid-chart splits; tall tables stay readable across natural page breaks. Apply to every sheet that holds a chart or a > 8-column table.
+   Outcome: each sheet's print layout is one page with no mid-chart splits. Apply to every sheet that holds a chart or a > 8-column table.
 7. If anything failed, fix, then **rerun the full cycle**. One fix commonly creates another problem.
 
 `officecli view issues` + `view html` are the structural QA pair: `issues` catches broken formulas and empty sheets; `view html` (Read the returned HTML path) catches `###`, truncation, and token leakage. Chart fill colors / theme tints can vary across viewers — spot-check in the user's target viewer when color fidelity matters.
@@ -453,14 +441,19 @@ EOF
 
 ### CLI bug backlog (short)
 
-CLI constraints and gaps to work around — not defects in the output file.
+Avoid these until fixed; they produce invalid XML or silent breakage.
 
-- **Chart series are immutable after create** — to add/change a series: `remove` + `add` with the full series list. (Position is mutable: `set chart[N] --prop anchor=` / `x/y/width/height`.) `remove chart[N]` shifts subsequent indices down; re-add appends at end.
-- **Cross-sheet formula batches run fine through a resident** — a prior "deadlocks even at 3-5 ops" caution no longer reproduces. Pure value-set batches stay reliable at 50-80+ ops too. If you ever hit a hang, fall back to a non-resident one-big-batch or individual `set`. **Multiple resident processes on the same file/machine can still contend** — expect non-deterministic hangs if another agent/session holds a resident on the same file.
+- **`chartType=pareto`** — emits empty `cx:axisId val=""`; `validate` fails after `close`. Substitute `column` or `boxWhisker`.
+- **`labelRotation` on axis-by-role** — inserts bad `a:endParaRPr`. Use `title`/`min`/`max`/`majorGridlines`/`visible` only.
+- **Data bar without explicit min/max** — default cfvo `val=""` is invalid. Always pass `--prop min=N --prop max=N`.
+- **Chart `anchor` and series are immutable after create** — to resize/move/add-series: `remove` + `add`. `remove chart[N]` shifts subsequent indices down; re-add appends at end.
+- **`validate` while resident open** — reports spurious `tableParts` / `drawing` errors. Always `close` first.
+- **Batch + resident for formulas — avoid.** Observed deadlocks (CPU 99%, `main pipe busy`, kill -9 required) for cross-sheet formula batches even at 3-5 ops; the prior "≤ 12 ops safe" guideline is **not reliable**. Rule: **cross-sheet formulas go through non-resident one-big-batch OR individual `set`** (100% reliable). Pure value-set batches (no formulas) stay reliable at 50-80+ ops even in resident. **Multiple officecli resident processes on the same machine also contend** — if another agent/session is running resident, expect non-deterministic hangs.
 - **Conditional formatting naming asymmetry** — the element name for `--type` is `conditionalformatting`; the path suffix is `/cf[N]`. Use `officecli help xlsx conditionalformatting` for schema, `/cf[N]` for paths.
 - **Sheet `position` prop on add** — help says Add processes `position`, but the prop is often ignored. Reorder with `officecli move --index` / `--after` / `--before` after creating the sheet.
-- **`remove /sheet[N]` cascade guard** — rejects sheet remove/rename when the sheet is referenced by validation / conditional format / sparkline / hyperlink / named range on another sheet. Remove those dependent elements first, then remove the sheet.
+- **`remove /sheet[N]` cascade guard** — 1.0.59+ rejects sheet remove/rename when the sheet is referenced by validation / conditional format / sparkline / hyperlink / named range on another sheet. Remove those dependent elements first, then remove the sheet.
 - **Batch JSON rejects cell `color` alias** — inside batch `props`, `"color": "FF0000"` errors `ambiguous in cell context — use 'font.color' (text) or 'fill' (bg)`. The CLI at shell level accepts `--prop color=...` / `--prop size=14` as aliases on non-cell elements, but inside batch JSON on a cell always write the full dotted name: `"font.color"`, `"font.size"`, `"font.name"`.
+- **`SUMPRODUCT((range=criterion)*values)` caches `0` on 1.0.63** — the CLI calc engine does not evaluate array-predicate `SUMPRODUCT` at write-time; runtime Excel/WPS compute fine but the cached `0` ships to non-recalculating readers. **Helper-column fallback:** add a column `F` on the source sheet with `=C2*D2` per row, then aggregate via `=SUMIF(B:B, "Region X", F:F)`. Caches correctly, audits cleanly, and survives non-recalculating viewers.
 
 ### Renderer caveats (cross-viewer color fidelity)
 
@@ -474,10 +467,10 @@ Before calling a color or chart "broken", open the file in the user's actual tar
 
 ### Escape layers (shell quoting is above; these are the extras)
 
-`$` is the shell layer (single-quote it, above). `\n` / `\t` in a prop value ARE interpreted by the CLI into a real newline / tab. Two more layers:
+The CLI does not interpret `\$` / `\t` / `\n` — they land as literal characters. Shell-level rules are in L25-30. Two additional layers:
 
 - **JSON level (batch).** Standard JSON escapes — `"\n"`, `"\t"`, `"\""`. A real backslash in the final string is `"\\\\"`.
-- **Excel level.** `\n` in a cell is a real line break — pair with `--prop wrapText=true` so Excel shows the wrap. Works in a shell-quoted prop directly (`--prop value='a\nb'`); `"\n"` inside batch JSON gives the same. When in doubt, `officecli get` the cell and compare character-for-character.
+- **Excel level.** `\n` in a cell for line break → write `"\n"` **inside JSON**. In a shell-quoted prop it stays literal (Excel shows `\n` text). When in doubt, `officecli get` the cell and compare character-for-character.
 
 ### Other common pitfalls
 

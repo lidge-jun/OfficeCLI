@@ -12,7 +12,11 @@ namespace OfficeCli.Help;
 /// </summary>
 internal static class SchemaHelpLoader
 {
-    private static readonly string[] CanonicalFormats = { "docx", "xlsx", "pptx" };
+    // hwpx/hwp are included here, not just embedded: this allow-list filters the
+    // schema-help surface, so the 35 hwp/hwpx schema resources were shipping in
+    // the assembly but invisible to `schema list`, `schema validate`, and
+    // `officecli help <format>`.
+    private static readonly string[] CanonicalFormats = { "docx", "xlsx", "pptx", "hwpx", "hwp" };
 
     private static readonly Dictionary<string, string> FormatAliases =
         new(StringComparer.OrdinalIgnoreCase)
@@ -24,6 +28,10 @@ internal static class SchemaHelpLoader
             ["pptx"] = "pptx",
             ["ppt"] = "pptx",
             ["powerpoint"] = "pptx",
+            ["hwpx"] = "hwpx",
+            ["hwp"] = "hwp",
+            ["hangeul"] = "hwp",
+            ["hanword"] = "hwp",
         };
 
     // Manifest index: canonical key "schemas/help/{format}/{element}.json"

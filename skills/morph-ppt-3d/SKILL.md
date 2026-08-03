@@ -70,28 +70,18 @@ Tell the user: "Your topic is [X]. I suggest using a 3D model of [description]. 
 2. **Sketchfab API** (no auth needed for search):
 
    ```bash
-   curl -s "https://api.sketchfab.com/v3/search?type=models&q=[keyword]&downloadable=true&archives_flavours=glb" \
-     | python3 -c "
-   import json, sys
-   data = json.load(sys.stdin)
-   for m in data.get('results', [])[:5]:
-       print(f\"Name: {m['name']}\")
-       print(f\"URL: https://sketchfab.com/3d-models/{m['slug']}-{m['uid']}\")
-       print(f\"Likes: {m.get('likeCount', 0)}, License: {m.get('license', {}).get('label', 'unknown')}\")
-       print()
-   "
+   agbrowse fetch "https://api.sketchfab.com/v3/search?type=models&q=[keyword]&downloadable=true&archives_flavours=glb" --json --browser never
    ```
+   Parse the JSON `content` for `results[].name`, `results[].slug`, `results[].uid`, `results[].likeCount`, and `results[].license.label`.
 
 3. **Poly Pizza** (direct GLB download, all free):
 
    ```bash
-   # Search results page — parse for download links
-   curl -s "https://poly.pizza/api/search/[keyword]" 2>/dev/null
+   agbrowse fetch "https://poly.pizza/api/search/[keyword]" --json --browser never
    ```
 
 4. **Khronos glTF-Sample-Assets** (guaranteed to work, always available):
    ```bash
-   # Direct download — no auth, no API, always works
    curl -L -o model.glb "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/[ModelName]/glTF-Binary/[ModelName].glb"
    ```
    Available models: Duck, Fox, Avocado, BrainStem, CesiumMan, DamagedHelmet, FlightHelmet, Lantern, Suzanne, WaterBottle, etc.
@@ -241,7 +231,7 @@ Choose a palette that matches the **topic mood** — don't default to generic bl
 - One color dominates (60-70% visual weight), 1-2 supporting tones, one accent
 - On light backgrounds: use Body Text color for copy, Muted for captions
 - On dark backgrounds: use Secondary or `FFFFFF` for copy, Muted for captions
-- For additional inspiration, browse `../morph-ppt/reference/styles/INDEX.md` — 50+ visual styles organized by mood (dark, light, warm, vivid, bw). Read `style.md` for design philosophy, `build.sh` for implementation reference. **Learn the approach, do not copy coordinates verbatim**
+- For additional inspiration, browse `../../styles/INDEX.md` — 50+ visual styles organized by mood (dark, light, warm, vivid, bw). Read `style.md` for design philosophy, `build.sh` for implementation reference. **Learn the approach, do not copy coordinates verbatim**
 
 ### Font Pairings (pick one per deck)
 

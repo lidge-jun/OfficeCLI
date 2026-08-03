@@ -11,17 +11,23 @@ namespace OfficeCli.Core;
 /// layer adds a file instead of growing an upstream one — the additive-only
 /// rule that keeps this fork mergeable.
 ///
-/// STATUS: declared but not yet wired (audit finding, wp3). HwpxHandler.Validate
-/// emits lowercase literals such as "bindata_missing", while these constants are
-/// uppercase ("BINDATA_MISSING"). Swapping them today would change the observable
-/// error_type on the CLI/JSON surface, so it is a deliberate wp6 task with golden
-/// fixtures to catch the diff — not a quiet rename here.
+/// STATUS (settled in wp6): these constants are NOT the codes HWPX emits, and
+/// they should not become them. HwpxHandler.Validate emits lowercase snake_case
+/// ("bindata_missing"), and tests assert those exact strings — see
+/// HwpxValidationTests, which checks ErrorType == "package_version_missing" and
+/// "bindata_orphan". Substituting the uppercase constants would change the
+/// observable error_type on the CLI/JSON surface and break those assertions.
 ///
-/// Likewise, no ValidationError initializer currently sets Severity, so every
-/// finding carries the default Error. HwpxPackageValidator compensates by
-/// special-casing package_version_missing and bindata_orphan in IsPackageBlocking.
-/// The severity model exists and is honored where read; it is not yet doing the
-/// classification work these codes imply.
+/// So the wp3 note ("wire these in wp6 behind golden fixtures") resolved the
+/// other way once the fixtures existed to check against: the emitted contract
+/// wins, and these remain a kordoc-alignment reference for cross-tool mapping.
+/// Deleting them would lose that mapping; renaming the emitted codes would
+/// break callers. Documented rather than silently kept.
+///
+/// Severity likewise stays default-Error at every construction site.
+/// HwpxPackageValidator.IsPackageBlocking classifies by error type instead,
+/// special-casing package_version_missing and non-strict bindata_orphan. The
+/// severity property is honored where read; it is not doing classification work.
 /// </remarks>
 public static class ValidationCodes
 {

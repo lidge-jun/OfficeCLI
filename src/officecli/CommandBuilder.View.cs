@@ -124,7 +124,20 @@ static partial class CommandBuilder
             // source and writes the PDF). Handled before TryResident
             // because exporter invocation needs the file lock released, and
             // ExporterInvoker closes the resident itself when present.
-            if (mode.ToLowerInvariant() is "pdf")
+            // HWP/HWPX PDF export belongs to the rhwp bridge, which renders the
+            // document natively. Without this guard the exporter-plugin path
+            // claims the mode first and fails with exporter_not_found even
+            // though the sidecar can do it.
+            var pdfExt = Path.GetExtension(file.FullName);
+            var bridgeOwnsPdf =
+                string.Equals(pdfExt, ".hwp", StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(pdfExt, ".hwpx", StringComparison.OrdinalIgnoreCase)
+                    && (Handlers.Hwp.HwpEngineSelector.IsExperimentalBridgeEnabled()
+                        || Handlers.Hwp.HwpEngineSelector.CanUseInstalledRuntime(
+                            Handlers.Hwp.HwpCapabilityConstants.FormatHwpx,
+                            Handlers.Hwp.HwpCapabilityConstants.OperationExportPdf)));
+
+            if (mode.ToLowerInvariant() is "pdf" && !bridgeOwnsPdf)
             {
                 var pdfPath = outArg ?? Path.ChangeExtension(file.FullName, "pdf");
                 var exp = OfficeCli.Core.Plugins.ExporterInvoker.Run(file.FullName, ".pdf", pdfPath);

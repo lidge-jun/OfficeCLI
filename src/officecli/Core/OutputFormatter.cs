@@ -372,6 +372,11 @@ internal static class OutputFormatter
     internal static string? InferErrorCode(Exception ex)
     {
         if (ex is CliException cli) return cli.Code;
+        // HwpEngineException derives from Exception, not CliException, so without
+        // this the batch path regex-infers a code from the message text and
+        // usually lands on null -- discarding a code the sidecar already reported.
+        // Batch per-item codes must match the envelope-level code.
+        if (ex is OfficeCli.Handlers.Hwp.HwpEngineException hwp) return hwp.Error.Code;
         var tmp = new ErrorResult();
         EnrichFromMessage(tmp, ex);
         return tmp.Code == "internal_error" ? null : tmp.Code;

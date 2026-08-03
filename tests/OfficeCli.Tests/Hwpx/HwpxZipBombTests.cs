@@ -122,20 +122,51 @@ public class HwpxZipBombTests
     [Fact]
     public void OversizedInput_IsRejectedBeforeAllocation()
     {
-        // The recovery input cap must be strictly below the aggregate limits,
-        // or the pre-allocation check can never fire first.
-        Assert.True(DocumentLimits.MaxRecoveryInputBytes < DocumentLimits.MaxUncompressedBytes);
-        Assert.True(DocumentLimits.MaxRecoveryInputBytes > 0);
+        // Drive the actual rejection path. The previous version only compared
+        // two constants to each other, which is true by construction and proves
+        // nothing about the guard -- false-confidence coverage.
+        //
+        // Build a file that exceeds MaxRecoveryInputBytes and is NOT a readable
+        // zip, so open falls into recovery and must refuse before allocating it.
+        var path = TempPath(".hwpx");
+        var oversized = DocumentLimits.MaxRecoveryInputBytes + (1024 * 1024);
+        using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+        {
+            // Sparse where the filesystem allows it: set the length rather than
+            // writing 257 MiB of zeros.
+            fs.SetLength(oversized);
+            fs.Position = 0;
+            fs.Write("PK\u0003\u0004"u8);   // local header signature, truncated archive
+        }
+
+        try
+        {
+            var ex = Assert.ThrowsAny<Exception>(() => DocumentHandlerFactory.Open(path));
+            var code = (ex as CliException)?.Code;
+            Assert.True(
+                code == "zip_bomb" || ex.Message.Contains("bomb", StringComparison.OrdinalIgnoreCase)
+                    || ex.Message.Contains("recovery limit", StringComparison.OrdinalIgnoreCase),
+                $"expected the pre-allocation input cap to fire, got {ex.GetType().Name}: {ex.Message}");
+        }
+        finally { File.Delete(path); }
     }
 
     [Fact]
     public void CumulativeExpansion_IsBoundedAcrossEntries()
     {
-        // Per-entry alone is not enough: many acceptable entries must still be
-        // caught in aggregate, so the total cap has to be the tighter bound.
-        Assert.True(DocumentLimits.MaxRecoveryTotalUncompressedBytes
-                    >= DocumentLimits.MaxPerEntryUncompressedBytes);
-        Assert.True(DocumentLimits.MaxRecoveryTotalUncompressedBytes
-                    <= DocumentLimits.MaxUncompressedBytes);
+        // Many individually-acceptable entries whose SUM exceeds the aggregate
+        // cap. Each declares a modest size so the per-entry guard stays quiet
+        // and only the cumulative bound can stop it.
+        var bomb = CreateValidBomb(entries: 200, megabytesEach: 8);
+        var broken = BreakCentralDirectory(bomb);
+        try
+        {
+            var ex = Assert.ThrowsAny<Exception>(() => DocumentHandlerFactory.Open(broken));
+            var code = (ex as CliException)?.Code;
+            Assert.True(
+                code == "zip_bomb" || ex.Message.Contains("bomb", StringComparison.OrdinalIgnoreCase),
+                $"expected a cumulative-expansion rejection, got {ex.GetType().Name}: {ex.Message}");
+        }
+        finally { File.Delete(bomb); File.Delete(broken); }
     }
 }

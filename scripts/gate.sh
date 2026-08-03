@@ -65,14 +65,20 @@ runtime_surfaces() {          # shared by wp5 and wp7
   # health check. Exercise the real subcommands.
   run schema-list     "$BIN" schema list --json
   run schema-validate "$BIN" schema validate --json
-  # OOXML must survive our host-file surgery: create AND read AND mutate.
+  # OOXML must survive our host-file surgery: every format CREATE + READ +
+  # MUTATE, not a create-only smoke that the comment overstated.
   run docx-create "$BIN" create "$scratch/g.docx" --json
   run docx-view   "$BIN" view   "$scratch/g.docx" text --json
+  run docx-add    "$BIN" add    "$scratch/g.docx" /body --type paragraph --prop text=gate --json
   run xlsx-create "$BIN" create "$scratch/g.xlsx" --json
   run xlsx-set    "$BIN" set    "$scratch/g.xlsx" /Sheet1/A1 --prop value=42 --json
+  run xlsx-query  "$BIN" query  "$scratch/g.xlsx" /Sheet1/A1 --json
   run pptx-create "$BIN" create "$scratch/g.pptx" --json
-  # HWP round-trip: create, seed text, replace it, read it back. This is the
-  # activation proof -- capability flags alone do not show the chain works.
+  run pptx-view   "$BIN" view   "$scratch/g.pptx" outline --json
+  # Upstream subsystems the host seams could have broken.
+  run validate-docx "$BIN" validate "$scratch/g.docx" --json
+  run dump-docx     "$BIN" dump     "$scratch/g.docx" --json
+  run plugins-list  "$BIN" plugins list --json
   run hwpx-create "$BIN" create "$scratch/g.hwpx" --json
   run hwpx-view   "$BIN" view   "$scratch/g.hwpx" text --json
 }
@@ -151,24 +157,38 @@ gate_wp7() {
 
   # skip -> executed. No `|| true`: comm returns 0 for an empty intersection,
   # so swallowing its status would make the whole check vacuous.
-  local prev="${OCX_WP6_SKIPPED:-}"
-  assert "wp6 skip inventory provided" -n "$prev"
-  assert "wp6 skip inventory exists"   -f "$prev"
-  assert "wp6 skip inventory non-empty (else comparison is vacuous)" -s "$prev"
-  comm -23 <(sort -u "$prev") <(sort -u "$LOG_DIR/inventory.txt") > "$LOG_DIR/vanished.txt"
-  assert "no wp6-skipped test vanished from wp7 discovery" ! -s "$LOG_DIR/vanished.txt"
-  comm -12 <(sort -u "$prev") <(sort -u "$LOG_DIR/skipped.txt") > "$LOG_DIR/still-skipped.txt"
-  assert "sidecar-dependent tests now execute" ! -s "$LOG_DIR/still-skipped.txt"
+  # NOTE: the skip-transition check this gate used to require is unimplementable
+  # against this suite. These tests guard on missing sidecars with an early
+  # `return`, not an xUnit Skip, so every TRX reports skipped=0 and the
+  # comparison was vacuous by construction. Assert the property that actually
+  # matters instead: with sidecars attached, the HWP surface must really work.
 
+  local hwp; hwp="$(mktemp -d)"
   run hwp-doctor  "$BIN" hwp doctor --json
-  run hwp-create  "$BIN" create /tmp/ocx-gate.hwp --json
-  run hwp-read    "$BIN" view /tmp/ocx-gate.hwp text --json
-  run hwpx-create "$BIN" create /tmp/ocx-gate.hwpx --json
+  run hwp-create  "$BIN" create "$hwp/a.hwp" --json
+  # Real mutation round-trip, not create-and-read-an-empty-file: seed text,
+  # replace it, and assert the replacement is actually observable.
+  run hwp-add     "$BIN" add "$hwp/a.hwp" /text --type paragraph \
+                    --prop value=gatetext --prop output="$hwp/b.hwp" --json
+  run hwp-read    "$BIN" view "$hwp/b.hwp" text --json
+  grep -q 'gatetext' "$LOG_DIR/hwp-read.log" \
+    || { echo "FAIL: inserted text not readable back"; return 1; }
+  run hwp-replace "$BIN" set "$hwp/b.hwp" /text --find gatetext --replace gatedone \
+                    --prop output="$hwp/c.hwp" --json
+  run hwp-verify  "$BIN" view "$hwp/c.hwp" text --json
+  grep -q 'gatedone' "$LOG_DIR/hwp-verify.log" \
+    || { echo "FAIL: replacement not observable"; return 1; }
+  # Render paths depend on the native-skia release sidecar.
+  run hwp-pdf     "$BIN" view "$hwp/c.hwp" pdf --out "$hwp/c.pdf" --json
+  assert "pdf produced" -s "$hwp/c.pdf"
+  run hwp-png     "$BIN" view "$hwp/c.hwp" png --out "$hwp/c.png" --json
+  run hwp-svg     "$BIN" view "$hwp/c.hwp" svg --out "$hwp/c.svg" --json
+  run hwpx-create "$BIN" create "$hwp/d.hwpx" --json
 
   assert "OCX_PARENT set to cli-jaw root" -n "${OCX_PARENT:-}"
   run ledger python3 scripts/verify-ledger.py \
         --ledger "$OCX_PARENT/devlog/_plan/260803_officecli_upstream_report_rhwp/003_restore_ledger.csv" \
-        --repo "$REPO" --upstream upstream/main
+        --repo "$REPO" --upstream upstream/main --checks scripts/ledger-checks.json
 }
 
 case "$PHASE" in

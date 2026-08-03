@@ -92,7 +92,7 @@ static partial class CommandBuilder
                         {
                             var entry = new JsonObject { ["level"] = "paragraph" };
                             foreach (var kv in obj) entry[kv.Key] = kv.Value?.DeepClone();
-                            changes.Add(entry);
+                            changes.Add((JsonNode)entry);
                         }
                     }
                 }
@@ -107,7 +107,7 @@ static partial class CommandBuilder
                 {
                     if (item is JsonObject obj && !obj.ContainsKey("summary") && obj["status"]?.GetValue<string>() is string s && s != "unchanged")
                     {
-                        changes.Add(new JsonObject { ["level"] = "table", ["type"] = s, ["text"] = obj["text"]?.DeepClone() });
+                        changes.Add((JsonNode)new JsonObject { ["level"] = "table", ["type"] = s, ["text"] = obj["text"]?.DeepClone() });
                     }
                 }
 
@@ -119,7 +119,7 @@ static partial class CommandBuilder
                 {
                     if (item is JsonObject obj && !obj.ContainsKey("summary") && obj["status"]?.GetValue<string>() is string s && s != "unchanged")
                     {
-                        changes.Add(new JsonObject { ["level"] = "outline", ["type"] = s, ["text"] = obj["text"]?.DeepClone() });
+                        changes.Add((JsonNode)new JsonObject { ["level"] = "outline", ["type"] = s, ["text"] = obj["text"]?.DeepClone() });
                     }
                 }
 
@@ -167,12 +167,12 @@ static partial class CommandBuilder
         foreach (var line in linesA)
         {
             if (!setB.Contains(line) && !string.IsNullOrWhiteSpace(line))
-                diff.Add(new JsonObject { ["status"] = "removed", ["text"] = line.Trim() });
+                diff.Add((JsonNode)new JsonObject { ["status"] = "removed", ["text"] = line.Trim() });
         }
         foreach (var line in linesB)
         {
             if (!setA.Contains(line) && !string.IsNullOrWhiteSpace(line))
-                diff.Add(new JsonObject { ["status"] = "added", ["text"] = line.Trim() });
+                diff.Add((JsonNode)new JsonObject { ["status"] = "added", ["text"] = line.Trim() });
         }
 
         // Summary

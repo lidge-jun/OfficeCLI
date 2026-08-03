@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = ROOT / "schemas" / "interfaces"
 
 
+EXPECTED_MIN = 12  # the restored interface-schema set; guards against a silent shrink
+
+
 def refs(node) -> list[str]:
     found: list[str] = []
     if isinstance(node, dict):
@@ -42,6 +45,14 @@ def main() -> int:
     if not files:
         print(f"no schemas found in {SCHEMA_DIR}", file=sys.stderr)
         return 2
+    if len(files) < EXPECTED_MIN:
+        # "all present schemas parsed" is trivially true of a directory someone
+        # emptied. Require the set not to shrink.
+        print(
+            f"FAIL only {len(files)} schema(s) in {SCHEMA_DIR}, expected >= {EXPECTED_MIN}",
+            file=sys.stderr,
+        )
+        return 1
 
     bad = 0
     for path in files:

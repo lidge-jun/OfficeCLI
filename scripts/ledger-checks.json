@@ -1,0 +1,13 @@
+{
+  "hook.factory.hwpx_route+bomb_guard_ext": "\"\\.hwpx\" => new HwpxHandler",
+  "hook.root.register_hwp_capabilities_schema_nativeops": "rootCommand\\.Add\\(BuildHwpHelpCommand",
+  "hook.set.hwp_dispatch+replace_to_value": "HwpFormatFor|HandleHwpTextReplace",
+  "hook.view.hwp_routing": "HandleHwpBridgeView",
+  "hook.add.hwp_text": "IsHwpTextAdd",
+  "hook.create.hwpx_hwp_cases+CreateHwpx": "CreateHwpx\\(path\\)",
+  "hook.resident.hwpx_view_branches": "Handlers\\.HwpxHandler",
+  "hook.error.hwp_envelope": "Handlers\\.Hwp\\.HwpEngineException",
+  "hook.validation.severity_init_jsonignore": "IssueSeverity Severity \\{ get; init; \\}",
+  "hook.csproj.embed_base_hwpx": "EmbeddedResource Include=\"Resources/base\\.hwpx\"",
+  "hook.limits.per_entry+cumulative": "MaxRecoveryInputBytes|MaxPerEntryUncompressedBytes"
+}

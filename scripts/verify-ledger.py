@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import subprocess
 import sys
@@ -38,7 +39,15 @@ def main() -> int:
     ap.add_argument("--ledger", required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--upstream", default="upstream/main")
-    ap.add_argument("--checks", help="optional check_id -> grep-pattern manifest")
+    ap.add_argument(
+        "--backup",
+        default="backup/pre-officecli-main-restore-20260626_112245",
+        help="ref the ledger was derived from; used to prove the ledger is complete",
+    )
+    ap.add_argument(
+        "--checks",
+        help="check_id -> regex manifest (JSON). REQUIRED once any adapt row is in scope.",
+    )
     ap.add_argument(
         "--through-wp",
         help="only enforce restore/adapt rows owned by work-phases up to and "
@@ -55,6 +64,56 @@ def main() -> int:
 
     fail: dict[str, list[str]] = defaultdict(list)
     pending: list[str] = []
+
+    checks_manifest: dict[str, str] = {}
+    if a.checks:
+        with open(a.checks, encoding="utf-8") as fh:
+            checks_manifest = json.load(fh)
+
+    def tracked(path: str) -> bool:
+        # os.path.exists is not enough: an untracked or ignored file would
+        # satisfy a "restored" row without ever entering the port.
+        return git(a.repo, "ls-files", "--error-unmatch", "--", path).returncode == 0
+
+    # Ledger completeness: the CSV must describe exactly the real diff, or a
+    # truncated ledger silently stops being a completeness oracle.
+    ns = git(a.repo, "diff", "--name-status", f"{a.upstream}..{a.backup}")
+    if ns.returncode != 0:
+        fail["cannot derive diff for completeness check"].append(ns.stderr.strip())
+    else:
+        real: set[tuple[str, str]] = set()
+        for line in ns.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                real.add((parts[0], parts[1]))
+        ledger_keys = {
+            (r["diff_status"], r["path"])
+            for r in rows
+            if not r["diff_status"].endswith("-dest")
+        }
+        for missing in sorted(real - ledger_keys):
+            fail["path in diff but NOT in ledger"].append(f"{missing[0]}\t{missing[1]}")
+        for extra in sorted(ledger_keys - real):
+            fail["ledger row not present in diff (stale)"].append(
+                f"{extra[0]}\t{extra[1]}"
+            )
+        # Every rename must carry its synthetic destination row.
+        dests = {r["path"] for r in rows if r["diff_status"].endswith("-dest")}
+        for st, path in sorted(real):
+            if st.startswith("R"):
+                line = next(
+                    (l for l in ns.stdout.splitlines() if l.startswith(f"{st}\t{path}\t")),
+                    None,
+                )
+                dest = line.split("\t")[2] if line and len(line.split("\t")) > 2 else None
+                if dest and dest not in dests:
+                    fail["rename destination row missing from ledger"].append(dest)
+
+    ALLOWED = {
+        ("A", "restore"), ("A", "exclude"), ("A", "undecided"),
+        ("M", "adapt"), ("M", "exclude"), ("M", "undecided"),
+        ("D", "exclude"), ("R", "exclude"),
+    }
 
     def in_scope(owner: str) -> bool:
         """Rows owned by a later work-phase are not yet due."""
@@ -76,6 +135,11 @@ def main() -> int:
         if not decision:
             fail["blank decision"].append(path)
             continue
+        if (st[0], decision) not in ALLOWED:
+            fail["unsupported diff_status/decision combination"].append(
+                f"{st},{path},{decision}"
+            )
+            continue
         if decision == "undecided":
             if a.through_wp:
                 pending.append(f"{path} (undecided, {r['owner_wp']})")
@@ -91,6 +155,8 @@ def main() -> int:
         if st.startswith("A"):
             if decision == "restore" and not exists:
                 fail["A,restore missing"].append(path)
+            elif decision == "restore" and not tracked(path):
+                fail["A,restore present but UNTRACKED"].append(path)
             elif decision == "exclude" and exists:
                 fail["A,exclude unexpectedly present"].append(path)
         elif st.startswith("M"):
@@ -99,6 +165,23 @@ def main() -> int:
                     fail["M,adapt missing"].append(path)
                 elif not check_id:
                     fail["M,adapt without check_id"].append(path)
+                elif not checks_manifest:
+                    fail["M,adapt in scope but no --checks manifest supplied"].append(
+                        f"{path} ({check_id})"
+                    )
+                elif check_id not in checks_manifest:
+                    fail["check_id not in manifest"].append(f"{path} ({check_id})")
+                else:
+                    # Prove the hook is actually present, not merely that the
+                    # file exists. An untouched upstream file must FAIL here.
+                    rc = subprocess.run(
+                        ["grep", "-qE", checks_manifest[check_id], abs_path],
+                        capture_output=True,
+                    ).returncode
+                    if rc != 0:
+                        fail["adapt hook NOT found in file"].append(
+                            f"{path} ({check_id})"
+                        )
             elif decision == "exclude" and exists and not unchanged_vs_upstream(
                 a.repo, a.upstream, path
             ):

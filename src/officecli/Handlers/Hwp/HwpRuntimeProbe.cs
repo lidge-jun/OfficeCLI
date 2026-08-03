@@ -21,6 +21,12 @@ internal sealed record HwpRuntimeProbeResult(
     public bool ListFieldsAvailable => BridgeAvailable && ApiAvailable && ApiCommands.Contains("list-fields");
     public bool ReadFieldAvailable => BridgeAvailable && ApiAvailable && ApiCommands.Contains("get-field");
     public bool FillFieldAvailable => BridgeAvailable && ApiAvailable && ApiCommands.Contains("set-field");
+    /// <summary>
+    /// Batch field fill. Separate from <see cref="FillFieldAvailable"/> because
+    /// an older sidecar advertises set-field but not fill-fields; conflating
+    /// them would route a batch request to a runtime that cannot serve it.
+    /// </summary>
+    public bool FillFieldsBatchAvailable => BridgeAvailable && ApiAvailable && ApiCommands.Contains("fill-fields");
     public bool ReplaceTextAvailable => BridgeAvailable && ApiAvailable && ApiCommands.Contains("replace-text");
     public bool InsertTextAvailable => BridgeAvailable && ApiAvailable && ApiCommands.Contains("insert-text");
     public bool RenderPngAvailable => BridgeAvailable && ApiAvailable && ApiCommands.Contains("render-png");
@@ -60,6 +66,7 @@ internal static class HwpRuntimeProbe
         "list-fields",
         "get-field",
         "set-field",
+        "fill-fields",
         "replace-text",
         "insert-text",
         "get-cell-text",

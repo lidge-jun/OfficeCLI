@@ -17,7 +17,7 @@ use serde_json::json;
 
 use ops::{
     convert_to_editable, create_blank, get_cell_text, get_field, list_fields, replace_text,
-    save_as_hwp, scan_cells, set_cell_text, set_field,
+    fill_fields, save_as_hwp, scan_cells, set_cell_text, set_field,
 };
 use ops_native::native_op;
 use ops_text::insert_text;
@@ -25,7 +25,7 @@ use ops_view::{
     diagnostics, document_info, dump_controls, dump_pages, export_markdown, export_pdf, read_text,
     render_png, render_svg, thumbnail,
 };
-use options::parse_options;
+use options::{collect_repeated, parse_options};
 
 fn main() {
     if let Err(err) = run() {
@@ -77,6 +77,7 @@ fn run() -> Result<(), String> {
         "list-fields" => list_fields(&doc, format),
         "get-field" => get_field(&doc, format, &options),
         "set-field" => set_field(&mut doc, format, &options),
+        "fill-fields" => fill_fields(&mut doc, format, &options, &collect_repeated(&args[1..], "--set")),
         "replace-text" => replace_text(&mut doc, format, &options),
         "insert-text" => insert_text(&mut doc, format, &options),
         "get-cell-text" => get_cell_text(&doc, format, &options),
@@ -96,6 +97,6 @@ fn print_help() {
         ""
     };
     println!(
-        "rhwp-field-bridge create-blank|read-text|render-svg{render_png}|export-pdf|export-markdown|document-info|diagnostics|dump-controls|dump-pages|thumbnail|list-fields|get-field|set-field|replace-text|insert-text|get-cell-text|scan-cells|set-cell-text|convert-to-editable|native-op|save-as-hwp --format hwp|hwpx --input <path> [--op <native-op>] [--output <path>] [--out-dir <dir>] [--output-format hwp|hwpx] [--name <field>] [--id <fieldId>] [--query <text>] [--value <text>] [--mode one|all] [--section N --paragraph N --para N --parent-para N --control N --cell N --cell-para N --offset N --count N] --json"
+        "rhwp-field-bridge create-blank|read-text|render-svg{render_png}|export-pdf|export-markdown|document-info|diagnostics|dump-controls|dump-pages|thumbnail|list-fields|get-field|set-field|fill-fields|replace-text|insert-text|get-cell-text|scan-cells|set-cell-text|convert-to-editable|native-op|save-as-hwp --format hwp|hwpx --input <path> [--op <native-op>] [--output <path>] [--out-dir <dir>] [--output-format hwp|hwpx] [--name <field>] [--id <fieldId>] [--set name=value ...] [--strict true|false] [--query <text>] [--value <text>] [--mode one|all] [--section N --paragraph N --para N --parent-para N --control N --cell N --cell-para N --offset N --count N] --json"
     );
 }

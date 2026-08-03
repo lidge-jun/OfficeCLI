@@ -363,6 +363,10 @@ static partial class CommandBuilder
                 ["listFieldsAvailable"] = runtime.ListFieldsAvailable,
                 ["readFieldAvailable"] = runtime.ReadFieldAvailable,
                 ["fillFieldAvailable"] = runtime.FillFieldAvailable,
+                // Batch fill is reported separately: an older sidecar advertises
+                // set-field but not fill-fields, and a caller needs to know which
+                // it is getting before sending a batch.
+                ["fillFieldsBatchAvailable"] = runtime.FillFieldsBatchAvailable,
                 ["replaceTextAvailable"] = runtime.ReplaceTextAvailable,
                 ["insertTextAvailable"] = runtime.InsertTextAvailable,
                 ["renderPngAvailable"] = runtime.RenderPngAvailable,

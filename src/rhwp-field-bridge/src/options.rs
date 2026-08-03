@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
 pub(crate) fn parse_options(args: &[String]) -> Result<BTreeMap<String, String>, String> {
+    // NOTE: a BTreeMap keeps the LAST occurrence of a repeated flag. That is
+    // fine for every existing option, but a repeatable flag needs
+    // `collect_repeated` below instead.
     let mut options = BTreeMap::new();
     let mut index = 0;
     while index < args.len() {
@@ -76,4 +79,24 @@ pub(crate) fn selected_pages(
         ));
     }
     Ok(vec![one_based - 1])
+}
+
+/// Collect every occurrence of a repeatable flag, in argv order.
+///
+/// `parse_options` returns a BTreeMap, so `--set a=1 --set b=2` would keep only
+/// the last pair. `fill-fields` needs all of them, and needs them ordered:
+/// filling the same field twice should apply the later value, matching how a
+/// user reads the command line.
+pub(crate) fn collect_repeated(args: &[String], flag: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == flag && index + 1 < args.len() {
+            values.push(args[index + 1].clone());
+            index += 2;
+            continue;
+        }
+        index += 1;
+    }
+    values
 }

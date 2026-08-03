@@ -113,6 +113,82 @@ pub(crate) fn set_field(
     Ok(())
 }
 
+/// Fill several form fields in a single pass.
+///
+/// `set-field` handles one field per invocation, so filling an N-field Korean
+/// government form meant N process spawns AND N full parse/serialize cycles,
+/// each writing an intermediate document. This loads once, applies every
+/// mutation, and writes once.
+///
+/// Assignments arrive as repeatable `--set name=value`. `=` may appear in the
+/// value (`--set 비고=a=b` sets 비고 to `a=b`); only the first splits.
+///
+/// Atomicity: mutations are applied to the in-memory document and only written
+/// if ALL succeed. A failure part-way leaves the output file untouched rather
+/// than half-filled, which for a form is the difference between "retry" and
+/// "silently wrong document".
+pub(crate) fn fill_fields(
+    doc: &mut HwpDocument,
+    format: &str,
+    options: &BTreeMap<String, String>,
+    assignments: &[String],
+) -> Result<(), String> {
+    let output = required(options, "--output")?;
+    if assignments.is_empty() {
+        return Err("missing --set name=value (repeatable)".to_string());
+    }
+
+    let strict = options.get("--strict").map(String::as_str) != Some("false");
+    let mut applied: Vec<Value> = Vec::new();
+    let mut warnings: Vec<String> =
+        vec!["experimental field mutation; verify round-trip before production use".to_string()];
+
+    for raw in assignments {
+        let (name, value) = raw
+            .split_once('=')
+            .ok_or_else(|| format!("invalid --set '{raw}': expected name=value"))?;
+        if name.is_empty() {
+            return Err(format!("invalid --set '{raw}': empty field name"));
+        }
+
+        match doc.set_field_value_by_name(name, value) {
+            Ok(mutation_json) => {
+                let field: Value = serde_json::from_str(&mutation_json)
+                    .map_err(|e| format!("field mutation JSON parse failed: {e}"))?;
+                applied.push(json!({ "name": name, "value": value, "field": field }));
+            }
+            Err(e) => {
+                // Strict (default) fails the whole batch so a typo in one field
+                // name cannot yield a partially-filled form that looks complete.
+                if strict {
+                    return Err(format!("field '{name}' mutation failed: {e}"));
+                }
+                warnings.push(format!("skipped field '{name}': {e}"));
+            }
+        }
+    }
+
+    if applied.is_empty() {
+        return Err("no fields were filled".to_string());
+    }
+
+    write_document(doc, format, output)?;
+
+    println!(
+        "{}",
+        json!({
+            "filled": applied.len(),
+            "requested": assignments.len(),
+            "fields": applied,
+            "output": output,
+            "engineVersion": concat!("rhwp-api ", env!("CARGO_PKG_VERSION")),
+            "format": format,
+            "warnings": warnings
+        })
+    );
+    Ok(())
+}
+
 pub(crate) fn replace_text(
     doc: &mut HwpDocument,
     format: &str,

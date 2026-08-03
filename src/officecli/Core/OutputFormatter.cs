@@ -343,7 +343,16 @@ internal static class OutputFormatter
     /// </summary>
     private static string BuildHwpNextCommand(string? code, string? operation)
     {
-        if (code is "bridge_not_enabled" or "bridge_missing" or "rhwp_runtime_missing" or "rhwp_api_missing")
+        // Match constants, not string literals. HwpEngineSelector actually throws
+        // ReasonRhwpApiMissingOrTooOld ("rhwp_api_missing_or_too_old") for
+        // API-backed operations, which the original literal list missed entirely --
+        // so the most common missing-runtime failure was routed to `capabilities`
+        // instead of `doctor`, the opposite of what this helper promises.
+        if (code == Handlers.Hwp.HwpCapabilityConstants.ReasonBridgeNotEnabled
+            || code == Handlers.Hwp.HwpCapabilityConstants.ReasonBridgeMissing
+            || code == Handlers.Hwp.HwpCapabilityConstants.ReasonRhwpRuntimeMissing
+            || code == Handlers.Hwp.HwpCapabilityConstants.ReasonRhwpApiMissing
+            || code == Handlers.Hwp.HwpCapabilityConstants.ReasonRhwpApiMissingOrTooOld)
             return "officecli hwp doctor --json";
 
         if (operation is not null)

@@ -39,6 +39,12 @@ def main() -> int:
     ap.add_argument("--repo", required=True)
     ap.add_argument("--upstream", default="upstream/main")
     ap.add_argument("--checks", help="optional check_id -> grep-pattern manifest")
+    ap.add_argument(
+        "--through-wp",
+        help="only enforce restore/adapt rows owned by work-phases up to and "
+        "including this one (e.g. wp2). Later phases are reported as PENDING, "
+        "not FAIL. Omit to enforce the whole ledger (wp7 final gate).",
+    )
     a = ap.parse_args()
 
     with open(a.ledger, newline="", encoding="utf-8") as fh:
@@ -48,6 +54,18 @@ def main() -> int:
         return 2
 
     fail: dict[str, list[str]] = defaultdict(list)
+    pending: list[str] = []
+
+    def in_scope(owner: str) -> bool:
+        """Rows owned by a later work-phase are not yet due."""
+        if not a.through_wp:
+            return True
+        if not owner or not owner.startswith("wp"):
+            return True
+        try:
+            return int(owner[2:]) <= int(a.through_wp[2:])
+        except ValueError:
+            return True
 
     for r in rows:
         st, path = r["diff_status"], r["path"]
@@ -59,7 +77,15 @@ def main() -> int:
             fail["blank decision"].append(path)
             continue
         if decision == "undecided":
-            fail["undecided (must be resolved before wp7)"].append(path)
+            if a.through_wp:
+                pending.append(f"{path} (undecided, {r['owner_wp']})")
+            else:
+                fail["undecided (must be resolved before wp7)"].append(path)
+            continue
+
+        if decision in ("restore", "adapt") and not in_scope(r["owner_wp"]):
+            if not exists:
+                pending.append(f"{path} ({decision}, {r['owner_wp']})")
             continue
 
         if st.startswith("A"):
@@ -108,7 +134,10 @@ def main() -> int:
                 print(f"  ... and {len(paths) - 20} more")
         return 1
 
-    print(f"ledger OK: {len(rows)} rows verified against {a.upstream}")
+    scope = f" through {a.through_wp}" if a.through_wp else " (full)"
+    print(f"ledger OK{scope}: {len(rows)} rows verified against {a.upstream}")
+    if pending:
+        print(f"  {len(pending)} row(s) pending in later work-phases")
     return 0
 
 

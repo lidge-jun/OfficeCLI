@@ -43,6 +43,10 @@ esac
 echo "Building officecli ($RID)..."
 TMPDIR=$(mktemp -d)
 dotnet publish "$PROJECT" -c Release -r "$RID" -o "$TMPDIR" --nologo -v quiet
+# HWP support is out-of-process. Build the rhwp sidecars into the same staging
+# dir so they install alongside the binary; without them an installed officecli
+# reports every HWP capability as unavailable.
+"$SCRIPT_DIR/scripts/build-rhwp-sidecars.sh" "$TMPDIR" "$RID" Release
 echo "Build complete."
 
 # Install
@@ -61,7 +65,6 @@ mkdir -p "$INSTALL_DIR"
 # stuck in uninterruptible `UE` state on the next code page fault.
 cp "$TMPDIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME.new"
 chmod +x "$INSTALL_DIR/$BINARY_NAME.new"
-rm -rf "$TMPDIR"
 
 # macOS: remove quarantine flag and ad-hoc codesign (required by AppleSystemPolicy)
 # Done on the staged .new copy so the live binary is never mutated in place.
@@ -71,6 +74,20 @@ if [ "$(uname -s)" = "Darwin" ]; then
 fi
 
 mv -f "$INSTALL_DIR/$BINARY_NAME.new" "$INSTALL_DIR/$BINARY_NAME"
+
+# Install the rhwp sidecars using the same atomic stage-then-rename dance, for
+# the same reason: overwriting a running binary in place corrupts it.
+for SIDECAR in rhwp-officecli-bridge rhwp-field-bridge rhwp-officecli-bridge.exe rhwp-field-bridge.exe; do
+    [ -f "$TMPDIR/$SIDECAR" ] || continue
+    cp "$TMPDIR/$SIDECAR" "$INSTALL_DIR/$SIDECAR.new"
+    chmod +x "$INSTALL_DIR/$SIDECAR.new" 2>/dev/null || true
+    if [ "$(uname -s)" = "Darwin" ]; then
+        xattr -d com.apple.quarantine "$INSTALL_DIR/$SIDECAR.new" 2>/dev/null || true
+        codesign -s - -f "$INSTALL_DIR/$SIDECAR.new" 2>/dev/null || true
+    fi
+    mv -f "$INSTALL_DIR/$SIDECAR.new" "$INSTALL_DIR/$SIDECAR"
+done
+rm -rf "$TMPDIR"
 
 # Hint if not in PATH
 case ":$PATH:" in

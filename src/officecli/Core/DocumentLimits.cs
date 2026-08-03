@@ -62,6 +62,27 @@ public static class DocumentLimits
     public const long MaxCompressionRatio = 1000;
 
     /// <summary>
+    /// Cap on the raw bytes a malformed-zip RECOVERY pass will read into memory.
+    /// </summary>
+    /// <remarks>
+    /// The central-directory bomb guard only protects archives whose directory
+    /// parses. A corrupt archive falls into the salvage path, which reads the
+    /// whole file before it can inspect anything, so the cap has to come first.
+    /// </remarks>
+    public const long MaxRecoveryInputBytes = 256L * 1024 * 1024;
+
+    /// <summary>
+    /// Cap on the inflated size of a SINGLE entry during recovery.
+    /// </summary>
+    public const long MaxPerEntryUncompressedBytes = 512L * 1024 * 1024;
+
+    /// <summary>
+    /// Cap on total inflated bytes across all entries during recovery. Each
+    /// entry can be individually acceptable while the sum still exhausts memory.
+    /// </summary>
+    public const long MaxRecoveryTotalUncompressedBytes = 1L * 1024 * 1024 * 1024;
+
+    /// <summary>
     /// Maximum number of XML elements officecli will let a single package
     /// materialize into an in-memory DOM. The zip guards above bound *bytes*, but
     /// the Open XML SDK builds a full node tree on any read that walks it, and a

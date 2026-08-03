@@ -226,12 +226,45 @@ public partial class HwpxHandler : IDocumentHandler
     // Plan 99.9.I2: Broken ZIP recovery — scan Local File Headers
     private static HwpxDocument TryRecoverBrokenZip(Stream stream)
     {
+        // Copy at most <paramref name="limit"/> bytes, then fail. DeflateStream
+        // will happily produce gigabytes from a few KB otherwise.
+        static void CopyBounded(Stream source, Stream destination, long limit)
+        {
+            var buffer = new byte[81920];
+            long written = 0;
+            int read;
+            while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                written += read;
+                if (written > limit)
+                    throw new CliException(
+                        "Damaged HWPX entry inflates beyond the per-entry recovery limit; "
+                        + "rejected as a potential decompression bomb.")
+                    { Code = "zip_bomb" };
+                destination.Write(buffer, 0, read);
+            }
+        }
+
         stream.Position = 0;
+        // CONSISTENCY(dos-hardening): the central-directory bomb guard cannot
+        // help here — a corrupt archive is exactly what lands in this salvage
+        // path, and salvage reads the whole file before it can inspect anything.
+        // Bound the input BEFORE allocating it.
+        if (stream.Length > DocumentLimits.MaxRecoveryInputBytes)
+            throw new CliException(
+                $"Cannot recover {stream.Length / (1024 * 1024)} MiB damaged HWPX: exceeds the "
+                + $"{DocumentLimits.MaxRecoveryInputBytes / (1024 * 1024)} MiB recovery limit.")
+            {
+                Code = "zip_bomb",
+                Suggestion = "Repair the file with Hancom Office, or extract the parts you need separately."
+            };
+
         var data = new byte[stream.Length];
         stream.ReadExactly(data);
 
         const uint LocalFileHeader = 0x04034b50;
         var recovered = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        long totalUncompressed = 0;
 
         int pos = 0;
         while (pos + 30 < data.Length)
@@ -244,6 +277,24 @@ public partial class HwpxHandler : IDocumentHandler
             uint uncompSize = BitConverter.ToUInt32(data, pos + 22);
             ushort nameLen = BitConverter.ToUInt16(data, pos + 26);
             ushort extraLen = BitConverter.ToUInt16(data, pos + 28);
+
+            // Entry count: a salvage scan can otherwise walk millions of headers.
+            if (recovered.Count >= DocumentLimits.MaxZipEntries)
+                throw new CliException(
+                    $"Damaged HWPX declares more than {DocumentLimits.MaxZipEntries} entries; "
+                    + "rejected as a potential decompression bomb.")
+                { Code = "zip_bomb" };
+
+            // The declared sizes are attacker-controlled, so check them before
+            // they are used for arithmetic or allocation. compSize is later cast
+            // to int for the span, so it must fit as well.
+            if (uncompSize > DocumentLimits.MaxPerEntryUncompressedBytes
+                || compSize > int.MaxValue
+                || (compSize > 0 && uncompSize / Math.Max(1u, compSize) > DocumentLimits.MaxCompressionRatio))
+                throw new CliException(
+                    "Damaged HWPX contains an entry whose declared size or compression ratio "
+                    + "exceeds safe limits; rejected as a potential decompression bomb.")
+                { Code = "zip_bomb" };
 
             int headerEnd = pos + 30 + nameLen + extraLen;
             if (headerEnd + compSize > data.Length) break;
@@ -264,7 +315,9 @@ public partial class HwpxHandler : IDocumentHandler
                         new MemoryStream(compData.ToArray()),
                         System.IO.Compression.CompressionMode.Decompress);
                     using var outStream = new MemoryStream();
-                    compStream.CopyTo(outStream);
+                    // Bounded copy: the declared uncompressed size is a hint, not
+                    // a promise, so cap what we will actually inflate.
+                    CopyBounded(compStream, outStream, DocumentLimits.MaxPerEntryUncompressedBytes);
                     entryData = outStream.ToArray();
                 }
                 else
@@ -272,6 +325,15 @@ public partial class HwpxHandler : IDocumentHandler
                     pos = headerEnd + (int)compSize;
                     continue;
                 }
+
+                // Many individually-acceptable entries can still exhaust memory
+                // in aggregate.
+                totalUncompressed += entryData.LongLength;
+                if (totalUncompressed > DocumentLimits.MaxRecoveryTotalUncompressedBytes)
+                    throw new CliException(
+                        "Damaged HWPX expands beyond the total recovery limit; rejected as a "
+                        + "potential decompression bomb.")
+                    { Code = "zip_bomb" };
 
                 if (!recovered.ContainsKey(entryName))
                     recovered[entryName] = entryData;

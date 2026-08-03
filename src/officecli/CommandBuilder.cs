@@ -193,6 +193,13 @@ static partial class CommandBuilder
         rootCommand.Add(BuildCreateCommand(jsonOption));
         rootCommand.Add(BuildMergeCommand(jsonOption));
         rootCommand.Add(BuildPluginsCommand(jsonOption));
+        // Without these four the restored partials compile as unreachable
+        // private code: officecli hwp / capabilities / schema / native-ops
+        // would simply not exist on the CLI surface.
+        rootCommand.Add(BuildHwpHelpCommand(jsonOption));
+        rootCommand.Add(BuildCapabilitiesCommand(jsonOption));
+        rootCommand.Add(BuildSchemaCommand(jsonOption));
+        rootCommand.Add(BuildNativeOpsCommand(jsonOption));
 
         foreach (var stub in BuildIntegrationStubCommands())
             rootCommand.Add(stub);

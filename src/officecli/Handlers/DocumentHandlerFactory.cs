@@ -60,7 +60,11 @@ public static class DocumentHandlerFactory
         // operation resulted in an overflow"). Only the native zip formats are
         // inspected; plugin-handled formats may not be zips and are left to
         // their own handler. See DocumentLimits for the thresholds.
-        if (IsNativeOoxml(ext))
+        // HWPX is a zip container too, so it needs the same bomb guard. It is
+        // deliberately NOT folded into IsNativeOoxml: that predicate answers
+        // "is this OOXML" and is used elsewhere (macro handling, dangling-rel
+        // repair) where HWPX must not be included.
+        if (IsNativeOoxml(ext) || ext == ".hwpx")
             GuardDecompressionBomb(filePath);
 
         // CONSISTENCY(dangling-rel-repair): the reactive catch below only fires
@@ -289,6 +293,19 @@ public static class DocumentHandlerFactory
             ".docx" or ".docm" => new WordHandler(filePath, editable),
             ".xlsx" or ".xlsm" => new ExcelHandler(filePath, editable),
             ".pptx" or ".pptm" => new PowerPointHandler(filePath, editable),
+            ".hwpx" => new HwpxHandler(filePath, editable),
+            // Binary .hwp has no OOXML-shaped document model; every operation
+            // goes through the rhwp sidecar instead. Failing here with a
+            // pointer to those routes beats a generic unsupported_type.
+            ".hwp" => throw new CliException(
+                "Binary .hwp files are handled by operation-specific rhwp-backed OfficeCLI routes, "
+                + "not the generic OOXML document handler.")
+            {
+                Code = "hwp_generic_handler_unsupported",
+                Suggestion = "Run `officecli hwp doctor --json`, then use `officecli view file.hwp text --json`, "
+                           + "`officecli create file.hwp --json`, or `officecli hwp --json` recipes.",
+                Help = "officecli hwp doctor --json"
+            },
             _      => TryOpenViaPlugin(filePath, ext, editable)
                    ?? throw UnsupportedTypeException(ext)
         };
@@ -403,7 +420,7 @@ public static class DocumentHandlerFactory
             $"or see plugins/plugin-protocol.md for installation paths.")
         {
             Code = "unsupported_type",
-            ValidValues = [".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm"]
+            ValidValues = [".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm", ".hwpx", ".hwp"]
         };
 
     private static bool IsEncodingException(Exception ex)

@@ -33,6 +33,26 @@ static partial class CommandBuilder
         };
         var renderOpt = new Option<string>("--render") { Description = "Screenshot rendering path (docx/pptx): auto (default; native on Windows w/ Word/PowerPoint, html elsewhere), native (force OS-native, error if unavailable), html", DefaultValueFactory = _ => "auto" };
         var withPagesOpt = new Option<bool>("--page-count") { Description = "stats mode (docx only): also report total page count via Word repagination (Win + Word required; slow on long docs)" };
+        // HWP/HWPX read surface. Binary .hwp has no in-process document model,
+        // so these address structure through the rhwp sidecar instead.
+        var autoOpt = new Option<bool>("--auto") { Description = "Auto-recognize label-value fields in tables (hwpx forms only)" };
+        var objectTypeOpt = new Option<string?>("--object-type") { Description = "Object type filter: picture, field, bookmark, equation, formfield (hwpx objects mode)" };
+        var nativeOpOpt = new Option<string?>("--op") { Description = "HWP rhwp native read operation for native view mode" };
+        var nativeArgOpt = new Option<string[]>("--native-arg") { Description = "HWP native view argument (key=value), repeatable", AllowMultipleArgumentsPerToken = true };
+        var fieldNameOpt = new Option<string?>("--field-name") { Description = "Field name for HWP/HWPX field read mode" };
+        var fieldIdOpt = new Option<int?>("--field-id") { Description = "Field id for HWP/HWPX field read mode" };
+        var sectionOpt = new Option<int?>("--section") { Description = "HWP rhwp section index for table/page operations" };
+        var parentParaOpt = new Option<int?>("--parent-para") { Description = "HWP rhwp parent paragraph index for table operations" };
+        var controlOpt = new Option<int?>("--control") { Description = "HWP rhwp control index for table operations" };
+        var cellOpt = new Option<int?>("--cell") { Description = "HWP rhwp cell index for table operations" };
+        var cellParaOpt = new Option<int?>("--cell-para") { Description = "HWP rhwp cell paragraph index for table operations" };
+        var offsetOpt = new Option<int?>("--offset") { Description = "HWP rhwp text offset for table cell read" };
+        var countOpt = new Option<int?>("--count") { Description = "HWP rhwp count/limit for table cell read" };
+        var maxParentParaOpt = new Option<int?>("--max-parent-para") { Description = "HWP rhwp scan upper bound for parent paragraphs" };
+        var maxControlOpt = new Option<int?>("--max-control") { Description = "HWP rhwp scan upper bound for controls" };
+        var maxCellOpt = new Option<int?>("--max-cell") { Description = "HWP rhwp scan upper bound for cells" };
+        var maxCellParaOpt = new Option<int?>("--max-cell-para") { Description = "HWP rhwp scan upper bound for cell paragraphs" };
+        var includeEmptyOpt = new Option<bool>("--include-empty") { Description = "HWP rhwp cell scan: include empty cells" };
 
         var viewCommand = new Command("view", "View document in different modes");
         viewCommand.Add(viewFileArg);
@@ -52,6 +72,24 @@ static partial class CommandBuilder
         viewCommand.Add(gridOpt);
         viewCommand.Add(renderOpt);
         viewCommand.Add(withPagesOpt);
+        viewCommand.Add(autoOpt);
+        viewCommand.Add(objectTypeOpt);
+        viewCommand.Add(nativeOpOpt);
+        viewCommand.Add(nativeArgOpt);
+        viewCommand.Add(fieldNameOpt);
+        viewCommand.Add(fieldIdOpt);
+        viewCommand.Add(sectionOpt);
+        viewCommand.Add(parentParaOpt);
+        viewCommand.Add(controlOpt);
+        viewCommand.Add(cellOpt);
+        viewCommand.Add(cellParaOpt);
+        viewCommand.Add(offsetOpt);
+        viewCommand.Add(countOpt);
+        viewCommand.Add(maxParentParaOpt);
+        viewCommand.Add(maxControlOpt);
+        viewCommand.Add(maxCellOpt);
+        viewCommand.Add(maxCellParaOpt);
+        viewCommand.Add(includeEmptyOpt);
         viewCommand.Add(jsonOption);
 
         viewCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
@@ -137,6 +175,43 @@ static partial class CommandBuilder
 
             var format = json ? OutputFormat.Json : OutputFormat.Text;
             var cols = colsStr != null ? new HashSet<string>(colsStr.Split(',').Select(c => c.Trim().ToUpperInvariant())) : null;
+
+            // HWP routing must precede DocumentHandlerFactory.Open: binary .hwp
+            // has no OOXML document model and the factory rejects it outright.
+            var nativeOp = result.GetValue(nativeOpOpt);
+            var nativeArgs = result.GetValue(nativeArgOpt);
+            var fieldName = result.GetValue(fieldNameOpt);
+            var fieldId = result.GetValue(fieldIdOpt);
+            var hwpViewArgs = new Dictionary<string, string>(StringComparer.Ordinal);
+            AddHwpViewOption(hwpViewArgs, "--section", result.GetValue(sectionOpt));
+            AddHwpViewOption(hwpViewArgs, "--parent-para", result.GetValue(parentParaOpt));
+            AddHwpViewOption(hwpViewArgs, "--control", result.GetValue(controlOpt));
+            AddHwpViewOption(hwpViewArgs, "--cell", result.GetValue(cellOpt));
+            AddHwpViewOption(hwpViewArgs, "--cell-para", result.GetValue(cellParaOpt));
+            AddHwpViewOption(hwpViewArgs, "--offset", result.GetValue(offsetOpt));
+            AddHwpViewOption(hwpViewArgs, "--count", result.GetValue(countOpt));
+            AddHwpViewOption(hwpViewArgs, "--max-parent-para", result.GetValue(maxParentParaOpt));
+            AddHwpViewOption(hwpViewArgs, "--max-control", result.GetValue(maxControlOpt));
+            AddHwpViewOption(hwpViewArgs, "--max-cell", result.GetValue(maxCellOpt));
+            AddHwpViewOption(hwpViewArgs, "--max-cell-para", result.GetValue(maxCellParaOpt));
+            if (result.GetValue(includeEmptyOpt))
+                hwpViewArgs["--include-empty"] = "true";
+
+            var hwpExtension = Path.GetExtension(file.FullName);
+            if (string.Equals(hwpExtension, ".hwp", StringComparison.OrdinalIgnoreCase))
+                return HandleHwpView(file.FullName, OfficeCli.Handlers.Hwp.HwpFormat.Hwp, mode, pageFilter, json,
+                    fieldName, fieldId, outArg, hwpViewArgs, nativeOp, nativeArgs);
+
+            // HWPX stays on the custom XML handler by default; the bridge is
+            // opt-in per operation so stable HWPX behavior does not shift.
+            var hwpxOperation = HwpViewOperationForMode(mode.Trim().ToLowerInvariant());
+            if (string.Equals(hwpExtension, ".hwpx", StringComparison.OrdinalIgnoreCase)
+                && hwpxOperation != null
+                && (OfficeCli.Handlers.Hwp.HwpEngineSelector.IsExperimentalBridgeEnabled()
+                    || OfficeCli.Handlers.Hwp.HwpEngineSelector.CanUseInstalledRuntime(
+                        OfficeCli.Handlers.Hwp.HwpCapabilityConstants.FormatHwpx, hwpxOperation)))
+                return HandleHwpView(file.FullName, OfficeCli.Handlers.Hwp.HwpFormat.Hwpx, mode, pageFilter, json,
+                    fieldName, fieldId, outArg, hwpViewArgs, nativeOp, nativeArgs);
 
             using var handler = DocumentHandlerFactory.Open(file.FullName);
 

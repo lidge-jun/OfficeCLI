@@ -26,10 +26,37 @@ public static class BlankDocCreator
             case ".pptx":
                 CreatePowerPoint(path, locale);
                 break;
+            case ".hwpx":
+                CreateHwpx(path);
+                break;
+            case ".hwp":
+                // Binary HWP has no in-process writer; the rhwp sidecar owns it.
+                Handlers.Hwp.HwpBlankCreator.Create(path);
+                break;
             default:
                 if (TryCreateViaPlugin(path, ext)) break;
-                throw new NotSupportedException($"Unsupported file type: {ext}. Supported: .docx, .xlsx, .pptx, or any extension served by an installed format-handler plugin that implements `create`.");
+                throw new NotSupportedException($"Unsupported file type: {ext}. Supported: .docx, .xlsx, .pptx, .hwpx, .hwp, or any extension served by an installed format-handler plugin that implements `create`.");
         }
+    }
+
+    /// <summary>
+    /// Write a blank HWPX by copying the embedded template.
+    /// </summary>
+    /// <remarks>
+    /// Depends on the Resources/base.hwpx EmbeddedResource entry added in wp3.
+    /// The csproj has no Resources/**/* wildcard, so without that entry this
+    /// throws at runtime even though the file exists on disk.
+    /// </remarks>
+    private static void CreateHwpx(string path)
+    {
+        var asm = typeof(BlankDocCreator).Assembly;
+        var resourceName = asm.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("base.hwpx", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Embedded base.hwpx template not found in assembly resources.");
+
+        using var stream = asm.GetManifestResourceStream(resourceName)!;
+        using var fs = File.Create(path);
+        stream.CopyTo(fs);
     }
 
     /// <summary>

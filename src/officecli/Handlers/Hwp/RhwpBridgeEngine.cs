@@ -13,9 +13,27 @@ namespace OfficeCli.Handlers.Hwp;
 /// </summary>
 public sealed partial class RhwpBridgeEngine : IHwpEngine
 {
-    private const int ReadTextTimeoutMs = 10_000;
-    private const int RenderSvgTimeoutMs = 60_000;
-    private const int FieldReadTimeoutMs = 10_000;
+    // Sidecar timeouts. A slow machine, a cold dotnet start, or a loaded CI box
+    // can push a normally-instant bridge call past a fixed 10s and surface as a
+    // flaky failure rather than an honest timeout. OFFICECLI_RHWP_TIMEOUT_SCALE
+    // multiplies all three so tests and constrained environments can widen the
+    // window without changing production defaults.
+    private static readonly double TimeoutScale = ResolveTimeoutScale();
+
+    private static readonly int ReadTextTimeoutMs = (int)(10_000 * TimeoutScale);
+    private static readonly int RenderSvgTimeoutMs = (int)(60_000 * TimeoutScale);
+    private static readonly int FieldReadTimeoutMs = (int)(10_000 * TimeoutScale);
+
+    private static double ResolveTimeoutScale()
+    {
+        var raw = Environment.GetEnvironmentVariable("OFFICECLI_RHWP_TIMEOUT_SCALE");
+        if (double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var scale)
+            && scale >= 1.0 && scale <= 60.0)
+            return scale;
+        return 1.0;
+    }
+
     private const long LargeFileSizeBytes = 10L * 1024 * 1024;
 
     private readonly string _bridgePath;

@@ -76,15 +76,33 @@ gate_wp2() {
   # `--help` and doing stdout.Contains(command) per KnownApiCommands, so this
   # log is the source of truth for what the C# side will believe exists.
   #
-  # Match on a token boundary rather than a bare substring: plain `grep -- set-field`
-  # also matches `unset-field`. The C# side uses Contains() and has the same
-  # blind spot, so a rename to a superstring would silently keep a capability
-  # "available" -- assert the stricter property here and flag it in wp5.
+  # Match on a delimiter boundary, not a bare substring: `grep -- set-field`
+  # also matches `unset-field`, and a digit-tolerant boundary would accept
+  # `create-blank2`. The help line is a `|`-separated command list, so require
+  # the real delimiters. The C# side uses stdout.Contains() and keeps that
+  # blind spot -- wp5 must not rely on the probe alone.
   run bridge-help ./src/rhwp-field-bridge/target/debug/rhwp-field-bridge --help
-  for c in create-blank read-text list-fields set-field replace-text native-op; do
-    grep -qE "(^|[^a-z-])${c}([^a-z-]|$)" "$LOG_DIR/bridge-help.log" \
-      || { echo "FAIL: bridge does not advertise $c as a distinct command"; return 1; }
+  # Full expected set, not a sample. render-png is intentionally absent unless
+  # built with --features native-skia, so it is asserted separately below.
+  local expected=(create-blank read-text render-svg export-pdf export-markdown
+                  document-info diagnostics dump-controls dump-pages thumbnail
+                  list-fields get-field set-field replace-text insert-text
+                  get-cell-text scan-cells set-cell-text convert-to-editable
+                  native-op save-as-hwp)
+  local missing=0
+  for c in "${expected[@]}"; do
+    grep -qE "(^|[|[:space:]])${c}([|[:space:]]|$)" "$LOG_DIR/bridge-help.log" \
+      || { echo "FAIL: bridge does not advertise '$c' as a distinct command"; missing=1; }
   done
+  assert "all ${#expected[@]} rhwp commands advertised" "$missing" = "0"
+  # Dispatch smoke test: the usage string is hand-maintained and can advertise
+  # a route that no longer exists. Exercise one real read path end to end.
+  if [ -n "${OCX_HWP_SMOKE_INPUT:-}" ]; then
+    run bridge-smoke ./src/rhwp-field-bridge/target/debug/rhwp-field-bridge \
+      read-text --format hwp --input "$OCX_HWP_SMOKE_INPUT" --json
+  else
+    echo "SKIP bridge-smoke (set OCX_HWP_SMOKE_INPUT to a .hwp fixture; wp6 restores them)"
+  fi
 }
 
 gate_wp3() { build_fresh; }

@@ -45,16 +45,35 @@ public partial class HwpBridgeSidecarTests
     {
         var root = CommandBuilder.BuildRootCommand();
         var originalOut = Console.Out;
+        var originalErr = Console.Error;
         using var writer = new StringWriter();
+        using var errWriter = new StringWriter();
         Console.SetOut(writer);
+        // Capture stderr too. Without it a failure surfaces as a bare
+        // "Assert.Equal(0, exitCode)" with no clue why the command failed --
+        // which is exactly what made the intermittent failures in this class
+        // undiagnosable.
+        Console.SetError(errWriter);
         try
         {
             var exitCode = root.Parse(args).Invoke();
-            return (exitCode, writer.ToString());
+            var stdout = writer.ToString();
+            if (exitCode != 0)
+            {
+                // Surface the diagnostics in the returned payload so the
+                // assertion message carries them. xunit prints the returned
+                // string only when a later assertion on it fails, so attach
+                // stderr where a reader will actually see it.
+                var stderr = errWriter.ToString();
+                if (!string.IsNullOrWhiteSpace(stderr))
+                    Console.Error.Write(stderr);
+            }
+            return (exitCode, stdout);
         }
         finally
         {
             Console.SetOut(originalOut);
+            Console.SetError(originalErr);
         }
     }
 

@@ -201,7 +201,7 @@ public partial class HwpxHandler
             var text = HwpxKorean.Normalize(ExtractParagraphText(para));
             var path = $"/section[{section.Index + 1}]/p[{localIdx + 1}]";
 
-            items.Add(new JsonObject
+            items.Add((JsonNode)new JsonObject
             {
                 ["level"] = level,
                 ["text"] = text,
@@ -230,7 +230,7 @@ public partial class HwpxHandler
 
             var text = HwpxKorean.Normalize(ExtractParagraphText(para));
 
-            lines.Add(new JsonObject
+            lines.Add((JsonNode)new JsonObject
             {
                 ["line"] = lineNum,
                 ["path"] = path,
@@ -486,13 +486,13 @@ public partial class HwpxHandler
         {
             if (field.Type == "CLICK_HERE")
             {
-                clickFields.Add(new JsonObject {
+                clickFields.Add((JsonNode)new JsonObject {
                     ["id"] = field.Id, ["text"] = field.Text,
                     ["helpText"] = field.HelpText, ["isDefault"] = field.IsDefault
                 });
             }
 
-            formFields.Add(new JsonObject {
+            formFields.Add((JsonNode)new JsonObject {
                 ["id"] = field.Id,
                 ["type"] = field.Type,
                 ["name"] = field.Name,
@@ -509,7 +509,7 @@ public partial class HwpxHandler
             var autoFields = new JsonArray();
             foreach (var f in RecognizeFormFields())
             {
-                autoFields.Add(new JsonObject {
+                autoFields.Add((JsonNode)new JsonObject {
                     ["label"] = f.Label, ["value"] = f.Value,
                     ["path"] = f.Path, ["row"] = f.Row, ["col"] = f.Col,
                     ["strategy"] = f.Strategy
@@ -627,7 +627,7 @@ public partial class HwpxHandler
                 if (el.Attribute("binaryItemIDRef")?.Value is { } binRef) obj["binaryRef"] = binRef;
                 if (el.Attribute("type")?.Value is { } ft) obj["fieldType"] = ft;
                 if (el.Attribute("name")?.Value is { } bname) obj["name"] = bname;
-                arr.Add(obj);
+                arr.Add((JsonNode)obj);
             }
             result[type] = arr;
         }
@@ -952,9 +952,9 @@ public partial class HwpxHandler
                     var cell = grid[r, c];
                     if (cell == null) { rowArr.Add((JsonNode?)null); continue; }
                     var (cr, cc, rs, cs) = GetCellAddr(cell);
-                    if (cr != r || cc != c) { rowArr.Add("↕"); continue; }
+                    if (cr != r || cc != c) { rowArr.Add((JsonNode)"↕"); continue; }
                     var text = ExtractCellText(cell).Trim();
-                    rowArr.Add(new JsonObject
+                    rowArr.Add((JsonNode)new JsonObject
                     {
                         ["text"] = text,
                         ["path"] = $"{basePath}/tr[{r + 1}]/tc[{c + 1}]",
@@ -962,11 +962,11 @@ public partial class HwpxHandler
                         ["colSpan"] = cs
                     });
                 }
-                cellsArr.Add(rowArr);
+                cellsArr.Add((JsonNode)rowArr);
             }
             tblObj["cells"] = cellsArr;
 
-            tablesArr.Add(tblObj);
+            tablesArr.Add((JsonNode)tblObj);
         }
 
         result["tables"] = tablesArr;

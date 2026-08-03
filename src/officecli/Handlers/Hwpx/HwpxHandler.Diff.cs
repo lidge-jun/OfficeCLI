@@ -113,12 +113,12 @@ public partial class HwpxHandler
                 var sim = ComputeBlockSimilarity(ta!, next.tb!);
                 if (sim >= BlockSimilarityThreshold)
                 {
-                    output.Add(MakeDiffEntry("modified", la, next.lb, ta, next.tb));
+                    output.Add((JsonNode)MakeDiffEntry("modified", la, next.lb, ta, next.tb));
                     idx += 2;
                     continue;
                 }
             }
-            output.Add(MakeDiffEntry(type, la, lb, ta, tb));
+            output.Add((JsonNode)MakeDiffEntry(type, la, lb, ta, tb));
             idx++;
         }
         return output;
@@ -134,7 +134,7 @@ public partial class HwpxHandler
         {
             if (linesA[ia] == linesB[ib])
             {
-                result.Add(MakeDiffEntry("unchanged", ia + 1, ib + 1, linesA[ia], null));
+                result.Add((JsonNode)MakeDiffEntry("unchanged", ia + 1, ib + 1, linesA[ia], null));
                 ia++; ib++;
                 continue;
             }
@@ -142,7 +142,7 @@ public partial class HwpxHandler
             var sim = ComputeBlockSimilarity(linesA[ia], linesB[ib]);
             if (sim >= BlockSimilarityThreshold)
             {
-                result.Add(MakeDiffEntry("modified", ia + 1, ib + 1, linesA[ia], linesB[ib]));
+                result.Add((JsonNode)MakeDiffEntry("modified", ia + 1, ib + 1, linesA[ia], linesB[ib]));
                 ia++; ib++;
             }
             else
@@ -153,7 +153,7 @@ public partial class HwpxHandler
                     if (ib + lookahead < linesB.Length && linesA[ia] == linesB[ib + lookahead])
                     {
                         for (int j = 0; j < lookahead; j++)
-                            result.Add(MakeDiffEntry("added", null, ib + j + 1, null, linesB[ib + j]));
+                            result.Add((JsonNode)MakeDiffEntry("added", null, ib + j + 1, null, linesB[ib + j]));
                         ib += lookahead;
                         foundB = true;
                         break;
@@ -161,7 +161,7 @@ public partial class HwpxHandler
                     if (ia + lookahead < linesA.Length && linesA[ia + lookahead] == linesB[ib])
                     {
                         for (int j = 0; j < lookahead; j++)
-                            result.Add(MakeDiffEntry("removed", ia + j + 1, null, linesA[ia + j], null));
+                            result.Add((JsonNode)MakeDiffEntry("removed", ia + j + 1, null, linesA[ia + j], null));
                         ia += lookahead;
                         foundA = true;
                         break;
@@ -169,16 +169,16 @@ public partial class HwpxHandler
                 }
                 if (!foundA && !foundB)
                 {
-                    result.Add(MakeDiffEntry("modified", ia + 1, ib + 1, linesA[ia], linesB[ib]));
+                    result.Add((JsonNode)MakeDiffEntry("modified", ia + 1, ib + 1, linesA[ia], linesB[ib]));
                     ia++; ib++;
                 }
             }
         }
 
         while (ia < linesA.Length)
-        { result.Add(MakeDiffEntry("removed", ia + 1, null, linesA[ia], null)); ia++; }
+        { result.Add((JsonNode)MakeDiffEntry("removed", ia + 1, null, linesA[ia], null)); ia++; }
         while (ib < linesB.Length)
-        { result.Add(MakeDiffEntry("added", null, ib + 1, null, linesB[ib])); ib++; }
+        { result.Add((JsonNode)MakeDiffEntry("added", null, ib + 1, null, linesB[ib])); ib++; }
 
         return result;
     }
@@ -245,12 +245,12 @@ public partial class HwpxHandler
         {
             if (t >= tablesA.Count)
             {
-                result.Add(new JsonObject { ["table"] = t + 1, ["type"] = "added" });
+                result.Add((JsonNode)new JsonObject { ["table"] = t + 1, ["type"] = "added" });
                 continue;
             }
             if (t >= tablesB.Count)
             {
-                result.Add(new JsonObject { ["table"] = t + 1, ["type"] = "removed" });
+                result.Add((JsonNode)new JsonObject { ["table"] = t + 1, ["type"] = "removed" });
                 continue;
             }
 
@@ -269,7 +269,7 @@ public partial class HwpxHandler
                     var cellB = (r < gridB.GetLength(0) && c < gridB.GetLength(1)) ? gridB[r, c] : null;
                     if (cellA != cellB)
                     {
-                        cellDiffs.Add(new JsonObject
+                        cellDiffs.Add((JsonNode)new JsonObject
                         {
                             ["row"] = r + 1, ["col"] = c + 1,
                             ["old"] = cellA, ["new"] = cellB
@@ -277,7 +277,7 @@ public partial class HwpxHandler
                     }
                 }
 
-            result.Add(new JsonObject
+            result.Add((JsonNode)new JsonObject
             {
                 ["table"] = t + 1,
                 ["type"] = cellDiffs.Count > 0 ? "modified" : "unchanged",

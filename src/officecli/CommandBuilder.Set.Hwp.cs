@@ -9,6 +9,70 @@ namespace OfficeCli;
 static partial class CommandBuilder
 {
     /// <summary>
+    /// Route an HWP/HWPX <c>set</c> to its sidecar handler, or return null when
+    /// the generic path should continue.
+    /// </summary>
+    /// <remarks>
+    /// Kept here rather than inlined into upstream's Set.cs so that file gains a
+    /// single call instead of ~50 lines of routing.
+    ///
+    /// Binary .hwp routes unconditionally: it has no in-process document model,
+    /// so there is nothing to fall through to. HWPX routes only when the bridge
+    /// is opted in or the runtime advertises that exact operation, leaving
+    /// stable HWPX behavior on the custom XML handler.
+    /// </remarks>
+    private static int? TryHandleHwpSet(
+        string filePath,
+        string path,
+        Dictionary<string, string> properties,
+        bool json,
+        bool inPlace,
+        bool backup,
+        bool verify)
+    {
+        var ext = Path.GetExtension(filePath);
+        var isHwp = string.Equals(ext, ".hwp", StringComparison.OrdinalIgnoreCase);
+        var isHwpx = string.Equals(ext, ".hwpx", StringComparison.OrdinalIgnoreCase);
+        if (!isHwp && !isHwpx) return null;
+
+        // Upstream normalizes `--replace X` into props as replace=X, but the HWP
+        // helpers read the replacement from value/text/new. Promote it here,
+        // route-scoped, so `set f.hwp /text --find A --replace B` works without
+        // touching the OOXML meaning of the replace key.
+        if (properties.TryGetValue("replace", out var replacement)
+            && !properties.ContainsKey("value")
+            && !properties.ContainsKey("text")
+            && !properties.ContainsKey("new"))
+        {
+            properties["value"] = replacement;
+        }
+
+        var format = isHwp ? HwpFormat.Hwp : HwpFormat.Hwpx;
+
+        bool HwpxAllows(string operation) =>
+            HwpEngineSelector.IsExperimentalBridgeEnabled()
+            || HwpEngineSelector.CanUseInstalledRuntime(HwpCapabilityConstants.FormatHwpx, operation);
+
+        switch (path.ToLowerInvariant())
+        {
+            case "/field" when isHwp || HwpxAllows(HwpCapabilityConstants.OperationFillField):
+                return HandleHwpFieldSet(filePath, format, properties, json);
+            case "/text" when isHwp || HwpxAllows(HwpCapabilityConstants.OperationReplaceText):
+                return HandleHwpTextReplace(filePath, format, properties, json, inPlace, backup, verify);
+            case "/table/cell" when isHwp || HwpxAllows(HwpCapabilityConstants.OperationSetTableCell):
+                return HandleHwpTableCellSet(filePath, format, properties, json);
+            case "/convert-to-editable" when isHwp:
+                return HandleHwpConvertToEditable(filePath, format, properties, json);
+            case "/native-op":
+                return HandleHwpNativeMutation(filePath, format, properties, json);
+            case "/save-as-hwp":
+                return HandleHwpSaveAsHwp(filePath, format, properties, json);
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
     /// First present value among <paramref name="keys"/>, or null.
     /// </summary>
     /// <remarks>

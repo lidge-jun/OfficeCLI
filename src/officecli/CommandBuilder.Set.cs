@@ -12,6 +12,12 @@ static partial class CommandBuilder
     private static Command BuildSetCommand(Option<bool> jsonOption)
     {
         var forceOption = new Option<bool>("--force") { Description = "Force write even if document is protected" };
+        // HWP safe-save. In-place mutation is refused unless both --backup and
+        // --verify are present: overwriting a source with an unverified rewrite
+        // is the one HWP operation that can lose a user's document.
+        var inPlaceOption = new Option<bool>("--in-place") { Description = "HWP safe-save in-place mutation (experimental; requires --backup --verify)" };
+        var backupOption = new Option<bool>("--backup") { Description = "Create a backup before HWP in-place mutation" };
+        var verifyOption = new Option<bool>("--verify") { Description = "Run HWP safe-save verification checks before publishing output" };
         var setFileArg = new Argument<FileInfo>("file") { Description = "Office document path (required even with open/close mode)" };
         var setPathArg = new Argument<string>("path") { Description = "DOM path to the element. The 'selected' pseudo-path is deprecated for mutations: use `get selected` to capture path(s) first, then `set <path>` (or a `batch` file for multi-select) so the target lives in the command line, not in transient watch-server state." };
         var propsOpt = new Option<string[]>("--prop") { Description = "Property to set (key=value)", AllowMultipleArgumentsPerToken = true };
@@ -28,6 +34,9 @@ static partial class CommandBuilder
         setCommand.Add(replaceOpt);
         setCommand.Add(jsonOption);
         setCommand.Add(forceOption);
+        setCommand.Add(inPlaceOption);
+        setCommand.Add(backupOption);
+        setCommand.Add(verifyOption);
 
         setCommand.SetAction(result => { var json = result.GetValue(jsonOption); return SafeRun(() =>
         {
@@ -201,6 +210,14 @@ static partial class CommandBuilder
             // and Excel `Sheet1!A1`. query is unaffected. Runs before TryResident
             // so the resident-forward path is guarded too.
             OfficeCli.Core.MutationSelectorGuard.EnsureScoped(path, "set");
+
+            // HWP routing runs after the selector guard (so HWP paths are still
+            // guarded) but before TryResident: the resident server has no HWP
+            // handler, and binary .hwp has no document model for it to open.
+            if (TryHandleHwpSet(file.FullName, path, ParsePropsArray(props), json,
+                    result.GetValue(inPlaceOption), result.GetValue(backupOption),
+                    result.GetValue(verifyOption)) is {} hwpRc)
+                return hwpRc;
 
             if (TryResident(file.FullName, req =>
             {

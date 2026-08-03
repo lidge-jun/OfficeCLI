@@ -186,6 +186,11 @@ static partial class CommandBuilder
                 // stay in sync.
                 var properties = ParsePropsArray(props);
 
+                // Binary .hwp text insertion goes through the rhwp sidecar; the
+                // factory below has no document model for it to open.
+                if (IsHwpTextAdd(file.Extension, parentPath, type))
+                    return HandleHwpTextAdd(file.FullName, Handlers.Hwp.HwpFormat.Hwp, properties, json);
+
                 // ARCHITECTURE(handler-as-truth): the handler is the single
                 // source of truth for "is this prop supported". We pass the
                 // user's full prop dict through a TrackingPropertyDictionary

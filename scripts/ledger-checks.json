@@ -1,8 +1,8 @@
 {
   "hook.factory.hwpx_route+bomb_guard_ext": "\"\\.hwpx\" => new HwpxHandler",
   "hook.root.register_hwp_capabilities_schema_nativeops": "rootCommand\\.Add\\(BuildHwpHelpCommand",
-  "hook.set.hwp_dispatch+replace_to_value": "HwpFormatFor|HandleHwpTextReplace",
-  "hook.view.hwp_routing": "HandleHwpBridgeView",
+  "hook.set.hwp_dispatch+replace_to_value": "TryHandleHwpSet",
+  "hook.view.hwp_routing": "HandleHwpView",
   "hook.add.hwp_text": "IsHwpTextAdd",
   "hook.create.hwpx_hwp_cases+CreateHwpx": "CreateHwpx\\(path\\)",
   "hook.resident.hwpx_view_branches": "Handlers\\.HwpxHandler",

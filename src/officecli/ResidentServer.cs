@@ -1393,6 +1393,15 @@ public class ResidentServer : IDisposable
     {
         if (!WatchServer.IsWatching(_filePath)) return;
 
+        // HWPX renders through its own handler rather than the render registry,
+        // which has no hwpx renderer registered. Checked first so an open HWPX
+        // document still drives live preview instead of silently doing nothing.
+        if (_handler is OfficeCli.Handlers.HwpxHandler hwpx)
+        {
+            WatchNotifier.NotifyIfWatching(_filePath, new WatchMessage { Action = "full", FullHtml = hwpx.ViewAsHtml() });
+            return;
+        }
+
         if (_handler is OfficeCli.Handlers.ExcelHandler excel)
         {
             string? scrollTo = null;

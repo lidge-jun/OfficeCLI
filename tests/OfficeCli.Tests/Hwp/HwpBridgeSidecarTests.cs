@@ -15,6 +15,27 @@ public partial class HwpBridgeSidecarTests : IDisposable
     private readonly string? _oldRhwp = Environment.GetEnvironmentVariable("OFFICECLI_RHWP_BIN");
     private readonly string? _oldRhwpApi = Environment.GetEnvironmentVariable("OFFICECLI_RHWP_API_BIN");
 
+    public HwpBridgeSidecarTests()
+    {
+        // Start every test from a known-empty runtime environment.
+        //
+        // The fields above capture the ambient values so Dispose can restore
+        // them, but capturing is not isolating: individual tests set only the
+        // two or three variables they care about and inherit whatever the
+        // previous test left behind. With real sidecars installed at
+        // ~/.local/bin, HwpRuntimeProbe would also discover those through PATH.
+        //
+        // The result was a genuinely nondeterministic suite -- consecutive runs
+        // of the same commit produced 12, then 2, then 0, then 1 failures, never
+        // the same set twice. Clearing here makes each test declare its own
+        // runtime, so a test that forgets one fails deterministically instead of
+        // passing on a neighbour's leftovers.
+        Environment.SetEnvironmentVariable("OFFICECLI_HWP_ENGINE", null);
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_BRIDGE_PATH", null);
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_BIN", null);
+        Environment.SetEnvironmentVariable("OFFICECLI_RHWP_API_BIN", null);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("OFFICECLI_HWP_ENGINE", _oldEngine);

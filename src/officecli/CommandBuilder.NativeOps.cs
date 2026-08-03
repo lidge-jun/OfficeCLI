@@ -3,6 +3,7 @@
 
 using System.CommandLine;
 using System.Text.Json;
+using OfficeCli.Core;
 
 namespace OfficeCli;
 
@@ -20,7 +21,30 @@ static partial class CommandBuilder
 
             if (json)
             {
-                Console.WriteLine(JsonSerializer.Serialize(ops, new JsonSerializerOptions { WriteIndented = true }));
+                // Reflection-based serialization is disabled for this app
+                // (source-generated contexts only), so building the tree by
+                // hand is the portable option -- the previous reflection call
+                // failed at runtime with "Reflection-based serialization has
+                // been disabled" the moment this command was registered.
+                var arr = new System.Text.Json.Nodes.JsonArray();
+                foreach (var cat in ops)
+                {
+                    var opsArr = new System.Text.Json.Nodes.JsonArray();
+                    foreach (var op in cat.Operations)
+                        opsArr.Add((System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
+                        {
+                            ["name"] = op.Name,
+                            ["kind"] = op.Kind,
+                            ["firstClass"] = op.FirstClass
+                        });
+                    arr.Add((System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["category"] = cat.Category,
+                        ["count"] = cat.Operations.Length,
+                        ["operations"] = opsArr
+                    });
+                }
+                Console.WriteLine(OutputFormatter.WrapEnvelope(arr.ToJsonString()));
             }
             else
             {

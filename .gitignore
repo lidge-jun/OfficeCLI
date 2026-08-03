@@ -8,6 +8,12 @@ src/rhwp-field-bridge/target/
 *.suo
 *.pdb
 
+# Test output (VSTest writes TRX here; wp6 uses --logger trx)
+TestResults/
+*.trx
+*.coverage
+coverage.*.xml
+
 # IDE
 .vs/
 .vscode/

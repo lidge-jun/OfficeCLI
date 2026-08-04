@@ -50,6 +50,11 @@ internal static class HwpRuntimeProbe
     private const string BridgeExecutableName = "rhwp-officecli-bridge";
     private const string ApiExecutableName = "rhwp-field-bridge";
     private const string RhwpExecutableName = "rhwp";
+    // A cold shell/process launch can exceed two seconds on loaded CI or a
+    // first-run desktop. Treating that as an old/missing API silently disables
+    // valid HWP operations, so keep the lightweight --help probe bounded but
+    // leave enough room for ordinary startup jitter.
+    private const int BaseProbeTimeoutMs = 5_000;
     private static readonly string[] KnownApiCommands =
     [
         "create-blank",
@@ -189,8 +194,8 @@ internal static class HwpRuntimeProbe
         if (double.TryParse(raw, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var scale)
             && scale >= 1.0 && scale <= 60.0)
-            return (int)(2_000 * scale);
-        return 2_000;
+            return (int)(BaseProbeTimeoutMs * scale);
+        return BaseProbeTimeoutMs;
     }
 
     private static IEnumerable<string> CandidateDirectories()

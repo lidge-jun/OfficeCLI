@@ -27,6 +27,7 @@
   "src/rhwp-field-bridge/src/ops_native_text.rs": "search-all-text|insert-new-number",
   "tests/OfficeCli.Tests/Hwp/HwpBridgeNativeOpTests.cs": "search-all-text|get-page-overlay-images|get-hf-picture-properties",
   "tests/OfficeCli.Tests/Hwp/HwpBridgeSidecarTestSupport.cs": "fill-fields|search-all-text|OFFICECLI_RHWP_TIMEOUT_SCALE",
+  "tests/OfficeCli.Tests/Hwp/HwpBridgeTableScanTests.cs": "LocateOfficeCliDll|OFFICECLI_RHWP_TIMEOUT_SCALE",
   "tests/OfficeCli.Tests/Hwp/HwpRhwpSurfaceParityTests.cs": "fill-fields|search-all-text|insert-new-number",
   "tests/fixtures/common/rhwp-surface-parity.json": "search-all-text|get-page-overlay-images|get-hf-picture-properties"
 }

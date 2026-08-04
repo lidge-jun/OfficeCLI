@@ -166,19 +166,41 @@ public class HwpBridgeTableScanTests : IDisposable
 
     private static (int ExitCode, string Stdout) InvokeOfficeCli(string[] args)
     {
-        var root = CommandBuilder.BuildRootCommand();
-        var originalOut = Console.Out;
-        using var writer = new StringWriter();
-        Console.SetOut(writer);
-        try
+        var psi = new ProcessStartInfo
         {
-            var exitCode = root.Parse(args).Invoke();
-            return (exitCode, writer.ToString());
-        }
-        finally
+            FileName = "dotnet",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(LocateOfficeCliDll());
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+        psi.Environment["OFFICECLI_RHWP_TIMEOUT_SCALE"] = "5";
+        using var process = Process.Start(psi)!;
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
+            Console.Error.WriteLine($"[officecli stderr] {stderr.Trim()}");
+        return (process.ExitCode, stdout);
+    }
+
+    private static string LocateOfficeCliDll()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
         {
-            Console.SetOut(originalOut);
+            var bin = Path.Combine(dir.FullName, "src/officecli/bin/Debug/net10.0");
+            if (Directory.Exists(bin))
+            {
+                var candidate = Directory.GetFiles(bin, "officecli.dll", SearchOption.AllDirectories)
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault();
+                if (candidate != null) return candidate;
+            }
+            dir = dir.Parent;
         }
+        throw new FileNotFoundException("officecli.dll was not built.");
     }
 
     private string CreateFakeRhwpApi()

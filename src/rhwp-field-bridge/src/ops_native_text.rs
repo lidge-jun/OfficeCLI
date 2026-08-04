@@ -151,6 +151,17 @@ pub(crate) fn try_run_native_text_op(
                 count(options)?,
             ).map_err(native_err)?
         })),
+        "search-all-text" => json_call(doc.search_all_text_native(
+            required(options, "--query")?,
+            bool_opt(options, "--case-sensitive", false),
+            bool_opt(options, "--include-cells", true),
+        )),
+        "insert-new-number" => json_call(doc.insert_new_number_native(
+            section(options)?,
+            paragraph(options)?,
+            offset(options)?,
+            req_u16(options, "--start-num")?,
+        )),
         _ => return Ok(None),
     }?;
     Ok(Some(value))

@@ -17,6 +17,7 @@ static partial class CommandBuilder
         "find-next-editable-control",
         "find-nearest-control-backward",
         "find-nearest-control-forward",
+        "search-all-text",
         "get-cell-paragraph-count",
         "get-cell-paragraph-length",
         "get-text-in-cell",
@@ -34,11 +35,13 @@ static partial class CommandBuilder
         "get-header-footer-para-info",
         "navigate-header-footer-by-page",
         "get-para-properties-in-hf",
+        "get-hf-picture-properties",
         "get-picture-properties",
         "get-shape-properties",
         "get-equation-properties",
         "render-equation-preview",
-        "get-footnote-info"
+        "get-footnote-info",
+        "get-page-overlay-images"
     };
 
     private static string? HwpViewOperationForMode(string modeKey)

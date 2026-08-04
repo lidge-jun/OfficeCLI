@@ -162,7 +162,7 @@ internal static class HwpRuntimeProbe
             };
             process.StartInfo.ArgumentList.Add("--help");
             process.Start();
-            if (!process.WaitForExit(2_000))
+            if (!process.WaitForExit(ResolveProbeTimeoutMs()))
             {
                 try { process.Kill(); } catch { }
                 return commands;
@@ -181,6 +181,16 @@ internal static class HwpRuntimeProbe
         }
 
         return commands;
+    }
+
+    private static int ResolveProbeTimeoutMs()
+    {
+        var raw = Environment.GetEnvironmentVariable("OFFICECLI_RHWP_TIMEOUT_SCALE");
+        if (double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var scale)
+            && scale >= 1.0 && scale <= 60.0)
+            return (int)(2_000 * scale);
+        return 2_000;
     }
 
     private static IEnumerable<string> CandidateDirectories()

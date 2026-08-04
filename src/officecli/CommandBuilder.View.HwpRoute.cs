@@ -36,6 +36,24 @@ static partial class CommandBuilder
             : HwpCapabilityConstants.FormatHwpx;
         var operation = HwpViewOperationForMode(modeKey);
 
+        // Validate native read requests before probing the sidecar. Invalid or
+        // mutating operations must report their real contract error even when
+        // no bridge is installed.
+        if (modeKey is "native" or "native-op")
+        {
+            if (string.IsNullOrWhiteSpace(nativeOp))
+                throw new HwpEngineException(
+                    "HWP native view requires --op <rhwp-native-op>.",
+                    HwpCapabilityConstants.ReasonUnsupportedOperation,
+                    "Example: officecli view input.hwp native --op get-style-list --json",
+                    [HwpCapabilityConstants.OperationNativeRead],
+                    formatKey,
+                    HwpCapabilityConstants.OperationNativeRead,
+                    HwpCapabilityConstants.EngineRhwpBridge,
+                    HwpCapabilityConstants.ModeExperimental);
+            ValidateHwpNativeViewRequest(formatKey, nativeOp, nativeArgs ?? Array.Empty<string>());
+        }
+
         if (!HwpEngineSelector.IsExperimentalBridgeEnabled()
             && !HwpEngineSelector.CanUseInstalledRuntime(formatKey, operation))
         {
@@ -196,22 +214,15 @@ static partial class CommandBuilder
             }
             else if (modeKey is "native" or "native-op")
             {
-                if (string.IsNullOrWhiteSpace(nativeOp))
-                    throw new HwpEngineException(
-                        "HWP native view requires --op <rhwp-native-op>.",
-                        HwpCapabilityConstants.ReasonUnsupportedOperation,
-                        "Example: officecli view input.hwp native --op get-style-list --json",
-                        [HwpCapabilityConstants.OperationNativeRead],
-                        formatKey,
-                        HwpCapabilityConstants.OperationNativeRead,
-                        HwpCapabilityConstants.EngineRhwpBridge,
-                        HwpCapabilityConstants.ModeExperimental);
-                ValidateHwpNativeViewRequest(formatKey, nativeOp, nativeArgs ?? Array.Empty<string>());
                 bridgeCommand = "native-op";
-                args["--op"] = nativeOp;
+                var resolvedNativeOp = nativeOp!;
+                args["--op"] = resolvedNativeOp;
                 foreach (var (key, value) in ParsePropsArray(nativeArgs ?? Array.Empty<string>()))
                 {
                     var normalized = key.StartsWith("--", StringComparison.Ordinal) ? key : $"--{key}";
+                    if (resolvedNativeOp.Equals("search-all-text", StringComparison.OrdinalIgnoreCase)
+                        && normalized.Equals("--text", StringComparison.OrdinalIgnoreCase))
+                        normalized = "--query";
                     args[normalized] = value;
                 }
             }

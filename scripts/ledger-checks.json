@@ -1,15 +1,25 @@
 {
   "hook.factory.hwpx_route+bomb_guard_ext": "\"\\.hwpx\" => new HwpxHandler",
   "hook.root.register_hwp_capabilities_schema_nativeops": "rootCommand\\.Add\\(BuildHwpHelpCommand",
+  "hook.root.register_hwp_and_convert_hwpx_batch": "BuildConvertCommand|HwpxBatchHandler",
   "hook.set.hwp_dispatch+replace_to_value": "TryHandleHwpSet",
   "hook.view.hwp_routing": "HandleHwpView",
   "hook.add.hwp_text": "IsHwpTextAdd",
   "hook.create.hwpx_hwp_cases+CreateHwpx": "CreateHwpx\\(path\\)",
   "hook.resident.hwpx_view_branches": "Handlers\\.HwpxHandler",
+  "hook.resident.hwpx_full_surface": "Handlers\\.HwpxHandler.*forms|case \"forms\"",
   "hook.error.hwp_envelope": "Handlers\\.Hwp\\.HwpEngineException",
   "hook.validation.severity_init_jsonignore": "IssueSeverity Severity \\{ get; init; \\}",
   "hook.csproj.embed_base_hwpx": "EmbeddedResource Include=\"Resources/base\\.hwpx\"",
   "hook.limits.per_entry+cumulative": "MaxRecoveryInputBytes|MaxPerEntryUncompressedBytes",
   "hook.schemahelp.hwp_formats": "\"hwpx\".*\"hwp\"|\\[\"hwpx\"\\] = \"hwpx\"",
-  "hook.install.rhwp_sidecars": "rhwp-field-bridge|build-rhwp-sidecars"
+  "hook.install.rhwp_sidecars": "rhwp-field-bridge|build-rhwp-sidecars",
+  "hook.installps1.rhwp_sidecars": "rhwp-field-bridge|rhwp-officecli-bridge",
+  "hook.slnx.rhwp_bridge_project": "rhwp-officecli-bridge\\.csproj",
+  "hook.import.hwpx_markdown": "from-markdown|ImportHwpx",
+  "hook.getquery.hwp_provider": "TryHandleHwpProviderRhwpGet",
+  "hook.watch.hwpx_external": "FileSystemWatcher|HwpxHandler",
+  "hook.skillinstaller.hwpx": "hwpx",
+  "hook.templatemerger.hwpx": "HwpxHandler|hwpx",
+  "hook.mcp.hwpx_surface": "hwpx|HWPX"
 }

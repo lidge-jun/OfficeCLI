@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using OfficeCli;
 using OfficeCli.Tests.Hwpx;
 
 namespace OfficeCli.Tests.Hwp;
@@ -43,39 +42,52 @@ public partial class HwpBridgeSidecarTests
 
     private static (int ExitCode, string Stdout) InvokeOfficeCli(string[] args)
     {
-        var root = CommandBuilder.BuildRootCommand();
-        var originalOut = Console.Out;
-        var originalErr = Console.Error;
-        using var writer = new StringWriter();
-        using var errWriter = new StringWriter();
-        Console.SetOut(writer);
-        Console.SetError(errWriter);
-        int exitCode;
-        string stdout;
-        try
+        // Run the real CLI out-of-process. Console.Out/Error and environment
+        // variables are process-global; invoking the root in-process races the
+        // test runner's own Console capture and produced empty stdout / false
+        // bridge-missing results even with xUnit parallelism disabled.
+        var psi = new ProcessStartInfo
         {
-            exitCode = root.Parse(args).Invoke();
-            stdout = writer.ToString();
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalErr);
-        }
+            FileName = "dotnet",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(LocateOfficeCliDll());
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+        psi.Environment["OFFICECLI_RHWP_TIMEOUT_SCALE"] = "5";
+        using var process = Process.Start(psi)!;
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
 
-        // Emit AFTER restoring the real streams -- writing to Console.Error while
-        // it is still pointed at errWriter just feeds the captured buffer back
-        // into itself, which is why the previous attempt surfaced nothing.
-        if (exitCode != 0)
+        if (process.ExitCode != 0)
         {
-            var stderr = errWriter.ToString();
             if (!string.IsNullOrWhiteSpace(stderr))
-                originalErr.WriteLine($"[officecli stderr] {stderr.Trim()}");
+                Console.Error.WriteLine($"[officecli stderr] {stderr.Trim()}");
             if (!string.IsNullOrWhiteSpace(stdout))
-                originalErr.WriteLine($"[officecli stdout] {stdout.Trim()}");
+                Console.Error.WriteLine($"[officecli stdout] {stdout.Trim()}");
         }
 
-        return (exitCode, stdout);
+        return (process.ExitCode, stdout);
+    }
+
+    private static string LocateOfficeCliDll()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            var bin = Path.Combine(dir.FullName, "src/officecli/bin/Debug/net10.0");
+            if (Directory.Exists(bin))
+            {
+                var candidate = Directory.GetFiles(bin, "officecli.dll", SearchOption.AllDirectories)
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault();
+                if (candidate != null) return candidate;
+            }
+            dir = dir.Parent;
+        }
+        throw new FileNotFoundException("officecli.dll was not built.");
     }
 
     private string CreateFakeRhwp()
@@ -149,7 +161,7 @@ exit 2
 #!/bin/sh
 cmd="$1"
 if [ "$cmd" = "--help" ] || [ "$cmd" = "-h" ]; then
-  echo "rhwp-field-bridge create-blank|read-text|render-svg|render-png|export-pdf|export-markdown|document-info|diagnostics|dump-controls|dump-pages|thumbnail|list-fields|get-field|set-field|replace-text|insert-text|get-cell-text|scan-cells|set-cell-text|convert-to-editable|native-op|save-as-hwp --format hwp|hwpx [--input <path>] [--op <native-op>] [--output <path>] [--out-dir <dir>] --json"
+  echo "rhwp-field-bridge create-blank|read-text|render-svg|render-png|export-pdf|export-markdown|document-info|diagnostics|dump-controls|dump-pages|thumbnail|list-fields|get-field|set-field|fill-fields|replace-text|insert-text|get-cell-text|scan-cells|set-cell-text|convert-to-editable|native-op|save-as-hwp --format hwp|hwpx [--input <path>] [--op <native-op>] [--output <path>] [--out-dir <dir>] --json"
   exit 0
 fi
 if [ "$cmd" = "create-blank" ]; then
@@ -408,6 +420,7 @@ fi
 if [ "$cmd" = "native-op" ]; then
   output=""
   op=""
+  query=""
   while [ "$#" -gt 0 ]; do
     if [ "$1" = "--output" ]; then
       shift
@@ -415,11 +428,18 @@ if [ "$cmd" = "native-op" ]; then
     elif [ "$1" = "--op" ]; then
       shift
       op="$1"
+    elif [ "$1" = "--query" ]; then
+      shift
+      query="$1"
     fi
     shift
   done
   if [ -n "$output" ]; then
     printf 'fake native op hwp' > "$output"
+  fi
+  if [ "$op" = "search-all-text" ]; then
+    printf '{"operation":"%s","result":{"matches":[{"query":"%s","text":"before before","paragraph":0,"offset":0}]},"output":"%s","engineVersion":"rhwp-api v0.test","format":"hwp","warnings":["experimental native-op"]}\n' "$op" "$query" "$output"
+    exit 0
   fi
   printf '{"operation":"%s","result":{"ok":true},"output":"%s","engineVersion":"rhwp-api v0.test","format":"hwp","warnings":["experimental native-op"]}\n' "$op" "$output"
   exit 0

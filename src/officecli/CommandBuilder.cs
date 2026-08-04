@@ -201,6 +201,7 @@ static partial class CommandBuilder
         rootCommand.Add(BuildSchemaCommand(jsonOption));
         rootCommand.Add(BuildNativeOpsCommand(jsonOption));
         rootCommand.Add(BuildCompareCommand(jsonOption));
+        rootCommand.Add(BuildConvertCommand(jsonOption));
 
         foreach (var stub in BuildIntegrationStubCommands())
             rootCommand.Add(stub);
@@ -1181,6 +1182,7 @@ static partial class CommandBuilder
                     OfficeCli.Handlers.PowerPointHandler ppt => ppt.Swap(item.Path, swapTo),
                     OfficeCli.Handlers.WordHandler word => word.Swap(item.Path, swapTo),
                     OfficeCli.Handlers.ExcelHandler excel => excel.Swap(item.Path, swapTo),
+                    OfficeCli.Handlers.HwpxHandler hwpx => hwpx.Swap(item.Path, swapTo),
                     _ => throw new InvalidOperationException("swap not supported for this document type")
                 };
                 return $"Swapped {p1} <-> {p2}";
@@ -1962,6 +1964,11 @@ static partial class CommandBuilder
     {
         if (!WatchServer.IsWatching(filePath)) return;
 
+        if (handler is OfficeCli.Handlers.HwpxHandler hwpx)
+        {
+            WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "full", FullHtml = hwpx.ViewAsHtml() });
+            return;
+        }
         if (handler is OfficeCli.Handlers.ExcelHandler excel)
         {
             string? scrollTo = null;
@@ -2001,6 +2008,11 @@ static partial class CommandBuilder
     {
         if (!WatchServer.IsWatching(filePath)) return;
 
+        if (handler is OfficeCli.Handlers.HwpxHandler hwpx)
+        {
+            WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "full", FullHtml = hwpx.ViewAsHtml() });
+            return;
+        }
         if (handler is OfficeCli.Handlers.ExcelHandler excel)
         {
             WatchNotifier.NotifyIfWatching(filePath, new WatchMessage { Action = "full", FullHtml = excel.ViewAsHtml() });

@@ -11,13 +11,15 @@ static partial class CommandBuilder
 {
     private static Command BuildWatchCommand(Option<bool> jsonOption)
     {
-        var watchFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.pptx, .xlsx, .docx)" };
+        var watchFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.pptx, .xlsx, .docx, .hwpx)" };
         var watchPortOpt = new Option<int>("--port") { Description = "HTTP port for preview server" };
         watchPortOpt.DefaultValueFactory = _ => 26315;
+        var externalOpt = new Option<bool>("--external") { Description = "Also detect external file edits via filesystem watcher" };
 
-        var watchCommand = new Command("watch", "Start a live preview server that refreshes when officecli modifies the document (external edits are not detected). Subcommands (mark/unmark/marks/goto) operate on the running preview.");
+        var watchCommand = new Command("watch", "Start a live preview server that refreshes on document changes. Use --external to also detect edits from other tools. Subcommands (mark/unmark/marks/goto) operate on the running preview.");
         watchCommand.Add(watchFileArg);
         watchCommand.Add(watchPortOpt);
+        watchCommand.Add(externalOpt);
 
         // Subcommands — operate against the running watch process via named-pipe IPC.
         // These were previously top-level (`mark`, `unmark`, `get-marks`, `goto`);
@@ -33,6 +35,7 @@ static partial class CommandBuilder
         {
             var file = result.GetValue(watchFileArg)!;
             var port = result.GetValue(watchPortOpt);
+            var external = result.GetValue(externalOpt);
 
             // Render initial HTML: ask the resident process if one is running,
             // otherwise open the file directly as a fallback.
@@ -67,6 +70,8 @@ static partial class CommandBuilder
                             initialHtml = RenderViaRegistry(handler, "xlsx", new OfficeCli.Core.Rendering.RenderOptions());
                         else if (handler is OfficeCli.Handlers.WordHandler)
                             initialHtml = RenderViaRegistry(handler, "docx", new OfficeCli.Core.Rendering.RenderOptions());
+                        else if (handler is OfficeCli.Handlers.HwpxHandler hwpx)
+                            initialHtml = hwpx.ViewAsHtml();
                     }
                     catch (Exception ex)
                     {
@@ -81,6 +86,57 @@ static partial class CommandBuilder
             using var cts = new CancellationTokenSource();
 
             using var watch = new WatchServer(file.FullName, port, initialHtml: initialHtml);
+            FileSystemWatcher? fsWatcher = null;
+            System.Threading.Timer? debounceTimer = null;
+            if (external && file.Exists)
+            {
+                debounceTimer = new System.Threading.Timer(_ =>
+                {
+                    try
+                    {
+                        string? html = null;
+                        var response = ResidentClient.TrySend(file.FullName,
+                            new ResidentRequest { Command = "view", Args = new() { ["mode"] = "html" }, Json = true },
+                            connectTimeoutMs: 2000);
+                        if (response is { ExitCode: 0 } && !string.IsNullOrEmpty(response.Stdout))
+                        {
+                            try
+                            {
+                                using var doc = System.Text.Json.JsonDocument.Parse(response.Stdout);
+                                if (doc.RootElement.TryGetProperty("message", out var message))
+                                    html = message.GetString();
+                            }
+                            catch { }
+                        }
+                        if (html == null)
+                        {
+                            using var handler = DocumentHandlerFactory.Open(file.FullName, editable: false);
+                            if (handler is OfficeCli.Handlers.PowerPointHandler)
+                                html = RenderViaRegistry(handler, "pptx", new OfficeCli.Core.Rendering.RenderOptions());
+                            else if (handler is OfficeCli.Handlers.ExcelHandler)
+                                html = RenderViaRegistry(handler, "xlsx", new OfficeCli.Core.Rendering.RenderOptions());
+                            else if (handler is OfficeCli.Handlers.WordHandler)
+                                html = RenderViaRegistry(handler, "docx", new OfficeCli.Core.Rendering.RenderOptions());
+                            else if (handler is OfficeCli.Handlers.HwpxHandler hwpx)
+                                html = hwpx.ViewAsHtml();
+                        }
+                        if (html != null)
+                            WatchNotifier.NotifyIfWatching(file.FullName, new WatchMessage { Action = "full", FullHtml = html });
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[external-watch] re-render failed: {ex.Message}");
+                    }
+                }, null, Timeout.Infinite, Timeout.Infinite);
+
+                fsWatcher = new FileSystemWatcher(file.Directory!.FullName, file.Name)
+                {
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true,
+                };
+                fsWatcher.Changed += (_, _) => debounceTimer.Change(500, Timeout.Infinite);
+                Console.Error.WriteLine($"[watch] external file monitoring enabled for {file.Name}");
+            }
             // Signal handling (SIGTERM / SIGINT / SIGHUP / SIGQUIT) is
             // now registered inside WatchServer.RunAsync via
             // PosixSignalRegistration, which runs BEFORE the .NET runtime
@@ -96,7 +152,15 @@ static partial class CommandBuilder
             // process for 15+ seconds; ProcessExit ran during runtime
             // teardown when ThreadPool was already unwinding, so the
             // socket cleanup silently skipped.
-            watch.RunAsync(cts.Token).GetAwaiter().GetResult();
+            try
+            {
+                watch.RunAsync(cts.Token).GetAwaiter().GetResult();
+            }
+            finally
+            {
+                fsWatcher?.Dispose();
+                debounceTimer?.Dispose();
+            }
             return 0;
         }));
 
@@ -105,7 +169,7 @@ static partial class CommandBuilder
 
     private static Command BuildUnwatchCommand()
     {
-        var unwatchFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.pptx, .xlsx, .docx)" };
+        var unwatchFileArg = new Argument<FileInfo>("file") { Description = "Office document path (.pptx, .xlsx, .docx, .hwpx)" };
         var unwatchCommand = new Command("unwatch", "Stop the watch preview server for the document");
         unwatchCommand.Add(unwatchFileArg);
 

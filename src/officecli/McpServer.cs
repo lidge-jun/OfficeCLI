@@ -511,7 +511,7 @@ public static class McpServer
     // *document model* exposes.
     private const string McpHelpStrategy = @"## Strategy
 Use view (outline/stats/issues/annotated) to understand the document first, then get/query to inspect details, then set/add/remove to modify.
-View modes: text, annotated, outline, stats, issues, html, svg (pptx only), screenshot, forms (docx only).
+View modes: text, annotated, outline, stats, issues, html, svg, screenshot, forms; HWPX also supports tables, markdown, objects, and styles.
 Before delivering, pass the delivery gate (see the tool description): validate clean, view issues clean, then a visual audit via view mode=screenshot when layout matters (slide decks most of all). Whether the visual audit is mandatory is format-specific — run `load_skill <pptx|word|excel>` for the authoritative per-format gate.
 For 3+ mutations on the same file, use batch (one open/save cycle) instead of separate calls.
 Get output keys can be used directly as Set input keys (round-trip safe).
@@ -520,9 +520,9 @@ Paths are 1-based: /slide[1]/shape[2], /body/p[3], /Sheet1/A1.
 
 ";
 
-    private const string ToolDescription = @"Create, read, and modify Office documents (.docx, .xlsx, .pptx) by running officecli command lines.
+    private const string ToolDescription = @"Create, read, and modify Office documents (.docx, .xlsx, .pptx, .hwpx, and experimental .hwp) by running officecli command lines.
 
-Pass an officecli command line in `command` (string or pre-split argv array); it runs through the same CLI you'd use in a terminal. Verbs: create, view (modes: text|annotated|outline|stats|issues|html|svg|screenshot|forms), get, query, set, add, remove, move, swap, validate, batch, raw, help, load_skill. Add --json to get/query/validate/view-issues for structured output. Examples (CLI syntax): create deck.pptx · add deck.pptx /slide[1] --type shape --prop ""text=Hi"" · set report.docx /body/p[1] --prop bold=true · view deck.pptx screenshot --page 2 · query book.xlsx ""cell[bold=true]"". Discover verbs/flags with `help`, and an element's schema with `help <format> <element>` (e.g. help pptx shape).
+Pass an officecli command line in `command` (string or pre-split argv array); it runs through the same CLI you'd use in a terminal. Verbs: create, view (modes: text|annotated|outline|stats|issues|html|svg|screenshot|forms|tables|markdown|objects|styles), get, query, set, add, remove, move, swap, validate, batch, raw, help, load_skill. Add --json to get/query/validate/view-issues for structured output. Examples (CLI syntax): create deck.pptx · add deck.pptx /slide[1] --type shape --prop ""text=Hi"" · set report.docx /body/p[1] --prop bold=true · view form.hwpx tables --json · view deck.pptx screenshot --page 2 · query book.xlsx ""cell[bold=true]"". Discover verbs/flags with `help`, and an element's schema with `help <format> <element>` (e.g. help pptx shape).
 
 Paths are 1-based: /slide[1]/shape[2], /body/p[3], /Sheet1/A1. Props are key=value strings.
 

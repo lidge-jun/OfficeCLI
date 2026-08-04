@@ -65,6 +65,9 @@ Supported HWP operations:
 - `table-map`
 - `set-table-cell`
 - `save-as-hwp`
+- `native-op` sub-operations added by the v0.7.16 pin:
+  `search-all-text`, `insert-new-number`, `get-page-overlay-images`,
+  `get-hf-picture-properties`, `set-hf-picture-properties`
 
 Supported HWPX rhwp operations:
 
@@ -75,6 +78,8 @@ Supported HWPX rhwp operations:
 - `fill-field`
 - `replace-text`
 - `save-as-hwp`
+- `native-op` with the same five sub-operations when the underlying HWPX
+  document shape supports them
 
 Blocked operations must return typed errors instead of silent fallback.
 

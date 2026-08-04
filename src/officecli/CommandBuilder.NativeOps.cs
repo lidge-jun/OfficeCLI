@@ -88,6 +88,7 @@ static partial class CommandBuilder
                 new("insert-column-break", "mutation"), new("set-column-def", "mutation"),
                 new("insert-text", "mutation", true), new("replace-text", "mutation", true),
                 new("read-text", "read", true),
+                new("search-all-text", "read"), new("insert-new-number", "mutation"),
             }),
             new NativeOpsCategory("Table Operations", new NativeOp[]
             {
@@ -128,6 +129,8 @@ static partial class CommandBuilder
                 new("delete-text-in-header-footer", "mutation"),
                 new("split-paragraph-in-header-footer", "mutation"),
                 new("merge-paragraph-in-header-footer", "mutation"),
+                new("get-hf-picture-properties", "read"),
+                new("set-hf-picture-properties", "mutation"),
             }),
             new NativeOpsCategory("Shape & Object Operations", new NativeOp[]
             {
@@ -137,6 +140,7 @@ static partial class CommandBuilder
                 new("set-shape-properties", "mutation"), new("delete-shape-control", "mutation"),
                 new("change-shape-z-order", "mutation"), new("move-line-endpoint", "mutation"),
                 new("group-shapes", "mutation"), new("ungroup-shape", "mutation"),
+                new("get-page-overlay-images", "read"),
             }),
             new NativeOpsCategory("Footnote & Equation Operations", new NativeOp[]
             {

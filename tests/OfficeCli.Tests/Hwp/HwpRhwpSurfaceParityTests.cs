@@ -33,6 +33,12 @@ public sealed class HwpRhwpSurfaceParityTests
             "api.get_header_footer_para_info_native",
             "api.create_shape_control_native",
             "api.render_equation_preview_native",
+            "bridge.fill-fields",
+            "api.search_all_text_native",
+            "api.insert_new_number_native",
+            "api.get_page_overlay_images_native",
+            "api.get_hf_picture_properties_native",
+            "api.set_hf_picture_properties_native",
             "api.delete_equation_control_native"
         ]);
     }
@@ -90,6 +96,7 @@ public sealed class HwpRhwpSurfaceParityTests
             "dump-pages",
             "export-pdf",
             "export-markdown",
+            "fill-fields",
             "get-cell-text",
             "get-field",
             "insert-text",

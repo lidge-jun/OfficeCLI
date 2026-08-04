@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "policy": "Every useful rhwp HWP primitive must be wired, capability-gated, blocked with evidence, or classified as internal/dev-only.",
   "sourceRevisions": {
-    "pinnedRhwp": "62a458aa317e962cd3d0eec6096728c172d57110",
-    "latestRhwpAudit": "a9dcdee32b17a7f9a20c609a5ed547e62fb8ebae"
+    "pinnedRhwp": "de02159ab4d2c5d165d6e25568bad3f8af5ef6cb",
+    "latestRhwpAudit": "5c2af5489348250c43e0c9cfc40e4e8e4abc0c87"
   },
   "cliCommandCounts": {
     "pinned": 18,
@@ -1758,6 +1758,78 @@
       "officecliStatus": "wired",
       "officecliSurface": "officecli view file.hwp native --op render-equation-preview --native-arg script='1 over 2' --native-arg font-size=1000 --native-arg color=0 --json",
       "capability": "native_read",
+      "test": "HwpBridgeNativeOpTests"
+    },
+    {
+      "id": "bridge.fill-fields",
+      "kind": "officecli-bridge",
+      "rhwp": "fill-fields",
+      "pinned": true,
+      "latest": true,
+      "class": "P1",
+      "officecliStatus": "wired",
+      "officecliSurface": "officecli set file.hwp /fields --prop values=name=value --prop output=out.hwp --json",
+      "capability": "fill_field",
+      "test": "HwpFillFieldsTests"
+    },
+    {
+      "id": "api.search_all_text_native",
+      "kind": "rhwp-api",
+      "rhwp": "search_all_text_native",
+      "pinned": true,
+      "latest": true,
+      "class": "P1",
+      "officecliStatus": "wired",
+      "officecliSurface": "officecli view file.hwp native --op search-all-text --native-arg text=query --json",
+      "capability": "native_read",
+      "test": "HwpBridgeNativeOpTests"
+    },
+    {
+      "id": "api.insert_new_number_native",
+      "kind": "rhwp-api",
+      "rhwp": "insert_new_number_native",
+      "pinned": true,
+      "latest": true,
+      "class": "P2",
+      "officecliStatus": "wired",
+      "officecliSurface": "officecli set file.hwp /native-op --prop op=insert-new-number --prop output=out.hwp --json",
+      "capability": "native_mutation",
+      "test": "HwpBridgeNativeOpTests"
+    },
+    {
+      "id": "api.get_page_overlay_images_native",
+      "kind": "rhwp-api",
+      "rhwp": "get_page_overlay_images_native",
+      "pinned": true,
+      "latest": true,
+      "class": "P2",
+      "officecliStatus": "wired",
+      "officecliSurface": "officecli view file.hwp native --op get-page-overlay-images --native-arg page-num=1 --json",
+      "capability": "native_read",
+      "test": "HwpBridgeNativeOpTests"
+    },
+    {
+      "id": "api.get_hf_picture_properties_native",
+      "kind": "rhwp-api",
+      "rhwp": "get_header_footer_picture_properties_native",
+      "pinned": true,
+      "latest": true,
+      "class": "P2",
+      "officecliStatus": "wired",
+      "officecliSurface": "officecli view file.hwp native --op get-hf-picture-properties --json",
+      "capability": "native_read",
+      "test": "HwpBridgeNativeOpTests"
+    },
+    {
+      "id": "api.set_hf_picture_properties_native",
+      "kind": "rhwp-api",
+      "rhwp": "set_header_footer_picture_properties_native",
+      "pinned": true,
+      "latest": true,
+      "class": "P2",
+      "officecliStatus": "wired",
+      "officecliSurface": "officecli set file.hwp /native-op --prop op=set-hf-picture-properties --prop output=out.hwp --json",
+      "capability": "native_mutation",
       "test": "HwpBridgeNativeOpTests"
     },
     {

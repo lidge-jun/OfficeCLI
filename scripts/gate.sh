@@ -102,7 +102,7 @@ gate_wp2() {
   # built with --features native-skia, so it is asserted separately below.
   local expected=(create-blank read-text render-svg export-pdf export-markdown
                   document-info diagnostics dump-controls dump-pages thumbnail
-                  list-fields get-field set-field replace-text insert-text
+                  list-fields get-field set-field fill-fields replace-text insert-text
                   get-cell-text scan-cells set-cell-text convert-to-editable
                   native-op save-as-hwp)
   local missing=0
@@ -189,6 +189,14 @@ gate_wp7() {
   run ledger python3 scripts/verify-ledger.py \
         --ledger "$OCX_PARENT/devlog/_plan/260803_officecli_upstream_report_rhwp/003_restore_ledger.csv" \
         --repo "$REPO" --upstream upstream/main --checks scripts/ledger-checks.json
+  local integration_ledger="$OCX_PARENT/devlog/_plan/260803_officecli_upstream_report_rhwp/009_fork_main_merge_paths.tsv"
+  assert "fork-main integration ledger exists" -f "$integration_ledger"
+  run integration-ledger python3 scripts/verify-integration-merge.py \
+        --ledger "$integration_ledger" \
+        --repo "$REPO" \
+        --base-feature dfdbcd89e018f139845e6c175aa9c27167ccca58 \
+        --head HEAD \
+        --checks scripts/integration-checks.json
 }
 
 case "$PHASE" in

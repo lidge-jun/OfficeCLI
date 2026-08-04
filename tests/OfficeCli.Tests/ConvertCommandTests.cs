@@ -44,6 +44,22 @@ public sealed class ConvertCommandTests : IDisposable
     }
 
     [Fact]
+    public void Convert_RejectsCaseVariantIdentityOnMacOS()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+        var source = Path.Combine(_tempDir, "case.docx");
+        File.WriteAllText(source, "source-sentinel");
+        var caseVariant = Path.Combine(_tempDir, "CASE.DOCX");
+
+        var (exitCode, stdout) = Invoke(
+            ["convert", source, "--to", "docx", "--output", caseVariant, "--force", "--json"]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal("source-sentinel", File.ReadAllText(source));
+        Assert.Contains("must be different", JsonNode.Parse(stdout)!["message"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void ConvertHelp_ExposesExplicitForceOption()
     {
         var (exitCode, stdout) = Invoke(["convert", "--help"]);

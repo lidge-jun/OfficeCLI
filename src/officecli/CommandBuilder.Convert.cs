@@ -43,7 +43,10 @@ static partial class CommandBuilder
             var outputName = output?.Name ?? Path.ChangeExtension(file.Name, $".{to}");
             var outputPath = Path.GetFullPath(Path.Combine(outputDir, outputName));
             var inputPath = Path.GetFullPath(file.FullName);
-            var pathComparison = OperatingSystem.IsWindows()
+            // Windows and the default macOS filesystem are case-insensitive.
+            // Being conservative on a case-sensitive macOS volume only rejects
+            // an ambiguous case-variant output; it cannot destroy user input.
+            var pathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
                 ? StringComparison.OrdinalIgnoreCase
                 : StringComparison.Ordinal;
 

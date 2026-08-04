@@ -213,6 +213,15 @@ mv -f "$INSTALL_DIR/$BINARY_NAME.new" "$INSTALL_DIR/$BINARY_NAME"
 # install without them works for OOXML and reports HWP as dependency-gated
 # rather than failing. Adapted to upstream's $ASSET naming and mirror-first
 # fallback rather than the fork's ASSET_BASE, which upstream does not define.
+SIDECAR_CHECKSUM_FILE="/tmp/officecli-sidecar-SHA256SUMS"
+SIDECAR_CHECKSUMS_AVAILABLE=false
+if [ -n "$VERSION" ] && fetch_with_fallback \
+        "$MIRROR_ASSET_BASE/SHA256SUMS" \
+        "$GITHUB_ASSET_BASE/SHA256SUMS" \
+        "$SIDECAR_CHECKSUM_FILE"; then
+    SIDECAR_CHECKSUMS_AVAILABLE=true
+fi
+
 install_sidecar() {
     sidecar="$1"
     sidecar_asset="${ASSET}-${sidecar}"
@@ -220,12 +229,30 @@ install_sidecar() {
     tmp_path="/tmp/${sidecar_asset}"
     target_path="$INSTALL_DIR/$sidecar"
 
-    if fetch_with_fallback \
+    if [ -n "$VERSION" ] && [ "$SIDECAR_CHECKSUMS_AVAILABLE" = true ] && fetch_with_fallback \
             "$MIRROR_ASSET_BASE/$sidecar_asset" \
             "$GITHUB_ASSET_BASE/$sidecar_asset" \
             "$tmp_path" 2>/dev/null; then
-        sidecar_source="$tmp_path"
-    else
+        expected=$(awk -v a="$sidecar_asset" '$2 == a { print $1; exit }' "$SIDECAR_CHECKSUM_FILE")
+        if command -v sha256sum >/dev/null 2>&1; then
+            actual=$(sha256sum "$tmp_path" | awk '{print $1}')
+        else
+            actual=$(shasum -a 256 "$tmp_path" | awk '{print $1}')
+        fi
+        if [ -n "$expected" ] && [ "$expected" = "$actual" ]; then
+            sidecar_source="$tmp_path"
+            echo "Sidecar checksum verified."
+        else
+            echo "Missing or mismatched checksum for $sidecar_asset; refusing remote executable."
+            rm -f "$tmp_path"
+        fi
+    elif [ -z "$VERSION" ]; then
+        echo "Latest release tag unresolved; refusing mutable remote sidecar URL."
+    elif [ "$SIDECAR_CHECKSUMS_AVAILABLE" != true ]; then
+        echo "Checksum manifest unavailable; refusing remote sidecar executable."
+    fi
+
+    if [ -z "$sidecar_source" ]; then
         for candidate in "./$sidecar_asset" "./bin/$sidecar_asset" \
                          "./bin/release/$sidecar_asset" "./$sidecar" \
                          "./bin/$sidecar" "./bin/release/$sidecar"; do
@@ -255,6 +282,7 @@ install_sidecar() {
 
 install_sidecar "rhwp-field-bridge"
 install_sidecar "rhwp-officecli-bridge"
+rm -f "$SIDECAR_CHECKSUM_FILE"
 
 # Auto-add to PATH if needed
 case ":$PATH:" in

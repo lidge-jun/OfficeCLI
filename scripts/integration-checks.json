@@ -1,7 +1,8 @@
 {
   "docs/hwp-source-inventory.md": "v0\\.7\\.16|de02159",
   "docs/providers/rhwp-sidecar-contract.md": "search-all-text|get-page-overlay-images|get-hf-picture-properties",
-  "install.ps1": "rhwp-field-bridge|rhwp-officecli-bridge",
+  "install.ps1": "sidecarChecksumsAvailable|Get-FileHash.*sidecarTemp",
+  "install.sh": "SIDECAR_CHECKSUMS_AVAILABLE|Missing or mismatched checksum",
   "officecli.slnx": "rhwp-officecli-bridge\\.csproj",
   "scripts/gate.sh": "verify-integration-merge\\.py|fill-fields",
   "scripts/ledger-checks.json": "hook\\.installps1\\.rhwp_sidecars|hook\\.resident\\.hwpx_full_surface",

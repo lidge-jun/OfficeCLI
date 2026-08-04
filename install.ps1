@@ -156,6 +156,15 @@ if ($existing) {
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Copy-Item -Force $source "$installDir\$binary"
 
+$sidecarChecksumFile = "$env:TEMP\officecli-sidecar-SHA256SUMS"
+$sidecarChecksumsAvailable = $false
+if ($version) {
+    $sidecarChecksumsAvailable = Fetch-WithFallback `
+        "$mirrorAssetBase/SHA256SUMS" `
+        "$githubAssetBase/SHA256SUMS" `
+        $sidecarChecksumFile
+}
+
 foreach ($sidecar in @("rhwp-field-bridge", "rhwp-officecli-bridge")) {
     $sidecarAsset = "$assetBase-$sidecar.exe"
     $sidecarTemp = "$env:TEMP\$sidecarAsset"
@@ -163,10 +172,35 @@ foreach ($sidecar in @("rhwp-field-bridge", "rhwp-officecli-bridge")) {
     $sidecarSource = $null
 
     Write-Host "Checking optional HWP sidecar $sidecarAsset..."
-    try {
-        Invoke-WebRequest -Uri "https://github.com/$repo/releases/latest/download/$sidecarAsset" -OutFile $sidecarTemp
-        $sidecarSource = $sidecarTemp
-    } catch {
+    if ($version -and $sidecarChecksumsAvailable -and
+        (Fetch-WithFallback "$mirrorAssetBase/$sidecarAsset" "$githubAssetBase/$sidecarAsset" $sidecarTemp)) {
+        $expected = $null
+        foreach ($line in Get-Content $sidecarChecksumFile) {
+            $parts = ($line.Trim() -split '\s+')
+            if ($parts.Length -ge 2 -and $parts[1] -eq $sidecarAsset) {
+                $expected = $parts[0].ToLower()
+                break
+            }
+        }
+        if ($expected) {
+            $actual = (Get-FileHash -Path $sidecarTemp -Algorithm SHA256).Hash.ToLower()
+            if ($expected -eq $actual) {
+                $sidecarSource = $sidecarTemp
+                Write-Host "Sidecar checksum verified."
+            } else {
+                Write-Host "Sidecar checksum mismatch for $sidecarAsset; refusing remote executable."
+            }
+        } else {
+            Write-Host "No exact checksum entry for $sidecarAsset; refusing remote executable."
+        }
+    } elseif (-not $version) {
+        Write-Host "Latest release tag unresolved; refusing mutable remote sidecar URL."
+    } elseif (-not $sidecarChecksumsAvailable) {
+        Write-Host "Checksum manifest unavailable; refusing remote sidecar executable."
+    }
+
+    if (-not $sidecarSource) {
+        Remove-Item -Force $sidecarTemp -ErrorAction SilentlyContinue
         $candidates = @(".\$sidecarAsset", ".\bin\$sidecarAsset", ".\bin\release\$sidecarAsset", ".\$sidecar.exe", ".\bin\$sidecar.exe", ".\bin\release\$sidecar.exe")
         foreach ($candidate in $candidates) {
             if (Test-Path $candidate) {
@@ -184,6 +218,7 @@ foreach ($sidecar in @("rhwp-field-bridge", "rhwp-officecli-bridge")) {
     }
     Remove-Item -Force $sidecarTemp -ErrorAction SilentlyContinue
 }
+Remove-Item -Force $sidecarChecksumFile -ErrorAction SilentlyContinue
 
 Remove-Item -Force $tempFile -ErrorAction SilentlyContinue
 

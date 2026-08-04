@@ -15,11 +15,13 @@ static partial class CommandBuilder
         var fileArg = new Argument<FileInfo>("file") { Description = "Source document (.docx, .xlsx, .pptx, .hwpx)" };
         var toOpt = new Option<string>("--to") { Description = "Target format (pdf, docx, xlsx, pptx, html, txt)", Required = true };
         var outputOpt = new Option<FileInfo?>("--output") { Description = "Output file path (default: same name with new extension)" };
+        var forceOpt = new Option<bool>("--force") { Description = "Replace an existing output file" };
 
         var cmd = new Command("convert", "Convert document to another format using LibreOffice");
         cmd.Add(fileArg);
         cmd.Add(toOpt);
         cmd.Add(outputOpt);
+        cmd.Add(forceOpt);
         cmd.Add(jsonOption);
 
         cmd.SetAction(result => SafeRun(() =>
@@ -27,12 +29,36 @@ static partial class CommandBuilder
             var file = result.GetValue(fileArg)!;
             var to = result.GetValue(toOpt)!.ToLowerInvariant().TrimStart('.');
             var output = result.GetValue(outputOpt);
+            var force = result.GetValue(forceOpt);
             var json = result.GetValue(jsonOption);
 
             if (!file.Exists)
             {
                 if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeError($"File not found: {file.FullName}"));
                 else Console.Error.WriteLine($"Error: file not found: {file.FullName}");
+                return 1;
+            }
+
+            var outputDir = output?.Directory?.FullName ?? file.Directory!.FullName;
+            var outputName = output?.Name ?? Path.ChangeExtension(file.Name, $".{to}");
+            var outputPath = Path.GetFullPath(Path.Combine(outputDir, outputName));
+            var inputPath = Path.GetFullPath(file.FullName);
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+            if (string.Equals(inputPath, outputPath, pathComparison))
+            {
+                const string msg = "Input and output paths must be different; in-place conversion is not supported.";
+                if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeError(msg));
+                else Console.Error.WriteLine($"Error: {msg}");
+                return 1;
+            }
+            if (File.Exists(outputPath) && !force)
+            {
+                var msg = $"Output already exists: {outputPath}. Pass --force to replace it.";
+                if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeError(msg));
+                else Console.Error.WriteLine($"Error: {msg}");
                 return 1;
             }
 
@@ -44,10 +70,6 @@ static partial class CommandBuilder
                 else Console.Error.WriteLine($"Error: {msg}");
                 return 1;
             }
-
-            var outputDir = output?.Directory?.FullName ?? file.Directory!.FullName;
-            var outputName = output?.Name ?? Path.ChangeExtension(file.Name, $".{to}");
-            var outputPath = Path.Combine(outputDir, outputName);
 
             // LibreOffice writes to --outdir with auto-generated name, then we rename.
             var tempDir = Path.Combine(Path.GetTempPath(), $"officecli-convert-{Guid.NewGuid():N}");
@@ -93,7 +115,17 @@ static partial class CommandBuilder
                 }
 
                 // Move to final destination
-                if (File.Exists(outputPath)) File.Delete(outputPath);
+                if (File.Exists(outputPath))
+                {
+                    if (!force)
+                    {
+                        var msg = $"Output appeared during conversion and was not replaced: {outputPath}. Pass --force to replace it.";
+                        if (json) Console.WriteLine(OutputFormatter.WrapEnvelopeError(msg));
+                        else Console.Error.WriteLine($"Error: {msg}");
+                        return 1;
+                    }
+                    File.Delete(outputPath);
+                }
                 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
                 File.Move(converted, outputPath);
 

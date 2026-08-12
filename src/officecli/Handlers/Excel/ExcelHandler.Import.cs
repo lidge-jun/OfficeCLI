@@ -81,6 +81,7 @@ public partial class ExcelHandler
         foreach (var er in existingRows)
             rowByIndex[er.RowIndex!.Value] = er;
         int exCursor = 0; // points at the first existing row with index > last processed
+        int affectedCells = 0;
         var importedFormulaCells = new List<Cell>();
         // Lazily created the first time an ISO date is imported, so a detected
         // date cell gets a date number format (matching Set/Add) instead of
@@ -146,6 +147,7 @@ public partial class ExcelHandler
                     cell.CellValue = null;
                     cell.DataType = null;
                 }
+                affectedCells++;
                 if (SetCellValueWithTypeDetection(cell, fields[c], IsWorkbookDate1904()))
                 {
                     // Date cell — apply a date number format so it shows as a
@@ -158,6 +160,10 @@ public partial class ExcelHandler
                     importedFormulaCells.Add(cell);
             }
         }
+
+        if (affectedCells == 0)
+            throw new ArgumentException(
+                "Import produced no cells. The source contains only empty fields or does not overlap any existing cells.");
 
         // CONSISTENCY(cell-formula-cache): `set formula=` evaluates and caches
         // the result (t= type + <v>), but the import path used to write a bare
@@ -238,7 +244,7 @@ public partial class ExcelHandler
         }
 
         SaveWorksheet(worksheet);
-        return $"Imported {rows.Count} rows x {maxCols} cols into /{sheetName} starting at {startCell.ToUpperInvariant()}";
+        return $"Imported {rows.Count} rows x {maxCols} cols ({affectedCells} cells affected) into /{sheetName} starting at {startCell.ToUpperInvariant()}";
     }
 
     /// <summary>

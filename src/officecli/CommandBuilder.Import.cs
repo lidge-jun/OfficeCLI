@@ -253,7 +253,7 @@ static partial class CommandBuilder
                 ? false
                 : TryStartResidentProcess(fullCreatedPath, idleSeconds: 60, out residentErr);
             var residentSuffix = residentStarted
-                ? " (kept open in background for faster subsequent commands)"
+                ? FormatCreatedResidentSuffix(json ? fullCreatedPath : file)
                 : "";
 
             if (json)
@@ -298,6 +298,11 @@ static partial class CommandBuilder
 
         return createCommand;
     }
+
+    internal static string FormatCreatedResidentSuffix(string filePath)
+        => $" (kept open by a background resident and may remain locked; "
+           + $"run 'officecli close \"{filePath}\"' before moving, renaming, deleting, "
+           + "or opening it in another program)";
 
     private static Command BuildMergeCommand(Option<bool> jsonOption)
     {

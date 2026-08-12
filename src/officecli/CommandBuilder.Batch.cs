@@ -23,7 +23,8 @@ static partial class CommandBuilder
         + "\"path\" (set/remove/get target), \"selector\" (query filter; \"path\" is accepted as an alias), \"type\" (element type for add), "
         + "\"props\" (a key->value map of --prop values), \"to\"/\"after\"/\"before\" (move), "
         + "\"path2\" (swap's second path).\n\n"
-        + "Pass the array via --commands, or as the same JSON on stdin / --input <file>. Example:\n"
+        + "Prefer --input <file> (or stdin) for portable scripts. --commands accepts the same "
+        + "JSON inline, but shell quoting can alter it; in PowerShell, use --input to avoid lost quotes. Example:\n"
         + "[\n"
         + "  {\"command\":\"add\",\"parent\":\"/slide[1]\",\"type\":\"shape\",\"props\":{\"text\":\"Hi\",\"x\":\"1cm\",\"y\":\"2cm\"}},\n"
         + "  {\"command\":\"set\",\"path\":\"/slide[1]/shape[1]\",\"props\":{\"bold\":\"true\"}},\n"
@@ -131,7 +132,7 @@ static partial class CommandBuilder
     {
         var batchFileArg = new Argument<FileInfo>("file") { Description = "Office document path" };
         var batchInputOpt = new Option<FileInfo?>("--input") { Description = "JSON file containing batch commands. If omitted, reads from stdin" };
-        var batchCommandsOpt = new Option<string?>("--commands") { Description = "Inline JSON array of batch commands (alternative to --input or stdin)" };
+        var batchCommandsOpt = new Option<string?>("--commands") { Description = "Inline JSON array (shell quoting may alter it; prefer --input or stdin, especially in PowerShell)" };
         // BUG-R4-BT2: default flipped to continue-on-error. A 700-command
         // dump replay losing 80% of the document on the first failing item
         // (e.g. one unsupported prop) is a far worse default than reporting
@@ -259,8 +260,29 @@ static partial class CommandBuilder
                 jsonText = StripBom(StdIn.ReadToEnd());
             }
 
-            // Pre-validate: check for unknown JSON fields before deserializing
-            var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonText);
+            // Pre-validate: check for unknown JSON fields before deserializing.
+            // PowerShell can remove the quotes inside an inline JSON argument
+            // before this process sees argv. The raw JsonException accurately
+            // describes the mangled payload but sends users back to rewrite
+            // JSON that was valid in their source. Detect the characteristic
+            // unquoted-property shape only for --commands and point at the
+            // transport-safe input surfaces.
+            System.Text.Json.JsonDocument jsonDoc;
+            try
+            {
+                jsonDoc = System.Text.Json.JsonDocument.Parse(jsonText);
+            }
+            catch (System.Text.Json.JsonException ex)
+                when (inlineCommands != null && LooksLikeShellStrippedJsonQuotes(jsonText))
+            {
+                throw new CliException(
+                    "batch: --commands JSON appears to have lost its quotes before reaching OfficeCLI "
+                    + "(common in PowerShell). Use --input <file> or pipe UTF-8 JSON on stdin instead.", ex)
+                {
+                    Code = "invalid_json",
+                    Suggestion = "Write the JSON array to a UTF-8 file and run: officecli batch <document> --input <file>"
+                };
+            }
             // CONSISTENCY(dump-batch-pipeline): `dump --json` wraps the
             // BatchItem array in an envelope object (`{"success":true,
             // "data":[…]}` via OutputFormatter.WrapEnvelope). The natural
@@ -650,6 +672,12 @@ static partial class CommandBuilder
 
         return batchCommand;
     }
+
+    private static bool LooksLikeShellStrippedJsonQuotes(string jsonText)
+        => System.Text.RegularExpressions.Regex.IsMatch(
+            jsonText,
+            @"(?:\[\s*|\{\s*|,\s*)[A-Za-z_][A-Za-z0-9_-]*\s*:",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     // UTF-8 BOM trim. File.ReadAllText handles this implicitly via
     // StreamReader's detect-encoding; the stdin reader feeds raw chars.

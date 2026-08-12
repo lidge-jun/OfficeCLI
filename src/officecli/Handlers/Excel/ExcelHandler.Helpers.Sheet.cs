@@ -197,6 +197,11 @@ public partial class ExcelHandler
     /// </summary>
     private void SaveWorksheet(WorksheetPart part)
     {
+        // A dirty worksheet is necessarily a mutation. Keep this invariant at
+        // the persistence boundary so callers such as Import cannot mark a
+        // part dirty while leaving Modified=false; Dispose treats an
+        // unmodified handler as read-only and intentionally discards its DOM.
+        Modified = true;
         _dirtyWorksheets.Add(part);
     }
 
